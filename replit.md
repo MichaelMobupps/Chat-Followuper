@@ -1,8 +1,15 @@
-# Workspace
+# Chat Followuper
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Chat Followuper is a sales-followup tool. Phase 1 scaffolds the repo: a typed
+API server, a Vite/React dashboard with the core navigation, a Postgres-backed
+shared lib, and a one-way mirror that exports the api-server source tree to
+`source-code/` so it can be consumed by an external repo.
+
+This workspace is a pnpm monorepo (TypeScript). Each package manages its own
+dependencies. There is no business logic yet — only the scaffolding required by
+Ticket 1.1.
 
 ## Stack
 
@@ -11,17 +18,75 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
+- **Frontend**: React 18 + Vite + Tailwind v4 + shadcn/ui + wouter
+- **Database**: PostgreSQL + Drizzle ORM (schema lives in `lib/db/`)
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **API codegen**: Orval (from OpenAPI spec at `lib/api-spec/openapi.yaml`)
+- **Build**: esbuild (api-server), Vite (dashboard)
+
+## Artifacts
+
+- `artifacts/api-server` — Express server mounted at `/api`. Health endpoints
+  at `/api/health` and `/api/healthz`.
+- `artifacts/dashboard` — Vite/React dashboard mounted at `/`. Sidebar nav:
+  Today, Seeder, Prospects, Followups, Activity, Accounts. Each route is a
+  placeholder page (no business logic yet).
+- `artifacts/mockup-sandbox` — design canvas (template, not used for the app).
+
+## Phase 1 — Ticket 1.1 status
+
+Scaffold-only. No channel adapters, no LLM code, no auth code. The plan ships
+those in later tickets.
+
+What is in place:
+
+- Express app with `/api/health` and `/api/healthz` returning `{"status":"ok"}`
+  (validated by the `HealthCheckResponse` Zod schema).
+- Dashboard with the six nav items and route placeholders.
+- `lib/db` Drizzle setup with empty schema barrel.
+- `lib/api-spec` OpenAPI spec + generated Zod and React Query hooks.
+- `.env.example` listing every secret the later phases will need.
+- `scripts/sync-source-code.sh` and `scripts/watch-source-code.mjs` to mirror
+  `artifacts/api-server/src/` into `source-code/src/`. `source-code/` is a
+  read-only export target — never edit there directly.
+
+## Deviations from the original Ticket 1.1 spec
+
+The plan was written against a plain-Node, single-package layout. This
+workspace is a pnpm monorepo, so a few paths shift:
+
+- Dashboard lives in `artifacts/dashboard/`, not a top-level `dashboard/`.
+- API server lives in `artifacts/api-server/`, not a top-level `server/`.
+- DB lib lives in `lib/db/`, not a top-level `db/`.
+- Use `pnpm` (not `npm`). The root `preinstall` hook blocks `npm install`.
+- Workflows (not `npm run dev`) start the services. Both health URLs are
+  exposed via the shared proxy on `localhost:80`.
+- `.replit` is system-managed; routing for each artifact is configured via the
+  artifact's `artifact.toml` (handled by the artifact tooling, not by hand).
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and
+  Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+- `bash scripts/sync-source-code.sh` — one-shot mirror of api-server src into
+  `source-code/src`
+- `node scripts/watch-source-code.mjs` — watch mode for the same mirror
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Workflows (services)
+
+- `artifacts/api-server: API Server` → Express, mounted at `/api`
+- `artifacts/dashboard: web` → Vite dev server, mounted at `/`
+- `artifacts/mockup-sandbox: Component Preview Server` → mockup canvas
+
+## Environment / Secrets
+
+See `.env.example`. `SESSION_SECRET` is provisioned. The remaining keys
+(`ANTHROPIC_API_KEY`, `APOLLO_API_KEY`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`,
+`GOOGLE_OAUTH_*`, `DATABASE_URL`, `PUBLIC_BASE_URL`) are documented for later
+phases and are not required by Ticket 1.1.
+
+See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and
+package details.
