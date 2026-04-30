@@ -1,3 +1,10 @@
+Approved with one addition. Before running migrate, edit the migration
+file lib/db/drizzle/0001_living_mantis.sql to backfill any existing
+NULL values to the defaults BEFORE the SET NOT NULL statements.
+
+The new migration file should look exactly like this (replacing the
+existing contents):
+
 ALTER TABLE "users" ALTER COLUMN "stage_timing" SET DEFAULT '[{"minDays":3,"maxDays":7},{"minDays":10,"maxDays":14},{"minDays":21,"maxDays":28}]'::jsonb;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "send_days" SET DEFAULT '[1,2,3,4,5]'::jsonb;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "send_hour_start" SET DEFAULT 8;--> statement-breakpoint
@@ -14,3 +21,33 @@ ALTER TABLE "users" ALTER COLUMN "send_hour_start" SET NOT NULL;--> statement-br
 ALTER TABLE "users" ALTER COLUMN "send_hour_end" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "send_hour_end" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "max_followups" SET NOT NULL;
+
+Order matters:
+1. SET DEFAULT first (so the column has a default in case NEW rows arrive
+   mid-migration somehow)
+2. UPDATE existing NULLs to those same defaults
+3. SET NOT NULL last (now safe because no NULLs remain)
+
+Show me the new file contents after editing, then proceed:
+
+TASK 2 — Apply migration:
+  pnpm --filter @workspace/db run migrate
+
+Confirm it applied without errors. If it fails, paste the error and stop.
+
+TASK 3 — Typecheck the workspace:
+  pnpm run typecheck
+
+Report any errors. ANTHROPIC_API_KEY runtime check at module load is
+expected; the typecheck itself should pass.
+
+TASK 4 — Sync to source-code:
+  bash scripts/sync-source-code.sh
+
+Confirm sync succeeded.
+
+Final report:
+- Updated migration file contents
+- pnpm migrate output
+- pnpm typecheck output
+- Sync confirmation
