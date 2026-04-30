@@ -1,0 +1,338 @@
+DEPLOY GROUP B.5 — Doctrine matrix + research stage for Chat Followuper.
+
+This is a single multi-step task. Execute steps in order. STOP and report immediately if any step fails — do not proceed to the next step on failure.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 1 — Pre-flight inspection (read-only)
+═══════════════════════════════════════════════════════════════════════
+
+Run and report:
+  pnpm run typecheck
+
+If typecheck does NOT exit 0, STOP and report the errors. Do not proceed.
+
+Run and report (read-only inventory):
+  ls artifacts/api-server/src/lib/
+  ls artifacts/api-server/src/services/
+  ls artifacts/api-server/src/routes/ 2>/dev/null || echo "no routes dir yet"
+  cat lib/db/src/schema/prospects.ts
+
+Confirm the prospects schema currently has columns: vertical (text), sub_vertical (text), context_notes (text). If any are missing, STOP and report.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 2 — Schema migration (add researchBrief jsonb column)
+═══════════════════════════════════════════════════════════════════════
+
+Replace the contents of lib/db/src/schema/prospects.ts with this exact code:
+
+```ts
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  boolean,
+  timestamp,
+  uniqueIndex,
+  jsonb,
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+import { usersTable } from "./users";
+
+export const prospectsTable = pgTable(
+  "prospects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    prospectName: text("prospect_name"),
+    company: text("company"),
+    title: text("title"),
+    vertical: text("vertical"),
+    subVertical: text("sub_vertical"),
+    product: text("product"),
+    country: text("country"),
+    language: text("language"),
+    phone: text("phone").notNull(),
+    telegramHandle: text("telegram_handle"),
+    teamsEmail: text("teams_email"),
+    slackUserId: text("slack_user_id"),
+    linkedinUrl: text("linkedin_url"),
+    apolloPersonId: text("apollo_person_id"),
+    sourceMode: text("source_mode").notNull(),
+    contextNotes: text("context_notes"),
+    researchBrief: jsonb("research_brief"),
+    firstMessageBody: text("first_message_body"),
+    firstMessageChannel: text("first_message_channel"),
+    firstMessageSentAt: timestamp("first_message_sent_at", {
+      withTimezone: true,
+    }),
+    replied: integer("replied").notNull().default(0),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    followupPaused: boolean("followup_paused").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("prospects_user_phone_unique").on(table.userId, table.phone),
+  ],
+);
+
+export const insertProspectSchema = createInsertSchema(prospectsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertProspect = z.infer<typeof insertProspectSchema>;
+export type Prospect = typeof prospectsTable.$inferSelect;
+```
+
+Then run, in order:
+  pnpm --filter @workspace/db drizzle-kit generate
+  pnpm --filter @workspace/db drizzle-kit migrate
+
+Report the migration filename created and confirm migration applied successfully. If either command fails, STOP.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 3 — Drop in new doctrine + service files from the unzipped folder
+═══════════════════════════════════════════════════════════════════════
+
+The user has unzipped ticket-1-4-group-b5.zip at the repo root, creating a group-b5/ directory.
+
+Copy these files preserving relative paths:
+
+  cp -r group-b5/artifacts/api-server/src/lib/doctrine artifacts/api-server/src/lib/
+  cp group-b5/artifacts/api-server/src/services/progressEvents.ts artifacts/api-server/src/services/
+  cp group-b5/artifacts/api-server/src/services/prospectResearch.ts artifacts/api-server/src/services/
+  mkdir -p artifacts/api-server/src/routes
+  cp group-b5/artifacts/api-server/src/routes/researchStream.ts artifacts/api-server/src/routes/
+
+Verify the file tree:
+  find artifacts/api-server/src/lib/doctrine -type f | sort
+  ls artifacts/api-server/src/services/
+  ls artifacts/api-server/src/routes/
+
+Expected: 16 doctrine files (taxonomy.ts, eventCatalog/types.ts + 3 platform files + index, firewall/3 platform files + index, proofPoints/3 platform files + index, researchPrompts/3 platform files + index, volumeBenchmarks/index.ts), progressEvents.ts and prospectResearch.ts in services, researchStream.ts in routes.
+
+Then run:
+  pnpm run typecheck
+
+Must exit 0. If errors, report and STOP.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 4 — Wire the research stream route into the Express app
+═══════════════════════════════════════════════════════════════════════
+
+First, locate the Express app file. Run:
+  grep -rln "express()" artifacts/api-server/src/ | head -3
+
+Open the file that contains the Express app initialization (likely artifacts/api-server/src/server.ts or index.ts).
+
+Add this import line near the top of the file, in the section with other route imports:
+
+  import { researchStreamRoute } from "./routes/researchStream";
+
+Then find the section where routes are registered (look for app.get / app.post / app.use lines). After the session middleware is applied (look for app.use(session...) or similar cookie/session setup), add this line:
+
+  app.get("/api/prospects/research/stream", researchStreamRoute);
+
+CRITICAL: this line MUST come AFTER any session middleware so req.session is populated when the route handler runs.
+
+Then run:
+  pnpm run typecheck
+
+Must exit 0.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 5 — Apply Patch A to messagePrompts.ts
+═══════════════════════════════════════════════════════════════════════
+
+Open artifacts/api-server/src/services/messagePrompts.ts.
+
+5.1 — Add these import lines at the top of the file, after the existing imports:
+
+  import { buildVocabularyBlock } from "../lib/doctrine/eventCatalog";
+  import { isValidSubVertical } from "../lib/doctrine/taxonomy";
+  import type { ProspectBrief } from "./prospectResearch";
+
+5.2 — Find the MessageContext interface. Add this optional field at the end of the interface body (just before the closing brace):
+
+  research_brief?: ProspectBrief;
+
+5.3 — Add this helper function in the file. Place it AFTER the existing GREETING_TABLE constant section but BEFORE the first "export function" that builds a system prompt:
+
+```ts
+function buildResearchBriefBlock(brief: ProspectBrief | undefined, language: string): string {
+  if (!brief) return "";
+
+  const isNonEnglish = (language || "").toLowerCase() !== "en";
+  const peers = brief.finalCompetitors.join(", ");
+  const proofs = brief.tangibleReasons.map((r, i) => `  ${i + 1}. ${r}`).join("\n");
+
+  let block = `PROSPECT RESEARCH BRIEF (the writer must ground every claim in this brief; do NOT introduce facts, peer brands, volumes, or events not listed here):
+
+- Determined market: ${brief.determinedCountry}
+- Determined scale tier: ${brief.determinedScaleTier} (${brief.scaleRationale})
+- Calibrated daily volume MobUpps can deliver: ${brief.calibratedDailyVolume} per day
+- Primary conversion event: ${brief.primaryEvent}
+- Alternative events that may be referenced: ${brief.alternativeEvents.join(", ")}
+- Peer brands in the same market (use ONE if natural — these are the ONLY peers you may name): ${peers}
+- Subsidiary check: ${brief.subsidiaryCheckNote}
+- Market context: ${brief.marketContext}
+- Prospect-specific hook: ${brief.prospectSpecificHook}
+- Likely growth challenge for this prospect: ${brief.prospectPrimaryGrowthProblem}
+
+- WHY argument seed: ${brief.whyArgument}
+- VALIDATION argument seed: ${brief.validationArgument}
+- HOW argument seed: ${brief.howArgument}
+
+- Available proof points (pick 1-2 to weave in naturally; do NOT list more than 2):
+${proofs}`;
+
+  if (isNonEnglish && (brief.whyArgumentNative || brief.validationArgumentNative || brief.howArgumentNative)) {
+    block += `\n\nNATIVE-LANGUAGE ARGUMENT VARIANTS (use these as the basis for composing the message; they were already drafted in ${language}):`;
+    if (brief.whyArgumentNative) block += `\n- WHY (${language}): ${brief.whyArgumentNative}`;
+    if (brief.validationArgumentNative) block += `\n- VALIDATION (${language}): ${brief.validationArgumentNative}`;
+    if (brief.howArgumentNative) block += `\n- HOW (${language}): ${brief.howArgumentNative}`;
+  }
+
+  return block;
+}
+```
+
+5.4 — Find getProspectorSystemPrompt(ctx). At the top of its body (after any existing const declarations like channelRules), add:
+
+```ts
+  const vocabularyBlock = ctx.sub_vertical && isValidSubVertical(ctx.sub_vertical)
+    ? buildVocabularyBlock(ctx.sub_vertical)
+    : "";
+  const researchBlock = buildResearchBriefBlock(ctx.research_brief, ctx.language);
+```
+
+In the returned template string for getProspectorSystemPrompt, find the line that interpolates `${channelRules}`. Immediately after that line, insert this on a new line:
+
+  ${vocabularyBlock ? `\n${vocabularyBlock}\n` : ""}${researchBlock ? `\n${researchBlock}\n` : ""}
+
+5.5 — Repeat 5.4 exactly the same way for getFollowuperSystemPrompt(ctx).
+
+Then run:
+  pnpm run typecheck
+
+Must exit 0.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 6 — Apply Patch B to messageGenerator.ts
+═══════════════════════════════════════════════════════════════════════
+
+Open artifacts/api-server/src/services/messageGenerator.ts.
+
+6.1 — Add these imports at the top of the file, after the existing imports:
+
+  import { applyFirewall } from "../lib/doctrine/firewall";
+  import type { ProspectBrief } from "./prospectResearch";
+
+6.2 — Find the line:
+  const DRAFT_MODEL = "claude-sonnet-4-6";
+
+Change it to:
+  const DRAFT_MODEL = "claude-opus-4-7";
+
+6.3 — Find the GenerateChatMessageOptions interface. Add this optional field at the end of the interface body (before the closing brace):
+
+  researchBrief?: ProspectBrief;
+
+6.4 — Find the generateChatMessage function. Locate where it builds the MessageContext object (it should be a `let ctx: MessageContext = { ... }` or similar). Add this field at the end of that object literal:
+
+  research_brief: opts.researchBrief,
+
+6.5 — Find the finalizeMessage function. It currently takes one argument and returns a cleaned message. Replace the entire function body with:
+
+```ts
+function finalizeMessage(
+  msg: { subject: string; message: string },
+  subVertical: string | null,
+): { subject: string; message: string } {
+  let message = stripBracketedNotes(msg.message);
+  message = applyDeterministicFixes(message);
+
+  if (subVertical) {
+    try {
+      const { cleaned, replacements } = applyFirewall(message, subVertical);
+      if (replacements.length > 0) {
+        logger.info(
+          { subVertical, replacements: replacements.map((r) => `${r.blocked}→${r.replacement} (×${r.occurrences})`) },
+          "Firewall replaced cross-vertical terms",
+        );
+      }
+      message = cleaned;
+    } catch (err) {
+      logger.warn({ err: String(err), subVertical }, "Firewall pass failed; skipping");
+    }
+  }
+
+  const humanized = humanizeMessage({ subject: msg.subject, message });
+  return humanized;
+}
+```
+
+6.6 — Search the file for every call to finalizeMessage. Run:
+  grep -n "finalizeMessage(" artifacts/api-server/src/services/messageGenerator.ts
+
+Each call site currently looks like:
+  finalizeMessage(current)
+  finalizeMessage(best)
+  finalizeMessage(draft)
+  etc.
+
+Update EVERY call site to pass ctx.sub_vertical as the second argument:
+  finalizeMessage(current, ctx.sub_vertical)
+  finalizeMessage(best, ctx.sub_vertical)
+  finalizeMessage(draft, ctx.sub_vertical)
+  etc.
+
+After all call sites are updated, run grep again to confirm none remain with single argument:
+  grep -n "finalizeMessage(" artifacts/api-server/src/services/messageGenerator.ts
+
+Every line should show two arguments.
+
+Then run:
+  pnpm run typecheck
+
+Must exit 0.
+
+═══════════════════════════════════════════════════════════════════════
+STEP 7 — Sync, final typecheck, cleanup
+═══════════════════════════════════════════════════════════════════════
+
+Run:
+  bash scripts/sync-source-code.sh
+
+Then final verification:
+  pnpm run typecheck
+
+Must exit 0.
+
+Optional cleanup (only if everything above succeeded):
+  rm -rf group-b5/
+
+═══════════════════════════════════════════════════════════════════════
+FINAL REPORT
+═══════════════════════════════════════════════════════════════════════
+
+Report:
+- Schema migration filename and apply status
+- Number of files added under artifacts/api-server/src/lib/doctrine/
+- Whether researchStreamRoute is wired in the Express app file (and which file it was added to)
+- Number of finalizeMessage call sites updated in messageGenerator.ts
+- Final pnpm run typecheck exit code
+- Whether group-b5/ folder was cleaned up
+
+Do NOT make any other changes. Do NOT run any tests beyond typecheck. Do NOT restart workflows. Do NOT touch deployment.
