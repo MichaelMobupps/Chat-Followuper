@@ -355,7 +355,7 @@ function detectMetaLanguage(text: string): { found: boolean; matches: string[] }
     if (found) matches.push(...found);
   }
 
-  const ingClauseChain = text.match(/,\s*\w+ing\s+[^,.!?]{8,}/g) || [];
+  const ingClauseChain: string[] = text.match(/,\s*\w+ing\s+[^,.!?]{8,}/g) ?? [];
   const suspicious = ingClauseChain.filter((clause) => {
     const c = clause.toLowerCase();
     return META_VERBS.some((v) => c.includes(v));
