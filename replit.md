@@ -35,20 +35,38 @@ Ticket 1.1.
 
 ## Phase 1 — Ticket 1.1 status
 
-Scaffold-only. No channel adapters, no LLM code, no auth code. The plan ships
-those in later tickets.
-
-What is in place:
+Scaffold-only. No channel adapters, no LLM code, no auth code.
 
 - Express app with `/api/health` and `/api/healthz` returning `{"status":"ok"}`
   (validated by the `HealthCheckResponse` Zod schema).
 - Dashboard with the six nav items and route placeholders.
-- `lib/db` Drizzle setup with empty schema barrel.
 - `lib/api-spec` OpenAPI spec + generated Zod and React Query hooks.
 - `.env.example` listing every secret the later phases will need.
-- `scripts/sync-source-code.sh` and `scripts/watch-source-code.mjs` to mirror
-  `artifacts/api-server/src/` into `source-code/src/`. `source-code/` is a
-  read-only export target — never edit there directly.
+- `scripts/sync-source-code.sh` and `scripts/watch-source-code.mjs` mirror
+  source trees into `source-code/`. `source-code/` is a read-only export
+  target — never edit there directly.
+
+## Phase 1 — Ticket 1.2 + Amendment A status
+
+Database schema only. No business routes, no LLM, no channel adapters.
+
+- 8 Drizzle tables in `lib/db/src/schema/`: `users`, `prospects`, `followups`,
+  `conversations`, `magic_link_tokens`, `oauth_nonces`, `daily_usage`,
+  `action_logs` — all timestamps are `timestamptz`.
+- Migration generated via `drizzle-kit generate` and applied to the workspace
+  Postgres via `tsx src/migrate.ts`. Migration file lives in `lib/db/drizzle/`.
+- `lib/db/src/actionLog.ts` exports `logAction`, `incrementDailyUsage`, and
+  `addAnthropicSpend`. Vitest covers all three.
+- `scripts/src/seed-dev.ts` seeds one user + prospect + follow-up + daily_usage
+  row. Idempotent — safe to run repeatedly.
+- Sync script also mirrors `lib/db/src/schema/` into `source-code/db/schema/`.
+
+Key commands added in this ticket:
+
+- `pnpm --filter @workspace/db run generate` — generate a new migration
+- `pnpm --filter @workspace/db run migrate` — apply migrations
+- `pnpm --filter @workspace/db run test` — run helper unit tests
+- `pnpm --filter @workspace/scripts run seed:dev` — seed dev data
 
 ## Deviations from the original Ticket 1.1 spec
 

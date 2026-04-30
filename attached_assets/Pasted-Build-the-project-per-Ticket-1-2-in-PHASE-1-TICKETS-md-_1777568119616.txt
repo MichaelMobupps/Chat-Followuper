@@ -1,0 +1,64 @@
+Build the project per Ticket 1.2 in PHASE_1_TICKETS.md.
+
+Apply Amendment A from PHASE_1_AMENDMENTS.md to this ticket. Amendment A
+adds two operational tables (daily_usage, action_logs) plus a small
+lib/actionLog.ts helper.
+
+Final table list for Ticket 1.2:
+- users (per Ticket 1.2 spec)
+- prospects (per Ticket 1.2 spec)
+- followups (per Ticket 1.2 spec)
+- conversations (per Ticket 1.2 spec)
+- magic_link_tokens (per Ticket 1.2 spec)
+- oauth_nonces (per Ticket 1.2 spec)
+- daily_usage (per Amendment A)
+- action_logs (per Amendment A)
+
+Adapting to Ticket 1.1's deviations:
+- Schema files go in lib/db/schema/ (not db/schema/), matching the
+  pnpm workspace convention established in Ticket 1.1
+- Use Drizzle Kit to generate the migration
+- Run the migration against the workspace DATABASE_URL and confirm
+  tables exist cleanly in Neon afterwards
+
+Acceptance criteria:
+1. drizzle-kit generate produces a clean migration with no errors
+2. Migration runs on Neon successfully (actually execute it, do not
+   just generate the SQL file)
+3. All 8 tables exist in Neon with correct columns, indexes,
+   constraints, and foreign keys
+4. lib/actionLog.ts helper file exists with logAction(),
+   incrementDailyUsage(), and addAnthropicSpend() functions —
+   each function has at least a basic unit test or smoke test
+5. scripts/seed-dev.ts inserts one fake user, one fake prospect,
+   one fake follow-up, and one daily_usage row, proving the schema
+   is usable end-to-end. Script is idempotent (safe to run twice).
+6. Sync script mirrors lib/db/schema/ into source-code/
+
+Do NOT:
+- Add any business routes
+- Add any LLM code
+- Add any channel adapters
+- Start Ticket 1.3
+- Modify Ticket 1.1's existing files unless absolutely required, and
+  if so, stop and report before changing anything
+
+Notes on schema details:
+- All timestamps must be timestamptz, never timestamp
+- prospects.phone is text NOT NULL stored E.164 format
+- prospects(userId, phone) UNIQUE constraint
+- followups(prospectId, stage) UNIQUE constraint
+- conversations indexed on (prospectId, ts DESC)
+- magic_link_tokens.token UNIQUE and indexed
+- action_logs indexed on (userId, executedAt) and on actionType
+- daily_usage primary key is (userId, date)
+- users table includes microsoftRefreshToken and slackBotToken as
+  nullable text columns now to avoid future migration noise, even
+  though they are unused in Phase 1
+
+When complete, stop and report:
+- Which acceptance criteria passed
+- Which failed
+- Final schema file tree
+- The output of running seed-dev.ts twice in a row (proves idempotency)
+- Any deviations from the spec and why
