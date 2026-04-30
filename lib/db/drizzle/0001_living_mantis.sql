@@ -12,5 +12,4 @@ ALTER TABLE "users" ALTER COLUMN "stage_timing" SET NOT NULL;--> statement-break
 ALTER TABLE "users" ALTER COLUMN "send_days" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "send_hour_start" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "send_hour_end" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ALTER COLUMN "send_hour_end" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ALTER COLUMN "max_followups" SET NOT NULL;
