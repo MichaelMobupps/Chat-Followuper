@@ -88,25 +88,12 @@ function validateInput(p: Partial<ResearchInput>): ResearchInput {
   };
 }
 
-/**
- * Minimal session shape this route needs. The session middleware running
- * upstream (cookie-parser + signed session cookie) is expected to attach a
- * `session` property with at least `userId` set when the request is from
- * an authenticated @mobupps.com user. If the property is missing, this
- * route refuses to proceed — defense in depth against routing accidents
- * where the middleware is wired in the wrong order.
- */
-interface RequestWithSession extends Request {
-  session?: { userId?: string; email?: string };
-}
-
 export async function researchStreamRoute(req: Request, res: Response): Promise<void> {
   // ── Explicit auth gate — defense in depth ──
   // The session middleware should have attached a session before this
   // handler runs. Verify it actually did, in case middleware ordering is
   // ever changed and this endpoint accidentally becomes public.
-  const session = (req as RequestWithSession).session;
-  if (!session || !session.userId) {
+  if (!req.session?.userId) {
     res.status(401).setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: "Unauthenticated. Sign in with your @mobupps.com Google account." }));
     return;
