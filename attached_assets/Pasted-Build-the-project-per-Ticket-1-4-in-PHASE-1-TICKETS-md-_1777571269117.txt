@@ -1,0 +1,191 @@
+Build the project per Ticket 1.4 in PHASE_1_TICKETS.md.
+
+This is the Doctrine engine port from the email tool, retargeted for chat
+output. It is the largest ticket in Phase 1.
+
+Source code reference: the email tool source code is at
+michael2502/Email-Folllowuper. The exact files to port from there:
+- api-server/lib/anthropic.ts
+- api-server/lib/languageNativeness.ts
+- api-server/lib/verticalClassifier.ts
+- api-server/services/anthropicRetry.ts
+- api-server/services/timingEngine.ts
+- api-server/services/emailSummarizer.ts → adapt as messageSummarizer.ts
+- api-server/services/followupPrompts.ts → adapt as messagePrompts.ts
+- api-server/services/followupGenerator.ts → adapt as messageGenerator.ts
+
+If you do not have direct access to that repo, ask me to upload the relevant
+files before proceeding. Do NOT recreate them from imagination — these are
+extensively iterated production prompts and any deviation from the original
+will degrade output quality.
+
+Files to create (adapting paths to Ticket 1.1's pnpm workspace):
+
+PORTED VERBATIM (no changes from email tool source):
+- artifacts/api-server/src/lib/anthropic.ts
+- artifacts/api-server/src/lib/languageNativeness.ts
+- artifacts/api-server/src/lib/verticalClassifier.ts
+- artifacts/api-server/src/services/anthropicRetry.ts
+- artifacts/api-server/src/services/timingEngine.ts
+
+ADAPTED (changes specified below):
+- artifacts/api-server/src/services/messageSummarizer.ts
+- artifacts/api-server/src/services/messagePrompts.ts
+- artifacts/api-server/src/services/messageGenerator.ts
+
+NEW (does not exist in email tool):
+- artifacts/api-server/src/lib/channelRegister.ts
+
+ADAPTATION RULES:
+
+1. messageSummarizer.ts — adapted from emailSummarizer.ts:
+   - Same job: extract topic + language from prior context
+   - Same META_PARTICIPLES list, same sanitizer
+   - Same language detection fallback (Unicode range checks)
+   - Field shapes unchanged: { summary, language }
+   - The system prompt stays focused on extracting a SHORT NOUN PHRASE
+     suitable for "following up on the [TOPIC]" — not chat-specific yet,
+     this is upstream of channel selection
+
+2. messagePrompts.ts — adapted from followupPrompts.ts:
+   - Remove ALL subject-line generation
+   - JSON output schema becomes { "message": "..." } NOT { "subject": "...", "body": "..." }
+   - Inject buildWriterRegisterBlock(channel) AFTER buildNativenessBlock(language)
+     in both the writer system prompt and the rewriter system prompt
+   - Critic gets a NEW score: channel_register_match (1-5)
+   - Add channel_register_match to the forced-rewrite logic the same way
+     language_match works: score below 3 forces needs_rewrite = true
+   - Keep the META-LANGUAGE absolute prohibition unchanged
+   - Keep the FOLLOW-UP ACK rule for stages >= 2 unchanged
+   - Keep the WHY -> VALIDATION -> HOW -> DIFFERENTIATOR -> CTA structure
+     for initial messages, but compress dramatically for chat (the register
+     block enforces this)
+
+3. messageGenerator.ts — adapted from followupGenerator.ts:
+   - Same three-stage pipeline: draft (Sonnet) -> critic (Opus) -> rewrite (Sonnet)
+   - Same self-healing loop with bestOverall tracking, max 3 iterations
+   - Same humanizeText post-processor (em-dash strip, AI-tell phrase replacement,
+     smart-quote normalize, !-to-period)
+   - Same META-LANGUAGE detection and resanitizeStoredSummary self-heal
+   - Function signature changes:
+     generateChatMessage({
+       prospect: ProspectRow,
+       conversation: ConversationRow[],   // full thread, oldest to newest
+       channel: 'whatsapp' | 'telegram' | 'teams' | 'slack',
+       stage: number,
+     }) -> {
+       message: string,
+       modelMetadata: { drafts, criticScores, iterations },
+       costEstimate: { inputTokens, outputTokens, usd },
+     }
+   - costEstimate is rolled up across ALL stages (summarize + draft + critic +
+     rewrite). Use the lib/pricing.ts pricing table from Ticket 1.11; create a
+     stub now if it doesn't exist yet:
+       export const ANTHROPIC_PRICING = {
+         'claude-opus-4-7':    { input: 15.00, output: 75.00 },
+         'claude-sonnet-4-6':  { input:  3.00, output: 15.00 },
+         'claude-haiku-4-5':   { input:  0.80, output:  4.00 },
+       };
+   - CRITICAL: do NOT include a hardcoded multilingual fallback template.
+     If Anthropic is unreachable, throw with a clear error message. The
+     scheduler in Ticket 1.8 will mark the followup as 'failed' with the error.
+     This is non-negotiable per Phase 1 cross-cutting rule 5.
+
+4. channelRegister.ts — NEW file, mirrors the architecture of languageNativeness.ts:
+   - Export buildWriterRegisterBlock(channel) and buildCriticRegisterBlock(channel)
+   - Each returns the literal text appended to the prompt
+   - Phase 1 implements the WhatsApp register fully; the others return
+     placeholder strings noting "channel not yet supported in Phase 1"
+
+   WhatsApp writer register text (this is the initial draft — will tune later):
+
+   WHATSAPP CHANNEL RULES:
+   - Length: 2-3 sentences MAXIMUM. Anything over 4 sentences feels like spam.
+   - No subject line. No signature. WhatsApp shows your name automatically.
+   - Greeting: "Hi {FirstName}," or omit entirely. Never "Dear", never
+     "Good morning", never "I hope this finds you well".
+   - Tone: real human typing on a phone. Casual-professional.
+   - Emojis: 0 in conservative markets (Japan, Korea, Germany, Nordics, Russia).
+     0-1 in friendly markets (LATAM, India, SEA, Middle East).
+   - Banned phrases: "circling back", "touching base", "hope you are well",
+     "I trust this finds you well", "would love to".
+   - One soft CTA. One question mark maximum.
+   - Plain text only. No bullet lists. No bold/italic markdown. WhatsApp's
+     *bold* syntax is allowed only for emphasizing one short word, never
+     for headers.
+   - For follow-ups: reference prior contact in the first sentence. Keep it
+     brief: "Following up on the MAFO numbers I sent" not "Following up on
+     my detailed pricing breakdown for MAFO that I shared with you on
+     April 24th".
+   - No "X, not Y" constructions. Rephrase as positive specification.
+
+   WhatsApp critic register text:
+
+   Score channel_register_match 1-5 against the WhatsApp rules above.
+   Score 5: 2-3 sentences, no signature, no formal opener, plain text,
+            references prior contact (if follow-up), one CTA, one question mark.
+   Score 1: Reads like an email. Multiple paragraphs. Formal greeting.
+            Signature block. Multiple CTAs. Subject line attempted.
+
+5. Model selection (CONFIRM these match the current Anthropic model strings):
+   - Draft writer: claude-sonnet-4-6
+   - Critic: claude-opus-4-7
+   - Rewriter: claude-sonnet-4-6
+   - Summarizer: claude-haiku-4-5
+
+   If any of those model strings has been deprecated or renamed since the
+   email tool was built, use the current equivalent and note it in the report.
+
+6. Deliverable: a standalone test script
+   - File: scripts/src/test-generate.ts
+   - Uses seed-dev.ts user; creates one fake prospect per language
+   - Calls generateChatMessage for stage-1 in each of:
+     English, Hebrew, Russian, Portuguese, Hindi
+   - Prints each generated message + cost estimate + critic scores
+   - Manual eyeball check passes if every output is:
+     - 2-3 sentences
+     - No em dashes anywhere
+     - No "circling back" / "touching base" / "would love to"
+     - No subject line
+     - No signature block
+     - In the correct language (Hebrew message in Hebrew, etc.)
+     - Mentions the prospect's company / vertical / market in a relevant way
+
+Acceptance criteria:
+1. All 8 file paths exist with the correct names
+2. test-generate.ts runs without errors and produces 5 generated messages
+3. Total cost reported by costEstimate is under $1.00 for all 5 messages
+   combined (sanity check; should be ~$0.50-$0.80)
+4. All 5 outputs pass the manual eyeball check (paste them in the report
+   so I can verify)
+5. The critic returns the new channel_register_match score on every run
+6. Forcing a meta-language phrase ("the email mentioned that...") into a
+   draft triggers the meta-language guard and forces a rewrite
+7. Setting ANTHROPIC_API_KEY to an invalid value causes a clean failure
+   with a clear error message (no silent template fallback)
+8. Workspace pnpm run typecheck passes
+9. Sync script mirrors the new files to source-code/
+
+Do NOT:
+- Add channel adapters (Ticket 1.6)
+- Add Apollo client (Ticket 1.5)
+- Add the seeder UI or routes (Ticket 1.7)
+- Add the scheduler (Ticket 1.8)
+- Modify the schema
+- Build a fallback template if Anthropic fails
+
+Important notes:
+- This ticket may need 1-2 sessions. The prompt files are large and the
+  email tool's followupPrompts.ts is ~25KB on its own.
+- If you hit token/context limits, split the work: port the verbatim files
+  first, then adapt the three message*.ts files in a second session, then
+  channelRegister.ts and the test script in a third.
+- Stop and report after each completed file group if doing multi-session.
+
+When complete, stop and report:
+- Which acceptance criteria passed
+- Which failed
+- The 5 generated messages from test-generate.ts pasted in full
+- Total Anthropic spend during testing
+- Any model-string updates if claude-sonnet-4-6 / claude-opus-4-7 needed adjusting
+- Any deviations from the spec and why
