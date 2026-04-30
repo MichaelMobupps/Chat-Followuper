@@ -42,6 +42,8 @@ import { summaryLooksMeta, resanitizeStoredSummary } from "./messageSummarizer";
 import { logger } from "../lib/logger";
 import { computeCost, sumCosts, type CostBreakdown } from "../lib/pricing";
 import type { ChannelCode, GenerationMode } from "../lib/channelRegister";
+import { applyFirewall } from "../lib/doctrine/firewall";
+import type { ProspectBrief } from "./prospectResearch";
 
 // ─────────────────────────────────────────────────────────────────
 // Public types
@@ -91,6 +93,7 @@ export interface GenerateChatMessageOptions {
   priorSummary?: string;
   /** Earlier follow-ups in the thread (for stage rotation / no-repeat). */
   previousFollowups?: PreviousFollowup[];
+  researchBrief?: ProspectBrief;
 }
 
 export interface ProspectInput {
@@ -108,7 +111,7 @@ export interface ProspectInput {
 // Models
 // ─────────────────────────────────────────────────────────────────
 
-const DRAFT_MODEL = "claude-sonnet-4-6";
+const DRAFT_MODEL = "claude-opus-4-7";
 const CRITIC_MODEL = "claude-opus-4-7";
 const REWRITER_MODEL = "claude-sonnet-4-6";
 
@@ -599,13 +602,28 @@ async function rewriteDraft(
 // Final cleanup pipeline (applied to whatever we ship)
 // ─────────────────────────────────────────────────────────────────
 
-function finalizeMessage(msg: { subject: string; message: string }): { subject: string; message: string } {
-  // 1. Strip bracketed editorial notes (rewriter artifact).
+function finalizeMessage(
+  msg: { subject: string; message: string },
+  subVertical: string | null,
+): { subject: string; message: string } {
   let message = stripBracketedNotes(msg.message);
-  // 2. Apply deterministic fixes (snake_case, percent symbol, em dashes,
-  //    bold, placeholders).
   message = applyDeterministicFixes(message);
-  // 3. Run humanizer (smart quotes, AI phrases, whitespace).
+
+  if (subVertical) {
+    try {
+      const { cleaned, replacements } = applyFirewall(message, subVertical);
+      if (replacements.length > 0) {
+        logger.info(
+          { subVertical, replacements: replacements.map((r) => `${r.blocked}→${r.replacement} (×${r.occurrences})`) },
+          "Firewall replaced cross-vertical terms",
+        );
+      }
+      message = cleaned;
+    } catch (err) {
+      logger.warn({ err: String(err), subVertical }, "Firewall pass failed; skipping");
+    }
+  }
+
   const humanized = humanizeMessage({ subject: msg.subject, message });
   return humanized;
 }
@@ -649,6 +667,7 @@ export async function generateChatMessage(
     prior_summary: opts.priorSummary,
     conversation: opts.conversation,
     previous_followups: opts.previousFollowups,
+    research_brief: opts.researchBrief,
   };
 
   // ── Self-heal: sanitize stored summary if it contains meta-language ──
@@ -722,7 +741,7 @@ export async function generateChatMessage(
         { err: String(err), prospect: ctx.prospect_name, iteration },
         "Critic unavailable after retries — returning best draft seen",
       );
-      const finalized = finalizeMessage(best);
+      const finalized = finalizeMessage(best, ctx.sub_vertical);
       return {
         subject: finalized.subject,
         message: finalized.message,
@@ -773,7 +792,7 @@ export async function generateChatMessage(
         { prospect: ctx.prospect_name, iteration },
         "Draft passed all checks",
       );
-      const finalized = finalizeMessage(current);
+      const finalized = finalizeMessage(current, ctx.sub_vertical);
       return {
         subject: finalized.subject,
         message: finalized.message,
@@ -803,7 +822,7 @@ export async function generateChatMessage(
         { err: String(err), prospect: ctx.prospect_name, iteration },
         "Rewriter unavailable after retries — returning best draft seen",
       );
-      const finalized = finalizeMessage(best);
+      const finalized = finalizeMessage(best, ctx.sub_vertical);
       return {
         subject: finalized.subject,
         message: finalized.message,
@@ -824,7 +843,7 @@ export async function generateChatMessage(
     { prospect: ctx.prospect_name, bestOverall, iterations: maxHealingIterations },
     "Healing iterations exhausted — returning best draft seen",
   );
-  const finalized = finalizeMessage(best);
+  const finalized = finalizeMessage(best, ctx.sub_vertical);
   return {
     subject: finalized.subject,
     message: finalized.message,

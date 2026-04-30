@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
 
@@ -36,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 // is present. Routes opt-in to authentication via `requireAuth`.
 app.use("/api", loadUser);
 
+app.get("/api/prospects/research/stream", researchStreamRoute);
 app.use("/api", router);
 
 export default app;

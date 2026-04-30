@@ -37,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 // is present. Routes opt-in to authentication via `requireAuth`.
 app.use("/api", loadUser);
 
+app.get("/api/prospects/research/stream", researchStreamRoute);
 app.use("/api", router);
 
 export default app;

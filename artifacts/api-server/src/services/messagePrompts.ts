@@ -30,6 +30,9 @@ import {
   type ChannelCode,
   type GenerationMode,
 } from "../lib/channelRegister";
+import { buildVocabularyBlock } from "../lib/doctrine/eventCatalog";
+import { isValidSubVertical } from "../lib/doctrine/taxonomy";
+import type { ProspectBrief } from "./prospectResearch";
 
 // ─────────────────────────────────────────────────────────────────
 // Public types
@@ -74,6 +77,7 @@ export interface MessageContext {
   prior_summary?: string;
   conversation?: ConversationRow[];
   previous_followups?: PreviousFollowup[];
+  research_brief?: ProspectBrief;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -180,6 +184,43 @@ function flattenConversation(conversation: ConversationRow[] | undefined): strin
   }).join("\n\n");
 }
 
+function buildResearchBriefBlock(brief: ProspectBrief | undefined, language: string): string {
+  if (!brief) return "";
+
+  const isNonEnglish = (language || "").toLowerCase() !== "en";
+  const peers = brief.finalCompetitors.join(", ");
+  const proofs = brief.tangibleReasons.map((r, i) => `  ${i + 1}. ${r}`).join("\n");
+
+  let block = `PROSPECT RESEARCH BRIEF (the writer must ground every claim in this brief; do NOT introduce facts, peer brands, volumes, or events not listed here):
+
+- Determined market: ${brief.determinedCountry}
+- Determined scale tier: ${brief.determinedScaleTier} (${brief.scaleRationale})
+- Calibrated daily volume MobUpps can deliver: ${brief.calibratedDailyVolume} per day
+- Primary conversion event: ${brief.primaryEvent}
+- Alternative events that may be referenced: ${brief.alternativeEvents.join(", ")}
+- Peer brands in the same market (use ONE if natural — these are the ONLY peers you may name): ${peers}
+- Subsidiary check: ${brief.subsidiaryCheckNote}
+- Market context: ${brief.marketContext}
+- Prospect-specific hook: ${brief.prospectSpecificHook}
+- Likely growth challenge for this prospect: ${brief.prospectPrimaryGrowthProblem}
+
+- WHY argument seed: ${brief.whyArgument}
+- VALIDATION argument seed: ${brief.validationArgument}
+- HOW argument seed: ${brief.howArgument}
+
+- Available proof points (pick 1-2 to weave in naturally; do NOT list more than 2):
+${proofs}`;
+
+  if (isNonEnglish && (brief.whyArgumentNative || brief.validationArgumentNative || brief.howArgumentNative)) {
+    block += `\n\nNATIVE-LANGUAGE ARGUMENT VARIANTS (use these as the basis for composing the message; they were already drafted in ${language}):`;
+    if (brief.whyArgumentNative) block += `\n- WHY (${language}): ${brief.whyArgumentNative}`;
+    if (brief.validationArgumentNative) block += `\n- VALIDATION (${language}): ${brief.validationArgumentNative}`;
+    if (brief.howArgumentNative) block += `\n- HOW (${language}): ${brief.howArgumentNative}`;
+  }
+
+  return block;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // PROSPECTOR — system prompt
 // ─────────────────────────────────────────────────────────────────
@@ -187,10 +228,15 @@ function flattenConversation(conversation: ConversationRow[] | undefined): strin
 export function getProspectorSystemPrompt(ctx: MessageContext): string {
   const nativeVoice = buildNativeVoiceBlock(ctx.language);
   const channelRules = buildWriterRegisterBlock(ctx.channel, "prospector");
+  const vocabularyBlock = ctx.sub_vertical && isValidSubVertical(ctx.sub_vertical)
+    ? buildVocabularyBlock(ctx.sub_vertical)
+    : "";
+  const researchBlock = buildResearchBriefBlock(ctx.research_brief, ctx.language);
 
   return `You are a senior SDR at MobUpps, a mobile and web performance marketing network with a proprietary AI optimization engine called MAFO. You write cold outbound messages following a strict doctrine.
 ${nativeVoice}
 ${channelRules}
+${vocabularyBlock ? `\n${vocabularyBlock}\n` : ""}${researchBlock ? `\n${researchBlock}\n` : ""}
 
 DOCTRINE PRINCIPLES (apply across every message — these are non-negotiable):
 
@@ -297,10 +343,15 @@ Write the message now. Begin with the greeting form specified above, then the WH
 export function getFollowuperSystemPrompt(ctx: MessageContext): string {
   const nativeVoice = buildNativeVoiceBlock(ctx.language);
   const channelRules = buildWriterRegisterBlock(ctx.channel, "followuper");
+  const vocabularyBlock = ctx.sub_vertical && isValidSubVertical(ctx.sub_vertical)
+    ? buildVocabularyBlock(ctx.sub_vertical)
+    : "";
+  const researchBlock = buildResearchBriefBlock(ctx.research_brief, ctx.language);
 
   return `You are a senior SDR at MobUpps writing a follow-up message in an existing chat thread. The prospect already knows who we are — you do NOT re-introduce yourself or MobUpps.
 ${nativeVoice}
 ${channelRules}
+${vocabularyBlock ? `\n${vocabularyBlock}\n` : ""}${researchBlock ? `\n${researchBlock}\n` : ""}
 
 ABSOLUTE CONTEXT-GROUNDING RULE:
 
