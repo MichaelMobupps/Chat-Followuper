@@ -14,3 +14,13 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Returns the currently authenticated user, or 401 when not signed in.
+ * @summary Current authenticated user
+ */
+export const GetCurrentUserResponse = zod.object({
+  id: zod.string().uuid(),
+  email: zod.string().email(),
+  name: zod.string().nullable(),
+});

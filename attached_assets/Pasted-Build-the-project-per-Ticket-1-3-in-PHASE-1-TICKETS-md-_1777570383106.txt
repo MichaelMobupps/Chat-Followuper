@@ -1,0 +1,76 @@
+Build the project per Ticket 1.3 in PHASE_1_TICKETS.md.
+
+Ticket 1.3 is Gmail OAuth login (tool-level identity, NOT Gmail send/read).
+This is the single sign-in for the dashboard.
+
+Prerequisites confirmed:
+- Google OAuth client created in Google Cloud Console
+- Replit Secrets populated: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
+  GOOGLE_OAUTH_REDIRECT_URI, SESSION_SECRET
+- DNS for chat-followuper.mobupps.com is NOT YET in place; production
+  subdomain will be added in ~1 month. Build against the Replit dev URL
+  for now. The OAuth client has both the dev URL and the future prod URL
+  registered as authorized redirect URIs.
+
+Files to create (adapting paths to Ticket 1.1's pnpm workspace conventions):
+- artifacts/api-server/src/routes/auth.ts        — /api/auth/me, /api/auth/logout
+- artifacts/api-server/src/routes/google-auth.ts — /api/auth/google/start,
+                                                    /api/auth/google/callback
+- artifacts/api-server/src/middlewares/auth.ts   — session cookie verification,
+                                                    populates req.user
+- artifacts/api-server/src/lib/session.ts        — sign/verify session cookies
+                                                    with SESSION_SECRET
+                                                    (HMAC SHA-256, 30-day expiry)
+- artifacts/dashboard/src/hooks/use-current-user.ts
+- artifacts/dashboard/src/pages/login.tsx        — single Sign in with Google button
+- artifacts/dashboard/src/components/auth-gate.tsx — wraps protected routes
+
+Behavior:
+1. SDR clicks Sign in with Google in the dashboard
+2. Lands on Google consent screen
+3. After approval, redirected back to /api/auth/google/callback
+4. Server exchanges the code for tokens, fetches user identity (email, name,
+   sub), upserts a row in users table keyed by Google email
+5. Restrict logins to @mobupps.com only. Reject other domains with a clean
+   error page on the dashboard side. Make the allowlist configurable via
+   ALLOWED_LOGIN_DOMAINS env var, default 'mobupps.com'
+6. Issue a signed session cookie, valid 30 days
+7. /api/auth/me returns { id, email, name } when logged in, 401 when not
+8. /api/auth/logout clears the cookie
+9. AuthGate component redirects unauthenticated visitors to /login,
+   wraps every page in App.tsx except /login itself
+
+OAuth scopes: ONLY identity. openid, email, profile. Do NOT request
+gmail.send, gmail.readonly, or any Gmail API scope. This is identity-only.
+
+Scope reduction matters: this app does not send Gmail. The previous
+Email Followuper tool requested gmail.send. Phase 1 of this tool does
+not. Keeping scopes minimal avoids unnecessary consent friction and
+keeps the consent screen clean.
+
+Acceptance criteria:
+1. Visit dashboard at /, see redirect to /login because no session
+2. Click Sign in with Google, complete consent, land in dashboard
+3. GET /api/auth/me returns { id, email, name } after login
+4. A row exists in users table for the logged-in SDR with the correct email
+5. Trying to log in with a non-@mobupps.com Google account is rejected
+   with a clean error page (not a stack trace)
+6. Visit /api/auth/logout, session is cleared, redirected to /login
+7. Session cookie is HttpOnly, Secure (in prod), SameSite=Lax
+8. AuthGate prevents direct URL access to /today, /seeder, etc when
+   unauthenticated — redirects to /login
+
+Do NOT:
+- Add LLM code
+- Add channel adapters
+- Add prospect/follow-up routes
+- Start Ticket 1.4
+- Modify the schema (Ticket 1.2 already established it; if a missing
+  column is needed, stop and report before adding it)
+
+When complete, stop and report:
+- Which acceptance criteria passed
+- Which failed
+- Final file tree of files added/changed
+- Confirmation that scopes are openid + email + profile only
+- Any deviations from the spec and why

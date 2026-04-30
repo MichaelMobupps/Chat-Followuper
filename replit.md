@@ -68,6 +68,48 @@ Key commands added in this ticket:
 - `pnpm --filter @workspace/db run test` — run helper unit tests
 - `pnpm --filter @workspace/scripts run seed:dev` — seed dev data
 
+## Phase 1 — Ticket 1.3 status (Google OAuth identity-only login)
+
+Single sign-in for the dashboard. **Identity scopes only**: `openid email
+profile`. No Gmail/Calendar scopes. No business routes.
+
+Backend (`artifacts/api-server/src/`):
+
+- `lib/session.ts` — HMAC SHA-256 signed cookie `cf_session`, 30-day TTL,
+  timing-safe verify. HttpOnly + SameSite=Lax + Path=/; Secure in prod only.
+- `middlewares/auth.ts` — `loadUser` (best-effort, sets `req.user` if a valid
+  cookie is present) and `requireAuth` (401s when missing).
+- `routes/auth.ts` — `GET /api/auth/me`, `POST /api/auth/logout` (204) + a
+  convenience `GET /api/auth/logout` (302 → `/login`).
+- `routes/google-auth.ts` — `GET /api/auth/google/start`,
+  `GET /api/auth/google/callback`. Uses `oauth_nonces` for state with atomic
+  single-use consumption (`UPDATE … WHERE consumed_at IS NULL RETURNING`).
+- `app.ts` — mounts `cookie-parser` and the `loadUser` middleware on `/api`
+  before the router.
+
+Frontend (`artifacts/dashboard/src/`):
+
+- `hooks/use-current-user.ts` — wraps the generated `useGetCurrentUser` hook
+  and exposes a discriminated `loading | authenticated | unauthenticated |
+  error` state. 401 is treated as "unauthenticated", not a fetch error.
+- `components/auth-gate.tsx` — wraps protected routes; redirects to `/login`
+  when unauthenticated.
+- `pages/login.tsx` — single "Sign in with Google" button; shows friendly
+  error messages for `?error=…` codes.
+- `App.tsx` — `/login` is outside `AuthGate`; everything else is gated.
+
+Domain allowlist:
+
+- `ALLOWED_LOGIN_DOMAINS` env var (comma-separated, default `mobupps.com`).
+  Non-matching emails are rejected with `?error=domain_not_allowed`.
+
+OpenAPI contract:
+
+- Added `AuthUser` and `AuthError` schemas, `GET /auth/me`, and
+  `POST /auth/logout` to `lib/api-spec/openapi.yaml`. Generated React Query
+  hooks and Zod schemas via the existing `pnpm --filter @workspace/api-spec
+  run codegen` workflow.
+
 ## Deviations from the original Ticket 1.1 spec
 
 The plan was written against a plain-Node, single-package layout. This

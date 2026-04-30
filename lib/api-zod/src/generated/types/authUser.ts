@@ -5,16 +5,9 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
 
 export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
-}
-
-export interface AuthError {
-  error: string;
 }
