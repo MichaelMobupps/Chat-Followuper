@@ -63,6 +63,8 @@ export const ACTION_TYPES = {
   digestReplyHandled: "digest.reply_handled",
   capExceededSpend: "cap.exceeded.spend",
   capExceededReveals: "cap.exceeded.reveals",
+  whatsappSendIntent: "whatsapp.send_intent",
+  whatsappLinkGenerated: "whatsapp.link_generated",
 } as const;
 
 export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];
