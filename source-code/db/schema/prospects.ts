@@ -33,6 +33,7 @@ export const prospectsTable = pgTable(
     slackUserId: text("slack_user_id"),
     linkedinUrl: text("linkedin_url"),
     apolloPersonId: text("apollo_person_id"),
+    apolloOrgId: text("apollo_org_id"),
     sourceMode: text("source_mode").notNull(),
     contextNotes: text("context_notes"),
     researchBrief: jsonb("research_brief"),
