@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import apolloWebhookRouter from "./routes/apolloWebhook";
 import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
@@ -30,6 +31,14 @@ app.use(
 );
 app.use(cors());
 app.use(cookieParser());
+
+// Apollo webhook MUST be mounted BEFORE express.json() so that the
+// route's express.raw middleware can capture the original request
+// bytes for HMAC signature verification. JSON-parsing in place would
+// destroy the bytes Apollo signed against. The router contains its
+// own express.raw middleware scoped to the webhook path.
+app.use("/api", apolloWebhookRouter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

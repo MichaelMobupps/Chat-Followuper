@@ -65,10 +65,19 @@ export const ACTION_TYPES = {
   capExceededReveals: "cap.exceeded.reveals",
   whatsappSendIntent: "whatsapp.send_intent",
   whatsappLinkGenerated: "whatsapp.link_generated",
+  // Ticket 1.5b — async Apollo phone reveal flow. Three terminal states
+  // for the audit trail: requested (outbound POST sent), arrived (webhook
+  // delivered phone, geo gate passed, phone stored), blocked (webhook
+  // delivered phone, geo gate rejected, phone NOT stored). The phone
+  // number itself is intentionally never written to action_logs.metadata
+  // — only the country code, on the blocked path, for diagnostic value.
+  apolloPhoneRevealRequested: "apollo.phone_reveal_requested",
+  apolloPhoneRevealArrived: "apollo.phone_reveal_arrived",
+  apolloPhoneRevealBlocked: "apollo.phone_reveal_blocked",
 } as const;
 
 export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];
-export type ActionStatus = "success" | "failure" | "skipped";
+export type ActionStatus = "success" | "failure" | "skipped" | "blocked";
 
 export const insertActionLogSchema = createInsertSchema(actionLogsTable).omit({
   id: true,

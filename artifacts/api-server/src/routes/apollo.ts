@@ -11,7 +11,9 @@ import {
   searchOrg,
   searchPeople,
   revealContact,
+  requestPhoneReveal,
   ApolloMissingApiKeyError,
+  ApolloMissingWebhookUrlError,
   ApolloRateLimitError,
   ApolloAuthError,
   ApolloPersonNotFoundError,
@@ -35,6 +37,11 @@ interface SearchPeopleBody {
 }
 
 interface RevealBody {
+  personId: string;
+}
+
+interface RequestPhoneRevealBody {
+  prospectId: string;
   personId: string;
 }
 
@@ -63,6 +70,14 @@ function isRevealBody(value: unknown): value is RevealBody {
   return typeof v.personId === "string";
 }
 
+function isRequestPhoneRevealBody(
+  value: unknown,
+): value is RequestPhoneRevealBody {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.prospectId === "string" && typeof v.personId === "string";
+}
+
 /**
  * Map Apollo client exceptions to HTTP responses + action_log statuses.
  * Returns true if the error was handled (response sent), false otherwise
@@ -84,6 +99,10 @@ async function handleApolloError(
   if (err instanceof ApolloMissingApiKeyError) {
     httpStatus = 503;
     errorCode = "apollo_not_configured";
+    detail = err.message;
+  } else if (err instanceof ApolloMissingWebhookUrlError) {
+    httpStatus = 503;
+    errorCode = "apollo_webhook_url_not_configured";
     detail = err.message;
   } else if (err instanceof ApolloRateLimitError) {
     httpStatus = 429;
@@ -328,6 +347,89 @@ router.post(
     }
 
     res.status(200).json({ contact: revealed });
+  },
+);
+
+/**
+ * POST /api/apollo/request-phone-reveal — async phone reveal entry point.
+ * Auth-gated. Body: { prospectId, personId }. Calls
+ * services/apollo.requestPhoneReveal which persists the correlation
+ * token, increments daily_usage, writes action_logs, and POSTs to Apollo.
+ *
+ * Returns immediately with `{ status: "pending", correlationId }`. The
+ * webhook handler at /api/apollo/webhook/phone-reveal completes the
+ * lifecycle when Apollo POSTs the resolved phone back. The seeder UI
+ * polls (or eventually subscribes to SSE in 1.7) to learn of arrival.
+ *
+ * Error mapping:
+ *   - 400 invalid body
+ *   - 503 if APOLLO_API_KEY or APOLLO_WEBHOOK_URL are unset
+ *   - 409 if the prospect already has a pending or arrived reveal (the
+ *     Error message from requestPhoneReveal carries the existing state)
+ *   - 404 if the prospect or person id is invalid
+ *   - 502 / 429 / 422 for downstream Apollo issues (mapped via
+ *     handleApolloError; the geo gate path does not apply here because
+ *     the gate runs at callback time, not request time)
+ *
+ * Idempotency: requestPhoneReveal raises if the prospect is already in a
+ * non-terminal state. The conflict path returns 409 so the SDR sees a
+ * useful "already requested" message rather than a generic 500.
+ */
+router.post(
+  "/apollo/request-phone-reveal",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    if (!isRequestPhoneRevealBody(req.body)) {
+      res.status(400).json({ error: "invalid_body" });
+      return;
+    }
+
+    try {
+      const result = await requestPhoneReveal(
+        req.body.personId,
+        req.body.prospectId,
+        user.id,
+      );
+      res.status(202).json(result);
+    } catch (err) {
+      // Plain-Error idempotency conflict (raised inside requestPhoneReveal)
+      // → 409. The Error message is safe to surface (no secrets).
+      if (
+        err instanceof Error &&
+        !(err instanceof ApolloMissingApiKeyError) &&
+        !(err instanceof ApolloMissingWebhookUrlError) &&
+        !(err instanceof ApolloRateLimitError) &&
+        !(err instanceof ApolloAuthError) &&
+        !(err instanceof ApolloPersonNotFoundError) &&
+        !(err instanceof ApolloApiError) &&
+        !(err instanceof GeoGateBlockedError)
+      ) {
+        if (err.message.startsWith("Phone reveal already in state")) {
+          res.status(409).json({
+            error: "phone_reveal_already_in_progress",
+            detail: err.message,
+          });
+          return;
+        }
+        if (err.message.startsWith("Prospect not found")) {
+          res.status(404).json({ error: "prospect_not_found" });
+          return;
+        }
+        if (err.message.startsWith("Prospect ") && err.message.includes("does not belong to user")) {
+          res.status(404).json({ error: "prospect_not_found" });
+          return;
+        }
+      }
+
+      await handleApolloError(err, res, {
+        userId: user.id,
+        actionType: ACTION_TYPES.apolloPhoneRevealRequested,
+        durationMs: Date.now() - start,
+      });
+    }
   },
 );
 

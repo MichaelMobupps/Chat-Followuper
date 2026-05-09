@@ -1,24 +1,43 @@
+import { randomBytes } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
+import {
+  db,
+  prospectsTable,
+  dailyUsageTable,
+  actionLogsTable,
+  ACTION_TYPES,
+} from "@workspace/db";
 import { isAllowedPhone, detectCountry } from "../lib/geoGate";
 import { GeoGateBlockedError } from "./channels/whatsapp";
 
 /**
- * Apollo API client. Three operations the seeder UI needs:
+ * Apollo API client. Operations the seeder UI needs:
  *
  *   - searchOrg(brand, country?) -> resolve a brand string to one or more
  *     Apollo organizations.
  *   - searchPeople(orgId, titles) -> list people inside an org filtered by
  *     SDR-relevant titles.
- *   - revealContact(personId) -> reveal email/linkedin (and any phone Apollo
- *     surfaces incidentally) for one person. Phone-reveal-via-webhook is
- *     intentionally out of scope for v1; see revealContact for details.
- *     The phone, when present, is run through the geo gate before
- *     returning; a blocked phone throws GeoGateBlockedError so the UI can
- *     surface a useful "we don't address this market" error.
+ *   - revealContact(personId) -> SYNCHRONOUS reveal of email + linkedin
+ *     (and any phone Apollo surfaces incidentally — gated). Does NOT
+ *     trigger Apollo's async phone-reveal flow.
+ *   - requestPhoneReveal(personId, prospectId, userId) -> ASYNCHRONOUS
+ *     phone reveal via Apollo's webhook callback. Persists a correlation
+ *     token, increments the credit counter (Apollo charges on request
+ *     acceptance, before the phone arrives), and POSTs to Apollo with
+ *     reveal_phone_number=true and our webhook URL. Returns immediately
+ *     with status="pending"; the webhook handler in routes/apolloWebhook
+ *     stores the phone (or marks it blocked) when Apollo POSTs back.
+ *   - processPhoneRevealCallback(payload) -> ingests one Apollo webhook
+ *     delivery. Idempotent on correlationId; runs the geo gate at
+ *     callback time; never persists a phone that the gate rejects.
  *
- * The client is a pure HTTP wrapper. Daily-usage counter increments and
- * action_log writes happen in the route handler, mirroring the split used
- * by the WhatsApp service (services/channels/whatsapp.ts vs.
- * routes/whatsappLink.ts).
+ * The client is a thin HTTP wrapper for the Apollo HTTP surface plus a
+ * small amount of DB bookkeeping for the async-reveal lifecycle. Daily-
+ * usage counter increments and action_log writes happen INSIDE this
+ * module for the async flow (because the request and the webhook are
+ * separated in time and there is no single route handler that can wrap
+ * the whole thing). The synchronous revealContact path keeps the
+ * old route-side bookkeeping pattern.
  *
  * Rate limiting: Apollo returns 429 when exhausted. On 429 we sleep 60s
  * and retry exactly once. A second 429 throws ApolloRateLimitError.
@@ -107,6 +126,15 @@ export class ApolloApiError extends Error {
   }
 }
 
+export class ApolloMissingWebhookUrlError extends Error {
+  constructor() {
+    super(
+      "APOLLO_WEBHOOK_URL is not set. Required for async phone reveal — point Apollo at the deployed /api/apollo/webhook/phone-reveal endpoint.",
+    );
+    this.name = "ApolloMissingWebhookUrlError";
+  }
+}
+
 export interface ApolloOrgSummary {
   id: string;
   name: string | null;
@@ -150,6 +178,18 @@ export interface ApolloRevealedContact {
   country: string | null;
 }
 
+export interface PhoneRevealRequestResult {
+  status: "pending";
+  correlationId: string;
+}
+
+export type PhoneRevealCallbackOutcome =
+  | { kind: "arrived"; prospectId: string; country: string | null }
+  | { kind: "blocked"; prospectId: string; country: string | null }
+  | { kind: "no_match"; prospectId: string }
+  | { kind: "duplicate"; prospectId: string; previousStatus: string }
+  | { kind: "unknown_correlation" };
+
 interface FetchOptions {
   method: "GET" | "POST";
   body?: unknown;
@@ -163,6 +203,14 @@ function getApiKey(): string {
   return key;
 }
 
+function getWebhookUrl(): string {
+  const url = process.env.APOLLO_WEBHOOK_URL;
+  if (!url || url.length === 0) {
+    throw new ApolloMissingWebhookUrlError();
+  }
+  return url;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -172,10 +220,15 @@ function sleep(ms: number): Promise<void> {
  * Adds api_key to the URL, X-Api-Key header, JSON body when present.
  * Implements the 429-retry-once policy and maps non-2xx responses to
  * typed errors.
+ *
+ * `acceptStatuses`: optional list of additional 2xx-or-not statuses that
+ * should be treated as success (e.g. 202 for async-accept). Default is
+ * Express's `response.ok` (200-299).
  */
 async function apolloFetch<T>(
   path: string,
   opts: FetchOptions,
+  acceptStatuses?: number[],
 ): Promise<T> {
   const apiKey = getApiKey();
   const url = new URL(`${APOLLO_BASE_URL}${path}`);
@@ -212,13 +265,24 @@ async function apolloFetch<T>(
     throw new ApolloAuthError(response.status, text);
   }
 
-  if (!response.ok) {
+  const isAccepted =
+    response.ok || (acceptStatuses?.includes(response.status) ?? false);
+  if (!isAccepted) {
     const text = await response.text().catch(() => "");
     throw new ApolloApiError(response.status, text);
   }
 
-  const json = (await response.json()) as T;
-  return json;
+  // Some async-accept responses are empty (204). Tolerate that by returning
+  // a typed-empty object; callers that expect a body can still cast.
+  const text = await response.text().catch(() => "");
+  if (text.length === 0) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Apollo occasionally returns text/plain for accepted-async; we only
+    // care about the status code in that case.
+    return {} as T;
+  }
 }
 
 interface RawApolloOrg {
@@ -262,14 +326,10 @@ interface OrgSearchResponse {
 
 interface PeopleSearchResponse {
   people?: RawApolloPerson[];
-  // Apollo /mixed_people/api_search also returns "contacts"; we ignore it
-  // for now — SDR seeding starts from the org-level employee directory.
 }
 
 interface PeopleMatchResponse {
   person?: RawApolloPerson;
-  // Some Apollo plans return a top-level person; others nest under
-  // matched_people. We accept either shape.
   matched_people?: RawApolloPerson[];
 }
 
@@ -307,8 +367,7 @@ function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
 /**
  * Pick the best phone number from Apollo's phone_numbers array. Apollo
  * orders "type" of mobile/work/home/other; we prefer mobile, then any
- * sanitized number, then null. Returns the sanitized E.164-ish form so
- * the geo gate sees a consistent shape.
+ * sanitized number, then null.
  */
 function pickPhone(raw: RawApolloPerson): string | null {
   const numbers = raw.phone_numbers ?? [];
@@ -325,10 +384,6 @@ function pickPhone(raw: RawApolloPerson): string | null {
  * Search Apollo organizations by name. Optional `country` (ISO-2 code or
  * full English name) narrows the result set via Apollo's
  * organization_locations filter. Returns up to 10 organizations.
- *
- * Note: Apollo's organization-name search is fuzzy. The first hit is
- * usually the right one for well-known brands, but the UI is expected to
- * let the SDR pick from the list rather than autoselecting.
  */
 export async function searchOrg(
   brand: string,
@@ -358,9 +413,7 @@ export async function searchOrg(
 
 /**
  * Search Apollo people inside a specific organization, filtered by titles.
- * Returns up to 25 people. An empty `titles` array uses the
- * DEFAULT_SDR_TITLES list. The result objects have id/name/title only;
- * email and phone are not included until revealContact is called.
+ * Returns up to 25 people.
  */
 export async function searchPeople(
   orgId: string,
@@ -391,22 +444,16 @@ export async function searchPeople(
 
 /**
  * Reveal email and (when Apollo surfaces it incidentally) phone + linkedin
- * for one person. THIS IS A PAID CALL — each successful reveal consumes
- * one Apollo credit. Caller increments daily_usage.apollo_reveals_used in
- * the same transaction as the action_log write.
+ * for one person — SYNCHRONOUS path. Does NOT pass reveal_phone_number=true,
+ * so Apollo never triggers the async webhook flow from this call. The
+ * separate `requestPhoneReveal` function is the entry point for the async
+ * phone-reveal lifecycle.
  *
- * Phone-reveal scope (v1): we DO NOT pass reveal_phone_number=true. That
- * flag forces Apollo's async phone-reveal flow which requires a registered
- * webhook_url, signed callback handling, and a separate "phone arrived
- * later" UX in the seeder. Out of scope for the initial Apollo client
- * ticket; if a phone is needed and not present in the basic-match response,
- * the SDR can fall back to manual entry. When Apollo does include a phone
- * (cached on a previously-revealed contact, or on certain plan tiers), we
- * still run it through the geo gate before returning.
+ * THIS IS A PAID CALL — each successful reveal consumes one Apollo credit.
+ * Caller (the route handler) increments daily_usage.apollo_reveals_used.
  *
  * The geo gate fires only when phone is present AND outside the allowed
- * country list. Email-only reveals are not blocked — the SDR may still
- * want the email even for a country we don't address with WhatsApp.
+ * country list. Email-only reveals are not blocked.
  */
 export async function revealContact(
   personId: string,
@@ -418,7 +465,8 @@ export async function revealContact(
   const body = {
     id: personId,
     reveal_personal_emails: true,
-    // reveal_phone_number intentionally omitted — see function-level comment.
+    // reveal_phone_number intentionally omitted — async phone reveal lives
+    // in requestPhoneReveal.
   };
 
   let response: PeopleMatchResponse;
@@ -462,4 +510,423 @@ export async function revealContact(
   }
 
   return revealed;
+}
+
+/**
+ * Generate a fresh, unguessable correlation token. 32 bytes of CSPRNG
+ * output, base64url-encoded (43 chars, URL-safe). Not the prospect id,
+ * not the personId, not anything an attacker could derive — this is the
+ * lookup key the webhook handler trusts.
+ */
+function generateCorrelationId(): string {
+  return randomBytes(32)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+/**
+ * Async phone-reveal request. Persists a correlation token on the
+ * prospect, increments the credit counter (Apollo charges on request
+ * acceptance), then POSTs to Apollo with reveal_phone_number=true and
+ * our webhook URL. Returns immediately — the webhook handler will
+ * complete the lifecycle when Apollo POSTs back.
+ *
+ * Idempotency at request time: if the prospect already has
+ * phone_reveal_status='pending' or 'arrived', we DO NOT re-issue the
+ * request. 'pending' means a previous request is in flight and we'd
+ * double-charge; 'arrived' means the phone is already stored. The
+ * caller can re-trigger by setting status back to 'none' explicitly
+ * (e.g. an admin "retry" action), which is intentionally out of band.
+ *
+ * The DB writes (correlationId persist, daily_usage increment, action
+ * log) happen BEFORE the Apollo POST. Failure modes:
+ *
+ *   - DB write fails: throws, no Apollo call, no credit consumed.
+ *   - DB writes succeed but Apollo POST fails: prospect has
+ *     status=pending, the webhook will never arrive, and a stale
+ *     pending row sits in the DB. Recovery is a manual reset (out of
+ *     scope here) but the credit is intentionally counted as spent —
+ *     Apollo MAY have charged depending on which side of the request
+ *     the failure lived.
+ *   - Apollo accepts: 202 (or 200 — Apollo's accepted-async status is
+ *     not documented consistently), webhook arrives later, handler
+ *     completes the lifecycle.
+ */
+export async function requestPhoneReveal(
+  personId: string,
+  prospectId: string,
+  userId: string,
+): Promise<PhoneRevealRequestResult> {
+  if (!personId || personId.trim().length === 0) {
+    throw new ApolloPersonNotFoundError(personId);
+  }
+
+  // Pre-flight env: fail fast before mutating anything if the webhook
+  // URL isn't configured. The Apollo POST without a webhook_url would
+  // either be rejected outright or — worse — accepted but never
+  // delivered, leaving a phantom pending row.
+  const webhookUrl = getWebhookUrl();
+  // Pre-flight API key too so we surface a clean error before DB writes.
+  getApiKey();
+
+  const correlationId = generateCorrelationId();
+  const today = new Date().toISOString().slice(0, 10);
+  const start = Date.now();
+
+  // Persist correlation + status BEFORE the Apollo call. If the Apollo
+  // call later fails, the prospect's status stays 'pending' and the
+  // operator sees the stuck record; we accept that over the alternative
+  // (Apollo accepts the async request, the webhook arrives, but we
+  // have no correlationId on file to match it to).
+  await db.transaction(async (tx) => {
+    // Idempotency guard: re-requesting against an already-pending or
+    // already-arrived prospect is a programmer error in the caller.
+    // We surface it as a thrown error rather than silently no-op so
+    // the SDR sees a clear "already requested" message.
+    const rows = await tx
+      .select({
+        userId: prospectsTable.userId,
+        phoneRevealStatus: prospectsTable.phoneRevealStatus,
+      })
+      .from(prospectsTable)
+      .where(eq(prospectsTable.id, prospectId))
+      .for("update")
+      .limit(1);
+
+    const prospect = rows[0];
+    if (!prospect) {
+      throw new Error(`Prospect not found: ${prospectId}`);
+    }
+    if (prospect.userId !== userId) {
+      throw new Error(
+        `Prospect ${prospectId} does not belong to user ${userId}`,
+      );
+    }
+    if (
+      prospect.phoneRevealStatus === "pending" ||
+      prospect.phoneRevealStatus === "arrived"
+    ) {
+      throw new Error(
+        `Phone reveal already in state '${prospect.phoneRevealStatus}' for prospect ${prospectId}`,
+      );
+    }
+
+    await tx
+      .update(prospectsTable)
+      .set({
+        apolloPersonId: personId,
+        phoneRevealStatus: "pending",
+        phoneRevealRequestedAt: new Date(),
+        phoneRevealCompletedAt: null,
+        phoneRevealCorrelationId: correlationId,
+        phoneNumber: null,
+      })
+      .where(eq(prospectsTable.id, prospectId));
+
+    await tx
+      .insert(dailyUsageTable)
+      .values({
+        userId,
+        date: today,
+        apolloRevealsUsed: 1,
+      })
+      .onConflictDoUpdate({
+        target: [dailyUsageTable.userId, dailyUsageTable.date],
+        set: {
+          apolloRevealsUsed: sql`${dailyUsageTable.apolloRevealsUsed} + 1`,
+        },
+      });
+
+    await tx.insert(actionLogsTable).values({
+      userId,
+      prospectId,
+      actionType: ACTION_TYPES.apolloPhoneRevealRequested,
+      actionStatus: "success",
+      durationMs: Date.now() - start,
+      metadata: {
+        personId,
+        correlationIdLen: correlationId.length,
+        // The correlationId itself is intentionally NOT logged. It is a
+        // capability token; logging it grants log-readers the ability to
+        // forge or replay webhook callbacks. The length is logged as a
+        // sanity check.
+      },
+    });
+  });
+
+  // Apollo call — outside the transaction so a slow Apollo response
+  // doesn't hold the DB lock. Body shape: /people/match with
+  // reveal_phone_number=true plus webhook_url plus our metadata token.
+  const body = {
+    id: personId,
+    reveal_phone_number: true,
+    webhook_url: webhookUrl,
+    metadata: {
+      // Apollo's metadata mechanism is not documented consistently across
+      // plan tiers. We send the correlationId under a few likely keys; on
+      // the callback side we tolerate any of them.
+      correlation_id: correlationId,
+      correlationId,
+      cf_correlation_id: correlationId,
+    },
+  };
+
+  // Apollo's documented status for accepted-async is not consistent —
+  // we accept 200, 202, and 204. Anything else is mapped to ApolloApiError.
+  await apolloFetch<unknown>(
+    "/people/match",
+    { method: "POST", body },
+    [200, 202, 204],
+  );
+
+  return { status: "pending", correlationId };
+}
+
+/**
+ * Webhook payload shape — best-effort permissive parse. Apollo's
+ * payload structure varies; we extract the fields we need and
+ * tolerate everything else. Required fields: a correlation token
+ * (one of several keys) and a phone number (one of several keys).
+ *
+ * Status field tolerance: Apollo MAY include a top-level status the
+ * webhook payload exposes, e.g. "no_match" when the person was looked
+ * up but had no phone on file. If the field is "no_match" or similar
+ * we transition the prospect to phone_reveal_status='no_match'.
+ */
+function extractCorrelationId(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+
+  const direct =
+    (typeof p.correlation_id === "string" && p.correlation_id) ||
+    (typeof p.correlationId === "string" && p.correlationId) ||
+    (typeof p.cf_correlation_id === "string" && p.cf_correlation_id);
+  if (direct) return direct;
+
+  // Nested: payload.metadata.correlation_id (and friends)
+  const md = p.metadata;
+  if (typeof md === "object" && md !== null) {
+    const m = md as Record<string, unknown>;
+    const fromMeta =
+      (typeof m.correlation_id === "string" && m.correlation_id) ||
+      (typeof m.correlationId === "string" && m.correlationId) ||
+      (typeof m.cf_correlation_id === "string" && m.cf_correlation_id);
+    if (fromMeta) return fromMeta;
+  }
+
+  // Nested: payload.data.metadata.correlation_id
+  const data = p.data;
+  if (typeof data === "object" && data !== null) {
+    const d = data as Record<string, unknown>;
+    if (typeof d.correlation_id === "string") return d.correlation_id;
+    if (typeof d.correlationId === "string") return d.correlationId;
+    const dm = d.metadata;
+    if (typeof dm === "object" && dm !== null) {
+      const m = dm as Record<string, unknown>;
+      if (typeof m.correlation_id === "string") return m.correlation_id;
+      if (typeof m.correlationId === "string") return m.correlationId;
+    }
+  }
+
+  return null;
+}
+
+function extractPhone(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+
+  // Top-level direct fields
+  if (typeof p.phone === "string" && p.phone.length > 0) return p.phone;
+  if (typeof p.phone_number === "string" && p.phone_number.length > 0) {
+    return p.phone_number;
+  }
+  if (typeof p.sanitized_number === "string" && p.sanitized_number.length > 0) {
+    return p.sanitized_number;
+  }
+
+  // Apollo person-shape: phone_numbers array
+  const personLike =
+    (p.person as Record<string, unknown> | undefined) ??
+    (p.contact as Record<string, unknown> | undefined) ??
+    p;
+  if (typeof personLike === "object" && personLike !== null) {
+    const numbers = personLike.phone_numbers;
+    if (Array.isArray(numbers) && numbers.length > 0) {
+      const picked = pickPhone({ phone_numbers: numbers as RawApolloPerson["phone_numbers"] });
+      if (picked) return picked;
+    }
+    const direct = personLike.phone;
+    if (typeof direct === "string" && direct.length > 0) return direct;
+  }
+
+  return null;
+}
+
+function extractStatus(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.status === "string") return p.status;
+  const data = p.data;
+  if (typeof data === "object" && data !== null) {
+    const s = (data as Record<string, unknown>).status;
+    if (typeof s === "string") return s;
+  }
+  return null;
+}
+
+/**
+ * Process one Apollo webhook callback. Called by the route handler
+ * AFTER HMAC verification has passed and the body has been JSON-parsed.
+ * Returns a typed outcome describing what happened so the route can
+ * shape the HTTP response (always 200 to Apollo to suppress retries,
+ * but logged differently per outcome).
+ *
+ * Idempotency strategy: SELECT ... FOR UPDATE on the prospect row keyed
+ * by correlationId. If the row's status is anything other than 'pending'
+ * the webhook has already been processed — return a 'duplicate' outcome
+ * without mutating. Concurrent webhook deliveries serialise on the row
+ * lock; the second blocks until the first commits, then sees status !=
+ * pending and no-ops.
+ *
+ * Geo gate: runs INSIDE the transaction. On block, the phone is never
+ * persisted. action_logs records the country code only — never the phone
+ * number, even on the success path, because the phone is sensitive.
+ */
+export async function processPhoneRevealCallback(
+  payload: unknown,
+): Promise<PhoneRevealCallbackOutcome> {
+  const correlationId = extractCorrelationId(payload);
+  if (!correlationId) {
+    return { kind: "unknown_correlation" };
+  }
+
+  return await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: prospectsTable.id,
+        userId: prospectsTable.userId,
+        phoneRevealStatus: prospectsTable.phoneRevealStatus,
+      })
+      .from(prospectsTable)
+      .where(eq(prospectsTable.phoneRevealCorrelationId, correlationId))
+      .for("update")
+      .limit(1);
+
+    const prospect = rows[0];
+    if (!prospect) {
+      return { kind: "unknown_correlation" } as const;
+    }
+
+    if (prospect.phoneRevealStatus !== "pending") {
+      // Apollo retried; we've already processed this delivery. No-op.
+      return {
+        kind: "duplicate" as const,
+        prospectId: prospect.id,
+        previousStatus: prospect.phoneRevealStatus,
+      };
+    }
+
+    // No-match / not-found terminal: Apollo couldn't supply a phone for
+    // this person. Mark terminal so the SDR doesn't keep waiting.
+    const status = extractStatus(payload);
+    const phone = extractPhone(payload);
+
+    if (
+      !phone ||
+      status === "no_match" ||
+      status === "not_found" ||
+      status === "failed"
+    ) {
+      await tx
+        .update(prospectsTable)
+        .set({
+          phoneRevealStatus: "no_match",
+          phoneRevealCompletedAt: new Date(),
+        })
+        .where(eq(prospectsTable.id, prospect.id));
+
+      // Log under the 'blocked' action type (closest fit) with a status of
+      // 'skipped' so the audit trail distinguishes it from geo-blocks.
+      // Reuse the existing action types — adding an apolloPhoneRevealNoMatch
+      // type is overkill for what is effectively the same operator-facing
+      // outcome ("no phone for this lead").
+      await tx.insert(actionLogsTable).values({
+        userId: prospect.userId,
+        prospectId: prospect.id,
+        actionType: ACTION_TYPES.apolloPhoneRevealBlocked,
+        actionStatus: "skipped",
+        metadata: {
+          reason: "no_match",
+          apolloStatus: status ?? null,
+        },
+      });
+
+      return { kind: "no_match" as const, prospectId: prospect.id };
+    }
+
+    // Geo gate. The whole reason this is a callback-time check rather
+    // than a request-time check is that we don't have the phone until
+    // Apollo delivers it. On block, the phone is dropped on the floor
+    // — never persisted, not even briefly.
+    const country = detectCountry(phone);
+    if (!isAllowedPhone(phone)) {
+      await tx
+        .update(prospectsTable)
+        .set({
+          phoneRevealStatus: "blocked",
+          phoneRevealCompletedAt: new Date(),
+          phoneNumber: null,
+        })
+        .where(eq(prospectsTable.id, prospect.id));
+
+      await tx.insert(actionLogsTable).values({
+        userId: prospect.userId,
+        prospectId: prospect.id,
+        actionType: ACTION_TYPES.apolloPhoneRevealBlocked,
+        actionStatus: "blocked",
+        errorDetail: `geo_blocked country=${country ?? "unknown"}`,
+        metadata: {
+          country,
+          // Phone NEVER goes in metadata, not even on the blocked path.
+        },
+      });
+
+      return {
+        kind: "blocked" as const,
+        prospectId: prospect.id,
+        country,
+      };
+    }
+
+    // Allowed. Store the phone, transition to arrived.
+    await tx
+      .update(prospectsTable)
+      .set({
+        phoneRevealStatus: "arrived",
+        phoneRevealCompletedAt: new Date(),
+        phoneNumber: phone,
+      })
+      .where(eq(prospectsTable.id, prospect.id));
+
+    await tx.insert(actionLogsTable).values({
+      userId: prospect.userId,
+      prospectId: prospect.id,
+      actionType: ACTION_TYPES.apolloPhoneRevealArrived,
+      actionStatus: "success",
+      metadata: {
+        country,
+        // Again: no phone in metadata. The phone is in prospects.phone_number;
+        // logging it here would create a second copy in a less-privileged
+        // table.
+      },
+    });
+
+    return {
+      kind: "arrived" as const,
+      prospectId: prospect.id,
+      country,
+    };
+  });
 }

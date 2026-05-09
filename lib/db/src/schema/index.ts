@@ -1,5 +1,6 @@
 export * from "./users";
 export * from "./prospects";
+export * from "./campaigns";
 export * from "./followups";
 export * from "./conversations";
 export * from "./magic_link_tokens";

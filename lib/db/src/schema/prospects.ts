@@ -6,11 +6,13 @@ import {
   boolean,
   timestamp,
   uniqueIndex,
+  index,
   jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
+import { campaignsTable } from "./campaigns";
 
 export const prospectsTable = pgTable(
   "prospects",
@@ -35,6 +37,9 @@ export const prospectsTable = pgTable(
     apolloPersonId: text("apollo_person_id"),
     apolloOrgId: text("apollo_org_id"),
     sourceMode: text("source_mode").notNull(),
+    campaignId: uuid("campaign_id").references(() => campaignsTable.id, {
+      onDelete: "set null",
+    }),
     contextNotes: text("context_notes"),
     researchBrief: jsonb("research_brief"),
     firstMessageBody: text("first_message_body"),
@@ -45,6 +50,37 @@ export const prospectsTable = pgTable(
     replied: integer("replied").notNull().default(0),
     repliedAt: timestamp("replied_at", { withTimezone: true }),
     followupPaused: boolean("followup_paused").notNull().default(false),
+    /**
+     * Phone reveal columns (Ticket 1.5b — async Apollo phone reveal flow).
+     *
+     * Apollo's phone-reveal pattern is asynchronous: the request endpoint
+     * accepts a person id and a webhook URL, returns 202, then later POSTs
+     * the resolved phone number to the webhook. We persist a short-lived
+     * correlation token at request time, then match the webhook callback
+     * to the originating prospect via that token. The token (32 raw bytes,
+     * base64url-encoded) is the lookup key — never the prospect id, which
+     * if leaked would let an attacker replay phone-reveal callbacks.
+     *
+     * Status enum (text, not Postgres enum, to keep migrations cheap):
+     *   - "none"     no reveal has been requested for this prospect
+     *   - "pending"  request has been sent to Apollo, awaiting webhook
+     *   - "arrived"  webhook delivered a phone, geo gate passed, stored
+     *   - "blocked"  webhook delivered a phone, geo gate rejected; no
+     *                phone is persisted in this case
+     *   - "no_match" Apollo returned no phone for this person (terminal)
+     *
+     * phoneNumber is populated ONLY on the "arrived" path, after the geo
+     * gate passes. On "blocked" the phone is intentionally discarded.
+     */
+    phoneRevealStatus: text("phone_reveal_status").notNull().default("none"),
+    phoneNumber: text("phone_number"),
+    phoneRevealRequestedAt: timestamp("phone_reveal_requested_at", {
+      withTimezone: true,
+    }),
+    phoneRevealCompletedAt: timestamp("phone_reveal_completed_at", {
+      withTimezone: true,
+    }),
+    phoneRevealCorrelationId: text("phone_reveal_correlation_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -55,6 +91,11 @@ export const prospectsTable = pgTable(
   },
   (table) => [
     uniqueIndex("prospects_user_phone_unique").on(table.userId, table.phone),
+    // Webhook-handler hot path: lookup by correlation token. Indexed for
+    // O(log n) lookup on what would otherwise be a full-table scan.
+    index("prospects_phone_reveal_correlation_idx").on(
+      table.phoneRevealCorrelationId,
+    ),
   ],
 );
 
