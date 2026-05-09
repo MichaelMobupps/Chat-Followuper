@@ -1,0 +1,63 @@
+set -e
+cd "$(pwd)"
+
+# ===================== Ticket 1.7 backend HOTFIX =====================
+
+# Fix 1: declare zod in api-server (catalog version)
+node -e '
+const fs = require("fs");
+const p = "artifacts/api-server/package.json";
+const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+pkg.dependencies = pkg.dependencies || {};
+if (pkg.dependencies.zod) {
+  console.log("[SKIP] zod already declared:", pkg.dependencies.zod);
+} else {
+  pkg.dependencies.zod = "catalog:";
+  fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+  console.log("[APPLY] added zod: catalog: to api-server dependencies");
+}
+'
+
+# Fix 2: route the brief cast through unknown in generateMessage.ts
+node -e '
+const fs = require("fs");
+const p = "artifacts/api-server/src/routes/generateMessage.ts";
+let src = fs.readFileSync(p, "utf8");
+const before = src;
+src = src.replace(
+  /\(brief as Record<string, unknown>\)/g,
+  "(brief as unknown as Record<string, unknown>)"
+);
+if (src === before) {
+  console.log("[SKIP] no direct brief casts found (already fixed or pattern moved)");
+} else {
+  fs.writeFileSync(p, src);
+  const count = (src.match(/brief as unknown as Record<string, unknown>/g) || []).length;
+  console.log("[APPLY] generateMessage.ts: " + count + " casts now route through unknown");
+}
+'
+
+# Install the new zod dep
+pnpm install
+
+# Run the ROOT typecheck — does tsc --build of composite libs first, then leaves
+pnpm run typecheck
+
+# Continue from where apply.sh halted (steps 5-7)
+pnpm --filter @workspace/api-server run build
+bash scripts/sync-source-code.sh
+
+# Stage tests at /tmp/ (idempotent — overwrite is fine)
+cp ticket-1-7-backend/tests/integration-1-7-campaigns.mjs /tmp/integration-1-7-campaigns.mjs
+cp ticket-1-7-backend/tests/integration-1-7-message.mjs /tmp/integration-1-7-message.mjs
+
+echo ""
+echo "===================================================="
+echo "  Hotfix complete. Build + sync done. Tests staged."
+echo "  NEXT STEPS (manual, in this order):"
+echo "  1. Click Republish in the Replit UI."
+echo "  2. After deploy is live, run:"
+echo "     node /tmp/integration-1-7-campaigns.mjs"
+echo "  3. (Optional, costs ~\$0.15) live message-gen test:"
+echo "     RUN_LIVE_ANTHROPIC=1 node /tmp/integration-1-7-message.mjs"
+echo "===================================================="

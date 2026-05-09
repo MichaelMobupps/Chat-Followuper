@@ -12,6 +12,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
+import { campaignsTable } from "./campaigns";
 
 export const prospectsTable = pgTable(
   "prospects",
@@ -36,6 +37,9 @@ export const prospectsTable = pgTable(
     apolloPersonId: text("apollo_person_id"),
     apolloOrgId: text("apollo_org_id"),
     sourceMode: text("source_mode").notNull(),
+    campaignId: uuid("campaign_id").references(() => campaignsTable.id, {
+      onDelete: "set null",
+    }),
     contextNotes: text("context_notes"),
     researchBrief: jsonb("research_brief"),
     firstMessageBody: text("first_message_body"),
