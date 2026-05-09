@@ -34,7 +34,7 @@ if (!SESSION_SECRET || SESSION_SECRET.length < 16) {
   process.exit(2);
 }
 
-const SESSION_COOKIE_NAME = "session";
+const SESSION_COOKIE_NAME = "cf_session";
 const TEST_EMAIL_PATTERN = "__t172_prospects_%@test.local";
 
 // ─── Assertion harness ─────────────────────────────────────────────────────
@@ -71,11 +71,11 @@ function base64UrlEncode(buf) {
     .replace(/=+$/, "");
 }
 
-function mintSessionCookie(userId) {
-  const payload = JSON.stringify({
-    userId,
-    issuedAt: Date.now(),
-  });
+function mintSessionCookie(userId, email) {
+  // Server verifySession (lib/session.ts) enforces { userId, email, exp }
+  // with strict type checks. issuedAt is not accepted.
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+  const payload = JSON.stringify({ userId, email, exp });
   const payloadB64 = base64UrlEncode(Buffer.from(payload, "utf8"));
   const sig = crypto
     .createHmac("sha256", SESSION_SECRET)
@@ -214,8 +214,8 @@ async function main() {
   console.log("--- Setup ---");
   const userA = await createTestUser("A");
   const userB = await createTestUser("B");
-  const cookieA = mintSessionCookie(userA.id);
-  const cookieB = mintSessionCookie(userB.id);
+  const cookieA = mintSessionCookie(userA.id, userA.email);
+  const cookieB = mintSessionCookie(userB.id, userB.email);
   const campaignA = await createCampaign(userA.id, "Test Campaign A");
   const campaignB = await createCampaign(userB.id, "Test Campaign B");
   console.log(`  userA=${userA.id}`);

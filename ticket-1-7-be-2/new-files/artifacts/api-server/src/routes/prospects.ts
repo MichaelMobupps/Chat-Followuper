@@ -218,67 +218,68 @@ router.post(
       }
     }
 
-    try {
-      const inserted = await db
-        .insert(prospectsTable)
-        .values({
-          userId: user.id,
-          phone: body.phone,
-          sourceMode: body.sourceMode,
-          prospectName: body.prospectName ?? null,
-          company: body.company ?? null,
-          title: body.title ?? null,
-          vertical: body.vertical ?? null,
-          subVertical: body.subVertical ?? null,
-          product: body.product ?? null,
-          country: body.country ?? null,
-          language: body.language ?? null,
-          telegramHandle: body.telegramHandle ?? null,
-          teamsEmail: body.teamsEmail ?? null,
-          linkedinUrl: body.linkedinUrl ?? null,
-          apolloPersonId: body.apolloPersonId ?? null,
-          apolloOrgId: body.apolloOrgId ?? null,
-          contextNotes: body.contextNotes ?? null,
-          researchBrief: body.researchBrief ?? null,
-          campaignId: body.campaignId ?? null,
-        })
-        .returning();
+    // Use onConflictDoNothing instead of try/catch on SQLSTATE 23505 —
+    // drizzle wraps the underlying pg error and the code surface differs
+    // across drivers. Empty returning() means a duplicate phone hit the
+    // (user_id, phone) unique index. Race-safe: the DB still enforces.
+    const inserted = await db
+      .insert(prospectsTable)
+      .values({
+        userId: user.id,
+        phone: body.phone,
+        sourceMode: body.sourceMode,
+        prospectName: body.prospectName ?? null,
+        company: body.company ?? null,
+        title: body.title ?? null,
+        vertical: body.vertical ?? null,
+        subVertical: body.subVertical ?? null,
+        product: body.product ?? null,
+        country: body.country ?? null,
+        language: body.language ?? null,
+        telegramHandle: body.telegramHandle ?? null,
+        teamsEmail: body.teamsEmail ?? null,
+        linkedinUrl: body.linkedinUrl ?? null,
+        apolloPersonId: body.apolloPersonId ?? null,
+        apolloOrgId: body.apolloOrgId ?? null,
+        contextNotes: body.contextNotes ?? null,
+        researchBrief: body.researchBrief ?? null,
+        campaignId: body.campaignId ?? null,
+      })
+      .onConflictDoNothing({
+        target: [prospectsTable.userId, prospectsTable.phone],
+      })
+      .returning();
 
-      const prospect = inserted[0]!;
-
-      // Audit trail — best-effort, must not fail the create.
-      try {
-        await db.insert(actionLogsTable).values({
-          userId: user.id,
-          actionType: ACTION_TYPES.prospectCreated,
-          actionStatus: "success",
-          durationMs: Date.now() - start,
-          metadata: {
-            prospectId: prospect.id,
-            sourceMode: body.sourceMode,
-            campaignId: body.campaignId ?? null,
-            hasResearchBrief: body.researchBrief != null,
-          },
-        });
-      } catch {
-        // ignore audit failure
-      }
-
-      res.status(201).json(prospect);
-    } catch (err) {
-      // Postgres unique violation on (user_id, phone) → 409.
-      // node-postgres surfaces SQLSTATE 23505 on err.code.
-      const errAny = err as { code?: string };
-      if (errAny?.code === "23505") {
-        res.status(409).json({
-          error: "duplicate_phone",
-          detail:
-            "A prospect with this phone already exists for this user.",
-        });
-        return;
-      }
-      throw err;
+    if (inserted.length === 0) {
+      res.status(409).json({
+        error: "duplicate_phone",
+        detail:
+          "A prospect with this phone already exists for this user.",
+      });
+      return;
     }
+
+    const prospect = inserted[0]!;
+
+    // Audit trail — best-effort.
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.prospectCreated,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          prospectId: prospect.id,
+          sourceMode: body.sourceMode,
+          campaignId: body.campaignId ?? null,
+          hasResearchBrief: body.researchBrief != null,
+        },
+      });
+    } catch {
+      // ignore audit failure
+    }
+
+    res.status(201).json(prospect);
   },
 );
 
