@@ -95,17 +95,31 @@ async function jsonFetch(path, opts = {}) {
 // missing optional brief fields.
 
 const RESEARCH_BRIEF_FIXTURE = {
-  product: "real-money gaming app",
-  vertical: "mobile_gaming",
-  sub_vertical: "real_money_gaming",
-  monetization_model: "in_app_purchases",
-  primary_kpi: "purchasing_users",
-  proof_points: [
-    "Scaled UA for similar mobile gaming apps in tier-1 markets",
-    "Programmatic optimization on revenue events, not installs",
+  determinedCountry: "IN",
+  determinedScaleTier: "mid",
+  scaleRationale: "Probo is a well-known Indian opinion-trading / skill-gaming platform with significant user traction but not yet at mega scale.",
+  calibratedDailyVolume: "5,000-15,000 first-purchase events",
+  primaryEvent: "first_deposit",
+  alternativeEvents: ["registration", "kyc_completion", "first_trade"],
+  finalCompetitors: ["Dream11", "MPL", "WinZO"],
+  subsidiaryCheckNote: "Probo operates independently; not a subsidiary of a larger gaming holding co.",
+  marketContext: "Indian real-money / skill-gaming market is highly competitive with strict KYC requirements and intense CAC pressure post-GST changes.",
+  prospectSpecificHook: "Probo monetizes on opinion-trading deposits, where event-level UA optimization meaningfully outperforms install-volume bidding.",
+  prospectPrimaryGrowthProblem: "Scaling first-deposit volume profitably while keeping CAC stable as Indian gaming UA inventory tightens.",
+  whyArgument: "Indian skill-gaming peers like Dream11 and MPL have shifted UA spend toward event-bidding because install-only campaigns no longer hit deposit ROAS targets.",
+  validationArgument: "MobUpps has scaled first-deposit-event campaigns for comparable Indian gaming brands without inflating CAC.",
+  howArgument: "MAFO bids and optimizes directly on the first_deposit event, not installs, so spend concentrates on users who actually fund accounts.",
+  tangibleReasons: [
+    "Event-level optimization on first_deposit (not installs) keeps CAC predictable",
+    "Programmatic creative rotation tested across IN-tier-1 audiences",
+    "Direct integrations with Indian gaming MMP setups (AppsFlyer, Adjust)",
   ],
-  hook: "Most gaming UA networks optimize installs; we optimize on first-purchase events.",
-  notes: "Indian market; predictions/skill-gaming; competitive UA landscape.",
+  whyArgumentNative: "",
+  validationArgumentNative: "",
+  howArgumentNative: "",
+  generatedAt: new Date().toISOString(),
+  generatorModel: "claude-sonnet-4-test-fixture",
+  generatorCostUsd: 0,
 };
 
 const sql = postgres(DB_URL, { max: 4 });
@@ -122,7 +136,7 @@ async function makeUser(email) {
   return rows[0];
 }
 
-async function createProspect({ userId, campaignId, includeBrief }) {
+async function createProspect({ userId, campaignId, includeBrief, phone = "+919900000111" }) {
   const rows = await sql`
     INSERT INTO prospects (
       user_id, campaign_id, prospect_name, company, vertical, sub_vertical,
@@ -132,7 +146,7 @@ async function createProspect({ userId, campaignId, includeBrief }) {
     VALUES (
       ${userId}, ${campaignId},
       ${"Riya Patel"}, ${"Probo"}, ${"mobile_gaming"}, ${"real_money_gaming"},
-      ${"real-money gaming app"}, ${"IN"}, ${"en"}, ${"+919900000111"},
+      ${"real-money gaming app"}, ${"IN"}, ${"en"}, ${phone},
       ${"apollo"},
       ${includeBrief ? JSON.stringify(RESEARCH_BRIEF_FIXTURE) : null},
       ${"whatsapp"}
@@ -189,11 +203,9 @@ async function main() {
 
   console.log(`\n[STEP 3] research not complete → 409 research_not_complete`);
   {
-    const noBriefId = await createProspect({
-      userId: userA.id,
+    const noBriefId = await createProspect({ userId: userA.id,
       campaignId,
-      includeBrief: false,
-    });
+      includeBrief: false, phone: "+919900000222" });
     const r = await jsonFetch(`/api/prospects/${noBriefId}/generate-message`, {
       method: "POST",
       cookie: cookieA,
@@ -208,11 +220,9 @@ async function main() {
     console.log(`         set RUN_LIVE_ANTHROPIC=1 to verify end-to-end (~$0.10-0.20)`);
   } else {
     console.log(`\n[STEP 4] live generation`);
-    const prospectId = await createProspect({
-      userId: userA.id,
+    const prospectId = await createProspect({ userId: userA.id,
       campaignId,
-      includeBrief: true,
-    });
+      includeBrief: true, phone: "+919900000333" });
 
     // Capture daily_usage state before.
     const today = new Date().toISOString().slice(0, 10);
