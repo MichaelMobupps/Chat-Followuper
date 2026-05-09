@@ -61,7 +61,8 @@ Run before ship. Blocks on any HIGH or >2 LOW.
 
 | Pass | Status | Notes |
 |---|---|---|
-| 1. Patch idempotency | NONE | Both .mjs patches: pre-check before mutating, fail-loud on missing anchors, atomic writes. |
+| 1a. Patch code structure | NONE | Both .mjs patches: pre-check before mutating, fail-loud on missing anchors, atomic writes. |
+| 1b. Anchor validity vs live file | **MEDIUM (post-ship)** | layout.tsx anchor `Megaphone,\n}` was incorrect — actual file has `Megaphone,\n  Settings,\n}` because Settings landed between FE-A and 2.0-FE. Fixed in v2 of patch-layout-nav.mjs (anchor on `} from "lucide-react";` alone, tolerant of any icon order). See "Post-ship findings" below. |
 | 2. Type safety + braces | NONE | All 4 .tsx files balanced. No `any`, no `as` assertions, default exports, standard imports. |
 | 3. Cross-tenant safety | LOW | N/A for frontend, but AuthGate inheritance is assumed (new routes inside same Switch as `/campaigns`). Manual test verifies. |
 | 4. Defect-log adherence | NONE | All cumulative defects N/A for this bundle. |
@@ -69,9 +70,24 @@ Run before ship. Blocks on any HIGH or >2 LOW.
 | 6. Naming consistency | NONE | URL ↔ component ↔ file ↔ label consistent across all 4 new pages. |
 | 7. Documentation | NONE | This section + manual test + scope/migration in README all present. |
 
-**Verdict**: 0 HIGH, 1 MEDIUM, 2 LOW. Ships.
+**Verdict (initial)**: 0 HIGH, 1 MEDIUM, 2 LOW. Ships.
+**Verdict (post-ship hotfix)**: 0 HIGH, 2 MEDIUM, 2 LOW. Ships with v2 patch.
 
-The MEDIUM is documented as a known transient issue. Mitigation: SDRs navigate via the sidebar, not by typing URLs. The old "Prospects" nav item retires in 2.3 (when WhatsApp prospect page goes live).
+The MEDIUM items are documented mitigations:
+- 5: Resolves when 2.3 retires old nav. SDRs use sidebar, not URL typing.
+- 1b: Already fixed in v2 patch. Won't recur because new anchor is order-tolerant.
+
+## Post-ship findings (and protocol refinement)
+
+**Finding**: Pass 1 originally lumped "patch code structure" and "anchor validity" together. The audit checked code structure but had no way to verify the anchor strings actually exist in the live file (I don't always have the latest file state from outside the bundle). Replit Agent's apply.sh run caught the mismatch on layout.tsx — `Megaphone,\n}` anchor failed because the real file had `Megaphone,\n  Settings,\n}`.
+
+**Protocol refinement going forward**: Pass 1 splits into:
+- **1a. Code structure** — patch is well-formed, idempotent, fail-loud, atomic-write. Verifiable from the patch source alone.
+- **1b. Anchor validity** — anchor strings exist in the live file. Verifiable only when I have access to the current file state. Otherwise: NOT VERIFIED, anchor assumed; rely on apply.sh's fail-loud to catch.
+
+When 1b is unverified, the audit notes it explicitly and the patch must use a tolerant anchor (e.g. closing-brace-only) rather than a multi-line specific anchor. v2 of patch-layout-nav.mjs follows this rule.
+
+This finding applies retroactively to all prior bundles (FE-A, BE-2, FE-B-1, FE-B-2). Their patches landed without 1b verification but didn't fail, since the anchor strings happened to be stable. Going forward, patches use tolerant anchors by default.
 
 ## Defect-log status
 
