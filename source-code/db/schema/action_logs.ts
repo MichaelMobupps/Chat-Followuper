@@ -54,6 +54,7 @@ export const ACTION_TYPES = {
   prospectReplied: "prospect.replied",
   prospectPaused: "prospect.paused",
   prospectSkipped: "prospect.skipped",
+  prospectDeleted: "prospect.deleted",
   followupQueued: "followup.queued",
   followupGenerated: "followup.generated",
   followupSent: "followup.sent",

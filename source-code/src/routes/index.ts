@@ -4,6 +4,7 @@ import authRouter from "./auth";
 import googleAuthRouter from "./google-auth";
 import whatsappLinkRouter from "./whatsappLink";
 import apolloRouter from "./apollo";
+import prospectsRouter from "./prospects";
 import campaignsRouter from "./campaigns";
 import generateMessageRouter from "./generateMessage";
 
@@ -14,6 +15,7 @@ router.use(authRouter);
 router.use(googleAuthRouter);
 router.use(whatsappLinkRouter);
 router.use(apolloRouter);
+router.use(prospectsRouter);
 router.use(campaignsRouter);
 router.use(generateMessageRouter);
 
