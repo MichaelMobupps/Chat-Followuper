@@ -1,160 +1,58 @@
+#!/usr/bin/env node
 /**
- * /api/prospector/* routes — Ticket 2.1-BE.
+ * Anchored, idempotent patch for artifacts/api-server/src/routes/prospector.ts
+ * (which was created in Ticket 2.1-BE). Adds:
+ *   - import for companyResolver service (with F3/F7 helpers)
+ *   - in-memory rate limiter (F2)
+ *   - POST /prospector/resolve-company route handler with:
+ *     * Outer 200s timeout (F1) — caps SDK 2× retry exposure
+ *     * Per-user rate limit (F2)
+ *     * Sanitization of LLM output before action_log write (F3)
+ *     * Secret redaction on error_detail (F7)
+ *     * Token usage in response (F9)
  *
- * Phase 2 prospector flow lives here. v1 has one endpoint: resolve-urls.
- * Future tickets add discovery (2.2-BE) and bulk-create (2.4-BE) under
- * the same router.
- *
- * Conventions match routes/prospects.ts (BE-2):
- *   - requireAuth + req.user!
- *   - zod/v4 with .strict() and ZodError → zodErrorToHttp
- *   - direct db.insert(actionLogsTable) for logging (no helper)
- *   - 4xx codes for user-facing errors
- *
- * Routes:
- *   POST /api/prospector/resolve-urls   — batch URL resolution
+ * Two anchor points:
+ *   1. The 2.1-BE urlResolver import line — insert new import after it.
+ *   2. The trailing `export default router;` line — insert route block before it.
  */
+import fs from "node:fs";
 
-import { Router, type IRouter, type Request, type Response } from "express";
-import { z, ZodError } from "zod/v4";
-import {
-  db,
-  actionLogsTable,
-  ACTION_TYPES,
-} from "@workspace/db";
-import { requireAuth } from "../middlewares/auth";
-import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";
-import {
-  resolveCompany,
-  redactSecrets,
-  sanitizeForStorage,
-  type ResolveCompanyInput,
-  type ResolveCompanyResult,
-} from "../services/companyResolver";
+const PATH = "artifacts/api-server/src/routes/prospector.ts";
 
-const router: IRouter = Router();
+let src = fs.readFileSync(PATH, "utf8");
+const before = src;
+const log = (m) => console.log(`[patch-prospector-route] ${m}`);
 
-const URL_MIN_LEN = 1;
-const URL_MAX_LEN = 2000;
-const BATCH_MIN = 1;
-const BATCH_MAX = 50;
-const CONCURRENCY = 5;
+// ─── Patch 1: import line ─────────────────────────────────────────────────
 
-const resolveUrlsBodySchema = z
-  .object({
-    urls: z
-      .array(
-        z
-          .string()
-          .trim()
-          .min(URL_MIN_LEN, "URL cannot be empty")
-          .max(URL_MAX_LEN, `URL too long (max ${URL_MAX_LEN} chars)`),
-      )
-      .min(BATCH_MIN, "At least one URL required")
-      .max(BATCH_MAX, `At most ${BATCH_MAX} URLs per batch`),
-  })
-  .strict();
+const importAnchor =
+  'import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";';
+const importInsert =
+  'import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";\n' +
+  'import {\n' +
+  '  resolveCompany,\n' +
+  '  redactSecrets,\n' +
+  '  sanitizeForStorage,\n' +
+  '  type ResolveCompanyInput,\n' +
+  '  type ResolveCompanyResult,\n' +
+  '} from "../services/companyResolver";';
 
-type ResolveUrlsBody = z.infer<typeof resolveUrlsBodySchema>;
-
-function zodErrorToHttp(err: ZodError): {
-  status: 400;
-  body: { error: string; issues: { path: string; message: string }[] };
-} {
-  return {
-    status: 400,
-    body: {
-      error: "invalid_body",
-      issues: err.issues.map((i) => ({
-        path: i.path.join("."),
-        message: i.message,
-      })),
-    },
-  };
+if (src.includes('from "../services/companyResolver"')) {
+  log("[SKIP] companyResolver import already present");
+} else if (!src.includes(importAnchor)) {
+  console.error(
+    `[patch-prospector-route] [FAIL] import anchor not found: ${importAnchor}`,
+  );
+  console.error("       Apply 2.1-BE first if not done.");
+  process.exit(2);
+} else {
+  src = src.replace(importAnchor, importInsert);
+  log("[APPLY] added companyResolver import (with F3/F7 helpers)");
 }
 
-async function pMap<T, R>(
-  items: T[],
-  fn: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let nextIdx = 0;
-  const workerCount = Math.max(1, Math.min(concurrency, items.length));
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const my = nextIdx++;
-      if (my >= items.length) return;
-      results[my] = await fn(items[my]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
+// ─── Patch 2: route handler block ─────────────────────────────────────────
 
-router.post(
-  "/prospector/resolve-urls",
-  requireAuth,
-  async (req: Request, res: Response): Promise<void> => {
-    const user = req.user!;
-    const start = Date.now();
-
-    let body: ResolveUrlsBody;
-    try {
-      body = resolveUrlsBodySchema.parse(req.body);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        const mapped = zodErrorToHttp(err);
-        res.status(mapped.status).json(mapped.body);
-        return;
-      }
-      throw err;
-    }
-
-    const resolved: ResolvedUrl[] = await pMap(
-      body.urls,
-      (u) => resolveUrl(u),
-      CONCURRENCY,
-    );
-
-    const successCount = resolved.filter((r) => r.error === null).length;
-    const failureCount = resolved.length - successCount;
-
-    try {
-      await db.insert(actionLogsTable).values({
-        userId: user.id,
-        actionType: ACTION_TYPES.prospectorUrlsResolved,
-        actionStatus: failureCount === 0 ? "success" : "failure",
-        durationMs: Date.now() - start,
-        metadata: {
-          batch_size: body.urls.length,
-          success_count: successCount,
-          failure_count: failureCount,
-          type_counts: countByType(resolved),
-        },
-      });
-    } catch {
-      // Audit log failure must not break the user response.
-    }
-
-    res.status(200).json({ resolved });
-  },
-);
-
-function countByType(
-  resolved: ResolvedUrl[],
-): Record<ResolvedUrl["type"], number> {
-  const counts: Record<ResolvedUrl["type"], number> = {
-    play_store: 0,
-    app_store: 0,
-    website: 0,
-    unknown: 0,
-  };
-  for (const r of resolved) counts[r.type]++;
-  return counts;
-}
-
-// ─── Ticket 2.2-BE-A: /resolve-company ────────────────────────────────────
+const ROUTE_BLOCK = `// ─── Ticket 2.2-BE-A: /resolve-company ────────────────────────────────────
 //
 // Sonnet-driven company disambiguation. Takes brand+appName+domain+country
 // (typically a ResolvedUrl from /resolve-urls), returns the real company
@@ -277,7 +175,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(`${label} exceeded ${ms}ms outer timeout`));
+      reject(new Error(\`\${label} exceeded \${ms}ms outer timeout\`));
     }, ms);
   });
   // Detach a no-op handler so a late rejection doesn't escape as
@@ -324,7 +222,7 @@ router.post(
       res.status(429).json({
         error: "rate_limit_exceeded",
         message:
-          `Too many /resolve-company calls. Limit is ${RESOLVE_RATE_MAX_CALLS} per minute. Retry in ${retryAfterSec}s.`,
+          \`Too many /resolve-company calls. Limit is \${RESOLVE_RATE_MAX_CALLS} per minute. Retry in \${retryAfterSec}s.\`,
         retryAfterSeconds: retryAfterSec,
       });
       return;
@@ -442,4 +340,69 @@ router.post(
   },
 );
 
-export default router;
+`;
+
+const exportAnchor = "export default router;";
+
+if (src.includes('"/prospector/resolve-company"')) {
+  log("[SKIP] /resolve-company route already present");
+} else if (!src.includes(exportAnchor)) {
+  console.error(
+    `[patch-prospector-route] [FAIL] export anchor not found: ${exportAnchor}`,
+  );
+  process.exit(2);
+} else {
+  src = src.replace(exportAnchor, ROUTE_BLOCK + exportAnchor);
+  log("[APPLY] added /resolve-company route handler with audit fixes F1/F2/F3/F7/F9");
+}
+
+if (src === before) {
+  log("[NOOP] no changes");
+} else {
+  fs.writeFileSync(PATH, src);
+  log("[DONE] prospector.ts updated");
+}
+
+// ─── Evidence ─────────────────────────────────────────────────────────────
+
+const finalSrc = fs.readFileSync(PATH, "utf8");
+const evidence = {
+  companyResolver_import: (
+    finalSrc.match(/from "\.\.\/services\/companyResolver"/g) || []
+  ).length,
+  resolve_company_route: (
+    finalSrc.match(/"\/prospector\/resolve-company"/g) || []
+  ).length,
+  resolve_urls_route_still_present: (
+    finalSrc.match(/"\/prospector\/resolve-urls"/g) || []
+  ).length,
+  rate_limit_present: (
+    finalSrc.match(/checkResolveCompanyRateLimit/g) || []
+  ).length,
+  withTimeout_present: (
+    finalSrc.match(/RESOLVE_COMPANY_TIMEOUT_MS/g) || []
+  ).length,
+  sanitize_used: (
+    finalSrc.match(/sanitizeForStorage/g) || []
+  ).length,
+  redact_used: (finalSrc.match(/redactSecrets/g) || []).length,
+};
+console.log("[patch-prospector-route] evidence:", JSON.stringify(evidence));
+const minExpected = {
+  companyResolver_import: 1,
+  resolve_company_route: 1,
+  resolve_urls_route_still_present: 1,
+  rate_limit_present: 2, // function def + call site
+  withTimeout_present: 2, // const + usage
+  sanitize_used: 8, // multiple uses across success and failure paths
+  redact_used: 2, // import + use
+};
+for (const [k, v] of Object.entries(minExpected)) {
+  if (evidence[k] < v) {
+    console.error(
+      `[patch-prospector-route] [FAIL] evidence ${k}: got ${evidence[k]}, expected >= ${v}`,
+    );
+    process.exit(3);
+  }
+}
+console.log("[patch-prospector-route] all evidence checks passed");
