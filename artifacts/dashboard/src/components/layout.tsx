@@ -6,6 +6,7 @@ import {
   Users,
   ListChecks,
   Activity,
+  Megaphone,
   Settings,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -19,6 +20,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "Today", href: "/", icon: CalendarClock },
   { label: "Seeder", href: "/seeder", icon: Sprout },
+  { label: "Campaigns", href: "/campaigns", icon: Megaphone },
   { label: "Prospects", href: "/prospects", icon: Users },
   { label: "Followups", href: "/followups", icon: ListChecks },
   { label: "Activity", href: "/activity", icon: Activity },

@@ -7,6 +7,8 @@ import { AuthGate } from "@/components/auth-gate";
 import LoginPage from "@/pages/login";
 import TodayPage from "@/pages/today";
 import SeederPage from "@/pages/seeder";
+import CampaignsPage from "@/pages/campaigns";
+import CampaignDetailPage from "@/pages/campaign-detail";
 import ProspectsPage from "@/pages/prospects";
 import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
@@ -22,6 +24,8 @@ function ProtectedRoutes() {
         <Switch>
           <Route path="/" component={TodayPage} />
           <Route path="/seeder" component={SeederPage} />
+          <Route path="/campaigns" component={CampaignsPage} />
+          <Route path="/campaigns/:id" component={CampaignDetailPage} />
           <Route path="/prospects" component={ProspectsPage} />
           <Route path="/followups" component={FollowupsPage} />
           <Route path="/activity" component={ActivityPage} />
