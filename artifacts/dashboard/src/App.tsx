@@ -9,6 +9,10 @@ import TodayPage from "@/pages/today";
 import SeederPage from "@/pages/seeder";
 import CampaignsPage from "@/pages/campaigns";
 import CampaignDetailPage from "@/pages/campaign-detail";
+import ProspectWhatsAppPage from "@/pages/prospect/whatsapp";
+import ProspectTelegramPage from "@/pages/prospect/telegram";
+import FollowupWhatsAppPage from "@/pages/followup/whatsapp";
+import FollowupTelegramPage from "@/pages/followup/telegram";
 import ProspectsPage from "@/pages/prospects";
 import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
@@ -26,6 +30,10 @@ function ProtectedRoutes() {
           <Route path="/seeder" component={SeederPage} />
           <Route path="/campaigns" component={CampaignsPage} />
           <Route path="/campaigns/:id" component={CampaignDetailPage} />
+          <Route path="/prospect/whatsapp" component={ProspectWhatsAppPage} />
+          <Route path="/prospect/telegram" component={ProspectTelegramPage} />
+          <Route path="/followup/whatsapp" component={FollowupWhatsAppPage} />
+          <Route path="/followup/telegram" component={FollowupTelegramPage} />
           <Route path="/prospects" component={ProspectsPage} />
           <Route path="/followups" component={FollowupsPage} />
           <Route path="/activity" component={ActivityPage} />
