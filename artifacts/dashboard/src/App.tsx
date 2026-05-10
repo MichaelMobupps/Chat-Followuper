@@ -14,6 +14,7 @@ import ProspectTelegramPage from "@/pages/prospect/telegram";
 import FollowupWhatsAppPage from "@/pages/followup/whatsapp";
 import FollowupTelegramPage from "@/pages/followup/telegram";
 import ProspectsPage from "@/pages/prospects";
+import ProspectDetailPage from "@/pages/prospect-detail";
 import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
 import AccountsPage from "@/pages/accounts";
@@ -35,6 +36,7 @@ function ProtectedRoutes() {
           <Route path="/followup/whatsapp" component={FollowupWhatsAppPage} />
           <Route path="/followup/telegram" component={FollowupTelegramPage} />
           <Route path="/prospects" component={ProspectsPage} />
+          <Route path="/prospects/:id" component={ProspectDetailPage} />
           <Route path="/followups" component={FollowupsPage} />
           <Route path="/activity" component={ActivityPage} />
           <Route path="/accounts" component={AccountsPage} />

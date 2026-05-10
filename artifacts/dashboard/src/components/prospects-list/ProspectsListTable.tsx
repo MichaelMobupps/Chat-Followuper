@@ -21,6 +21,7 @@ import type {
   ListProspectsResponse,
 } from "@/lib/api/prospects";
 import { ApiError } from "@/lib/api";
+import { useLocation } from "wouter";
 
 interface Props {
   data: ListProspectsResponse | undefined;
@@ -148,8 +149,21 @@ export function ProspectsListTable({
 }
 
 function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
+  const [, navigate] = useLocation();
   return (
-    <tr className="border-b last:border-b-0 hover:bg-muted/20 transition-colors">
+    <tr
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
+      onClick={(e) => {
+        // Don't navigate when the click originated inside the action
+        // button cell — that has its own handler (open WhatsApp link
+        // mutation, etc). Walk up the event target to the closest <td>
+        // and check its data-action attribute.
+        const cell = (e.target as HTMLElement).closest("td[data-action]");
+        if (cell) return;
+        navigate(`/prospects/${prospect.id}`);
+      }}
+      data-testid={`row-${prospect.id}`}
+    >
       <td className="px-4 py-2.5 align-top">
         <div className="font-medium truncate max-w-xs">
           {prospect.prospectName ?? "(no name)"}
@@ -177,7 +191,7 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
           {formatRelativeDate(prospect.createdAt)}
         </span>
       </td>
-      <td className="px-4 py-2.5 align-top text-right">
+      <td className="px-4 py-2.5 align-top text-right" data-action="true">
         <ActionButton prospect={prospect} />
       </td>
     </tr>
