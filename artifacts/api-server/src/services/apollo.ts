@@ -160,6 +160,24 @@ export interface ApolloPersonSummary {
   state: string | null;
   country: string | null;
   linkedinUrl: string | null;
+  /** 3-state direct phone availability indicator from Apollo's people
+   *  search. Added in Ticket 2.3-BE-A.
+   *  - "yes":   Apollo has a verified direct phone — sync revealContact
+   *             returns it (1 credit).
+   *  - "maybe": not cached; bulk_match may find it via the async
+   *             requestPhoneReveal webhook flow (8 credits).
+   *  - "no":    Apollo will not find a direct phone — skip (0 credits).
+   *  Derived from raw.has_direct_phone in the search response. */
+  directPhoneStatus: "yes" | "maybe" | "no";
+  /** True if Apollo has a verified email cached for this person.
+   *  Derived from raw.has_email. Added in Ticket 2.3-BE-A. */
+  hasEmail: boolean;
+  /** Obfuscated last name as returned by Apollo's people search
+   *  (e.g. "Gi***l"). Full last_name only available after revealContact.
+   *  Useful for the bulk multi-select grid (2.3-FE) to show enough
+   *  identity for SDR recognition without bypassing the credit gate.
+   *  Null when Apollo doesn't surface it. Added in Ticket 2.3-BE-A. */
+  lastNameObfuscated: string | null;
 }
 
 export interface ApolloRevealedContact {
@@ -348,7 +366,35 @@ function mapOrg(raw: RawApolloOrg): ApolloOrgSummary {
   };
 }
 
+/**
+ * Map Apollo's free-form has_direct_phone string into our 3-state enum.
+ * Observed values from /api/v1/mixed_people/api_search:
+ *   - "Yes" — Apollo has a cached direct phone
+ *             (revealContact returns it for 1 credit)
+ *   - "Maybe: please request direct dial via people/bulk_match" —
+ *             async only, 8 credits via requestPhoneReveal webhook
+ *   - absent or anything else — treat as no phone (fail-closed)
+ *
+ * Defensive: any value we don't explicitly recognize maps to "no" so a
+ * future Apollo wording change doesn't accidentally route SDRs to a paid
+ * reveal endpoint that won't return a phone. Added in Ticket 2.3-BE-A.
+ */
+function mapDirectPhoneStatus(raw: string | undefined): "yes" | "maybe" | "no" {
+  if (!raw) return "no";
+  if (raw === "Yes") return "yes";
+  if (raw.startsWith("Maybe")) return "maybe";
+  return "no";
+}
+
 function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
+  // Defensive cast for fields that only appear on
+  // /mixed_people/api_search responses (not on /people/match enrich).
+  // Avoids forcing every caller of RawApolloPerson to also be updated.
+  const rawSearch = raw as RawApolloPerson & {
+    last_name_obfuscated?: string;
+    has_direct_phone?: string;
+    has_email?: boolean;
+  };
   return {
     id: raw.id ?? "",
     firstName: raw.first_name ?? null,
@@ -361,6 +407,12 @@ function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
     state: raw.state ?? null,
     country: raw.country ?? null,
     linkedinUrl: raw.linkedin_url ?? null,
+    directPhoneStatus: mapDirectPhoneStatus(rawSearch.has_direct_phone),
+    hasEmail: rawSearch.has_email === true,
+    lastNameObfuscated:
+      typeof rawSearch.last_name_obfuscated === "string"
+        ? rawSearch.last_name_obfuscated
+        : null,
   };
 }
 

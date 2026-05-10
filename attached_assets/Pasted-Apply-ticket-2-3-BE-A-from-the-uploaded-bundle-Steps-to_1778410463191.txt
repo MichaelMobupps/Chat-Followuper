@@ -1,0 +1,52 @@
+Apply ticket 2.3-BE-A from the uploaded bundle.
+
+Steps to run, in order:
+
+1. Unzip ticket-2-3-be-a.zip in the workspace root.
+   Command: rm -rf ticket-2-3-be-a && unzip -o ticket-2-3-be-a.zip
+
+2. Make the apply script executable.
+   Command: chmod +x ticket-2-3-be-a/apply.sh
+
+3. Run the apply script and capture full stdout + stderr.
+   Command: ticket-2-3-be-a/apply.sh
+
+   The script is idempotent. It does these 7 things in order:
+   - Patches artifacts/api-server/src/services/apollo.ts (anchored, idempotent)
+   - Patches artifacts/dashboard/src/lib/api/apollo.ts (anchored, idempotent)
+   - Copies the integration test to artifacts/api-server/tests/
+   - Runs `pnpm run typecheck` at the repo root (this refreshes the
+     @workspace/db composite first — do NOT use `npx tsc` directly)
+   - Runs `pnpm --filter @workspace/api-server run build` (build BEFORE
+     any restart — mandatory)
+   - Runs `pnpm --filter @workspace/dashboard run typecheck`
+   - Runs source-code/sync.sh
+
+   If the script exits non-zero, STOP and paste the full output back to me.
+   Do not attempt any source code edits yourself — apply.sh is the only
+   thing that touches the codebase.
+
+4. If apply.sh exits 0, republish the deployment.
+
+5. After republish completes, run the integration test against production:
+
+   Command:
+   cd /home/runner/workspace && \
+   BASE_URL=https://chat-followuper.replit.app \
+     node artifacts/api-server/tests/integration-2-3-be-a-people-flags.mjs
+
+   Required env vars (from Replit Secrets, already present):
+     DATABASE_URL, SESSION_SECRET, APOLLO_API_KEY
+
+   Expected outcome: "Results: 14 pass / 0 fail" and exit code 0.
+
+6. Report back with:
+   - apply.sh exit code
+   - apply.sh evidence line (the JSON object printed near the end)
+   - Republish status
+   - Integration test pass count and exit code
+   - If anything failed, paste the relevant 30 lines of output
+
+Hammer-vs-nail rule: do not modify any source files yourself. The patches
+are the only legitimate way to change the codebase for this ticket. If a
+patch fails (anchor mismatch), report it and wait for further instructions.

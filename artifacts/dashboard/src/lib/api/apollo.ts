@@ -19,6 +19,14 @@ export interface ApolloOrgSummary {
 
 /**
  * Mirrors src/services/apollo.ts ApolloPersonSummary.
+ *
+ * Updated in Ticket 2.3-BE-A: extended with directPhoneStatus, hasEmail,
+ * and lastNameObfuscated to support the bulk multi-select grid in
+ * Ticket 2.3-FE. The bulk grid uses these fields to:
+ *   - filter people who have direct phone numbers without spending credits
+ *   - estimate per-person reveal cost (1 vs 8 credits) before fan-out
+ *   - show enough identity (first name + obfuscated last name) for
+ *     SDR recognition pre-reveal, then full last_name post-reveal.
  */
 export interface ApolloPersonSummary {
   id: string;
@@ -32,6 +40,16 @@ export interface ApolloPersonSummary {
   state: string | null;
   country: string | null;
   linkedinUrl: string | null;
+  /** 3-state direct phone availability:
+   *  - "yes":   verified direct phone, sync reveal returns it (1 credit)
+   *  - "maybe": not cached, bulk_match may find it (8 credits, async)
+   *  - "no":    Apollo will not find a direct phone — skip (0 credits) */
+  directPhoneStatus: "yes" | "maybe" | "no";
+  /** True if Apollo has a verified email cached for this person. */
+  hasEmail: boolean;
+  /** Obfuscated last name from Apollo's people search (e.g. "Gi***l").
+   *  Null when Apollo doesn't surface it. */
+  lastNameObfuscated: string | null;
 }
 
 /**
