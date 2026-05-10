@@ -366,7 +366,7 @@ function mapOrg(raw: RawApolloOrg): ApolloOrgSummary {
     primaryDomain: raw.primary_domain ?? null,
     industry: raw.industry ?? null,
     estimatedNumEmployees: raw.estimated_num_employees ?? null,
-    country: raw.country ?? null,
+    country: normalizeCountryCode(raw.country),
     city: raw.city ?? null,
     linkedinUrl: raw.linkedin_url ?? null,
     shortDescription: raw.short_description ?? null,
@@ -412,7 +412,7 @@ function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
     organizationName: raw.organization?.name ?? null,
     city: raw.city ?? null,
     state: raw.state ?? null,
-    country: raw.country ?? null,
+    country: normalizeCountryCode(raw.country),
     linkedinUrl: raw.linkedin_url ?? null,
     directPhoneStatus: mapDirectPhoneStatus(rawSearch.has_direct_phone),
     hasEmail: rawSearch.has_email === true,
@@ -443,6 +443,106 @@ function pickPhone(raw: RawApolloPerson): string | null {
   if (anySanitized?.sanitized_number) return anySanitized.sanitized_number;
   const anyRaw = numbers.find((n) => n.raw_number);
   return anyRaw?.raw_number ?? null;
+}
+
+/**
+ * Apollo's people-search and org-search responses inconsistently return
+ * country as either a full English name ("India", "United States") or
+ * an ISO 3166-1 alpha-2 code ("IN", "US"). Downstream prospect schema
+ * (routes/prospects.ts) strict-validates ISO-2 via /^[A-Z]{2}$/, so a
+ * full-name response would 400 createProspect. Normalize at the BE
+ * source so all consumers see a consistent shape.
+ *
+ * Coverage: ~55 entries covering top UA-prospecting countries. Edge
+ * cases (typos, less-common countries, ISO-3 codes) fall through to
+ * null — caller drops the country field rather than failing schema.
+ *
+ * Added in Ticket country-name-iso-mapping.
+ */
+const COUNTRY_NAME_TO_ISO2: Record<string, string> = {
+  argentina: "AR",
+  australia: "AU",
+  austria: "AT",
+  bangladesh: "BD",
+  belgium: "BE",
+  brazil: "BR",
+  canada: "CA",
+  chile: "CL",
+  china: "CN",
+  colombia: "CO",
+  "czech republic": "CZ",
+  czechia: "CZ",
+  denmark: "DK",
+  egypt: "EG",
+  finland: "FI",
+  france: "FR",
+  germany: "DE",
+  greece: "GR",
+  "hong kong": "HK",
+  hungary: "HU",
+  india: "IN",
+  indonesia: "ID",
+  ireland: "IE",
+  israel: "IL",
+  italy: "IT",
+  japan: "JP",
+  kenya: "KE",
+  "korea, republic of": "KR",
+  "south korea": "KR",
+  malaysia: "MY",
+  mexico: "MX",
+  netherlands: "NL",
+  "new zealand": "NZ",
+  nigeria: "NG",
+  norway: "NO",
+  pakistan: "PK",
+  peru: "PE",
+  philippines: "PH",
+  poland: "PL",
+  portugal: "PT",
+  romania: "RO",
+  russia: "RU",
+  "russian federation": "RU",
+  "saudi arabia": "SA",
+  singapore: "SG",
+  "south africa": "ZA",
+  spain: "ES",
+  sweden: "SE",
+  switzerland: "CH",
+  taiwan: "TW",
+  thailand: "TH",
+  turkey: "TR",
+  ukraine: "UA",
+  "united arab emirates": "AE",
+  uae: "AE",
+  "u.a.e.": "AE",
+  "united kingdom": "GB",
+  uk: "GB",
+  britain: "GB",
+  "great britain": "GB",
+  "united states": "US",
+  "united states of america": "US",
+  usa: "US",
+  "u.s.": "US",
+  "u.s.a.": "US",
+  america: "US",
+  vietnam: "VN",
+};
+
+function normalizeCountryCode(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  // Lookup first — catches "UK" → "GB", "USA" → "US", and full names.
+  // Lowercase + collapse internal whitespace for keying.
+  const key = trimmed.toLowerCase().replace(/\s+/g, " ");
+  if (key in COUNTRY_NAME_TO_ISO2) return COUNTRY_NAME_TO_ISO2[key];
+  // Unknown 2-letter — pass through (uppercased). Best-effort for
+  // ISO-2 codes not in the lookup table; valid codes survive intact.
+  if (/^[a-zA-Z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return null;
 }
 
 /**
