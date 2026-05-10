@@ -4,6 +4,7 @@ import {
   Clock,
   AlertTriangle,
   ExternalLink,
+  MessageSquare,
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -158,6 +159,15 @@ function ReadyRow({ state }: { state: CandidateProcessing }) {
           <div className="text-xs text-muted-foreground truncate">
             {person.title ?? "(no title)"} · {org.name}
           </div>
+          {state.firstMessageBody && (
+            <div
+              className="mt-1 flex items-start gap-1 text-xs text-muted-foreground/80 italic"
+              title={state.firstMessageBody}
+            >
+              <MessageSquare className="h-3 w-3 flex-shrink-0 mt-0.5" />
+              <span className="truncate">{state.firstMessageBody}</span>
+            </div>
+          )}
         </div>
         <Button
           size="sm"
@@ -189,6 +199,15 @@ function PendingRow({ state }: { state: CandidateProcessing }) {
           <div className="text-xs text-muted-foreground truncate">
             {person.title ?? "(no title)"} · {org.name}
           </div>
+          {state.firstMessageBody && (
+            <div
+              className="mt-1 flex items-start gap-1 text-xs text-muted-foreground/80 italic"
+              title={state.firstMessageBody}
+            >
+              <MessageSquare className="h-3 w-3 flex-shrink-0 mt-0.5" />
+              <span className="truncate">{state.firstMessageBody}</span>
+            </div>
+          )}
         </div>
         <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">
           phone pending

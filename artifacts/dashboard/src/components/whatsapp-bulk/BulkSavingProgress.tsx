@@ -19,6 +19,12 @@ export interface CandidateProcessing {
   stage: ProcessingStage;
   prospectId?: string;
   error?: string;
+  /** Generated first message body, captured from generateMessage's
+   *  return value during processOne. Used by BulkResults to render
+   *  the message inline in Ready/Pending rows. Optional —
+   *  pre-generation slots have no message yet. Added in Ticket
+   *  message-visibility-bulk. */
+  firstMessageBody?: string;
 }
 
 interface Props {

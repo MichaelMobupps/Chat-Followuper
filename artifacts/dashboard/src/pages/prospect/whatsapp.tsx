@@ -367,7 +367,7 @@ export default function ProspectWhatsAppPage() {
 
       // ── Step 5: generate message ──
       updateProcessingSlot(idx, { stage: "generating-message" });
-      await generateMessage(created.id);
+      const generated = await generateMessage(created.id);
 
       // Any non-null phone means we can send WhatsApp immediately —
       // could be a fresh revealContact result, OR an existingPhone from
@@ -380,6 +380,7 @@ export default function ProspectWhatsAppPage() {
       const isReady = Boolean(phoneFromReveal);
       updateProcessingSlot(idx, {
         stage: isReady ? "ready" : "ready-pending-phone",
+        firstMessageBody: generated.message,
       });
     } catch (err) {
       const msg =
