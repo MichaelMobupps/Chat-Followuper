@@ -455,6 +455,35 @@ router.post(
       }
     }
 
+    // Dedupe by Apollo person ID. The existing onConflictDoNothing
+    // below dedupes by (userId, phone), but pending-reveal prospects
+    // have phone = NULL and PostgreSQL allows infinite NULLs in unique
+    // indexes. Without this pre-check, re-running a bulk batch on the
+    // same company creates a new row per attempt (the Arushi 3-row
+    // case). Race condition: two concurrent inserts could both pass
+    // this check; future ticket adds a partial unique index on
+    // (userId, apolloPersonId) WHERE apolloPersonId IS NOT NULL.
+    if (body.apolloPersonId) {
+      const existing = await db
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, user.id),
+            eq(prospectsTable.apolloPersonId, body.apolloPersonId),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) {
+        res.status(409).json({
+          error: "duplicate_apollo_person",
+          detail:
+            "A prospect with this Apollo person ID already exists for this user.",
+          existingProspectId: existing[0]!.id,
+        });
+        return;
+      }
+    }
     // Use onConflictDoNothing instead of try/catch on SQLSTATE 23505 —
     // drizzle wraps the underlying pg error and the code surface differs
     // across drivers. Empty returning() means a duplicate phone hit the
