@@ -518,11 +518,21 @@ ${mode === "followuper" ? `10. CONTEXT GROUNDING (followuper-only, critical). Ev
 
 12. VERTICAL-NATIVE TERMINOLOGY. Vocabulary matches the prospect's exact sub-vertical. No generic "we optimize campaigns" — specific revenue-event language.`}
 
+CLAIM GROUNDING (CRITICAL, applies to both modes, evaluated AFTER all the above).
+   Every concrete number, percentage, volume figure, and competitor name in the draft MUST appear in the RESEARCH BRIEF supplied in the user message. Hallucinations to flag:
+   - Percentages not in the brief (e.g. "14% first-order completion" when no 14% appears in any brief field).
+   - Volume claims that do not match the brief's calibrated daily volume.
+   - Competitor names outside the brief's final_competitors list.
+   - Specific industry benchmarks the brief does not supply.
+   - Bounded ranges ("above 12%", "under 200 daily") whose numbers are not in the brief.
+   If the draft is in followuper mode and the brief is partial, claims may also ground in the prior conversation; numbers that appear in NEITHER brief NOR conversation are hallucinations.
+   If claim_grounding < 4, needs_rewrite MUST be true. This is a critical-tier check.
+
 ${channelCriticBlock}
 
 OUTPUT FORMAT — return ONLY a JSON object:
 {
-  "scores": { "no_meta_language": 1-5, "language_match": 1-5, "language_naturalness": 1-5, ${modeSpecificScores} "no_machine_artifacts": 1-5, "no_meta_commentary": 1-5, "no_bracketed_notes": 1-5, "tone": 1-5, "conciseness": 1-5 },
+  "scores": { "no_meta_language": 1-5, "claim_grounding": 1-5, "language_match": 1-5, "language_naturalness": 1-5, ${modeSpecificScores} "no_machine_artifacts": 1-5, "no_meta_commentary": 1-5, "no_bracketed_notes": 1-5, "tone": 1-5, "conciseness": 1-5 },
   "overall": 1-5,
   "issues": ["list of specific problems with quoted phrases from the message"],
   "suggestions": ["list of specific concrete rewrites"],
@@ -532,6 +542,7 @@ OUTPUT FORMAT — return ONLY a JSON object:
 RULES FOR needs_rewrite:
 - needs_rewrite MUST be true if overall < 4.
 - needs_rewrite MUST be true if no_meta_language < 4.
+- needs_rewrite MUST be true if claim_grounding < 4.
 - needs_rewrite MUST be true if language_match < 4.
 - needs_rewrite MUST be true if language_naturalness < 4.
 - needs_rewrite MUST be true if channel_register_match < 4.
@@ -558,6 +569,23 @@ export function getCriticUserPrompt(
 
   const nativenessCriticBlock = buildCriticNativenessBlock(ctx.language);
 
+  // B-claim-grounding: pass research brief into critic so it can
+  // verify numeric claims and competitor names trace to brief contents
+  // instead of guessing or trusting the writer.
+  const briefBlock = ctx.research_brief
+    ? `\nRESEARCH BRIEF (numeric claims and competitor names in the draft MUST trace to this):
+- Calibrated daily volume: ${ctx.research_brief.calibratedDailyVolume}
+- Primary conversion event: ${ctx.research_brief.primaryEvent}
+- Peer brands the writer may name: ${ctx.research_brief.finalCompetitors.join(", ")}
+- WHY argument seed: ${ctx.research_brief.whyArgument}
+- VALIDATION argument seed: ${ctx.research_brief.validationArgument}
+- HOW argument seed: ${ctx.research_brief.howArgument}
+- Proof points pool: ${ctx.research_brief.tangibleReasons.join(" | ")}
+- Market context: ${ctx.research_brief.marketContext}
+- Prospect-specific hook: ${ctx.research_brief.prospectSpecificHook}
+`
+    : "";
+
   const verticalLine = ctx.sub_vertical
     ? `${ctx.vertical} / ${ctx.sub_vertical}`
     : ctx.vertical;
@@ -571,6 +599,7 @@ VERTICAL: ${verticalLine}
 PRODUCT: ${ctx.product}
 ${ctx.mode === "followuper" ? `STAGE: ${ctx.stage ?? 1} (${ctx.days_since_first ?? 0} days since first contact)` : ""}
 ${conversationBlock}
+${briefBlock}
 ${nativenessCriticBlock ? `\n${nativenessCriticBlock}\n` : ""}
 DRAFT TO EVALUATE:
 Subject (internal tag): ${draft.subject}
@@ -628,6 +657,22 @@ export function getRewriterUserPrompt(
   const hasName = isUsableName(ctx.prospect_name);
   const greetingBlock = ctx.mode === "prospector" ? buildGreetingBlock(ctx.language, hasName) : "";
 
+  // B-claim-grounding: pass research brief into rewriter so the rewrite
+  // does not drift into new hallucinations while fixing other issues.
+  const briefBlock = ctx.research_brief
+    ? `\nRESEARCH BRIEF (the rewrite MUST keep every numeric claim and competitor name grounded in this):
+- Calibrated daily volume: ${ctx.research_brief.calibratedDailyVolume}
+- Primary conversion event: ${ctx.research_brief.primaryEvent}
+- Peer brands you may name: ${ctx.research_brief.finalCompetitors.join(", ")}
+- WHY argument seed: ${ctx.research_brief.whyArgument}
+- VALIDATION argument seed: ${ctx.research_brief.validationArgument}
+- HOW argument seed: ${ctx.research_brief.howArgument}
+- Proof points pool: ${ctx.research_brief.tangibleReasons.join(" | ")}
+- Market context: ${ctx.research_brief.marketContext}
+- Prospect-specific hook: ${ctx.research_brief.prospectSpecificHook}
+`
+    : "";
+
   const verticalLine = ctx.sub_vertical
     ? `${ctx.vertical} / ${ctx.sub_vertical}`
     : ctx.vertical;
@@ -641,6 +686,7 @@ VERTICAL: ${verticalLine}
 PRODUCT: ${ctx.product}
 ${ctx.mode === "followuper" ? `STAGE: ${ctx.stage ?? 1} (${ctx.days_since_first ?? 0} days since first contact)` : ""}
 ${conversationBlock}
+${briefBlock}
 ${greetingBlock ? `\n${greetingBlock}\n` : ""}
 ${nativenessBlock ? `\n${nativenessBlock}\n` : ""}
 CURRENT DRAFT:
