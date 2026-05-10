@@ -291,16 +291,15 @@ export default function ProspectWhatsAppPage() {
         phoneFromReveal = r.contact.phone;
         revealedLastName = r.contact.lastName;
         revealedLinkedin = r.contact.linkedinUrl;
-        if (!phoneFromReveal) {
-          // Apollo charged the credit but returned no phone. Treat as failed
-          // — the prospect can't be created without phone (yes path expects
-          // a real phone). The "maybe" path handles the no-phone case.
-          updateProcessingSlot(idx, {
-            stage: "failed",
-            error: "reveal returned no phone",
-          });
-          return;
-        }
+        // If phoneFromReveal is empty here, Apollo charged 8c but returned
+        // nothing. We preserve the prospect record (apolloPersonId, name,
+        // company, etc) so the data point isn't lost — SDR can find the
+        // prospect in the list and decide whether to manually source the
+        // phone via LinkedIn or delete. The createProspect call below
+        // omits phone when phoneFromReveal is null; BE accepts this since
+        // apolloPersonId is set (cross-field check from 2.3-BE-B). The
+        // requestPhoneReveal step is skipped for yes-path even when empty
+        // — async retry would just charge another 8c with same outcome.
       }
 
       // ── Step 2: create prospect ──
@@ -321,6 +320,10 @@ export default function ProspectWhatsAppPage() {
         linkedinUrl: revealedLinkedin ?? c.person.linkedinUrl ?? undefined,
         apolloPersonId: c.person.id,
         apolloOrgId: c.person.organizationId ?? c.org.id ?? undefined,
+        contextNotes:
+          isYes && !phoneFromReveal
+            ? "Yes-tagged reveal returned no phone (8c charged but Apollo gave nothing). Manual phone sourcing required for WhatsApp; the generated message can be repurposed for LinkedIn or email."
+            : undefined,
       });
       prospectId = created.id;
       updateProcessingSlot(idx, { prospectId });
@@ -343,8 +346,13 @@ export default function ProspectWhatsAppPage() {
       updateProcessingSlot(idx, { stage: "generating-message" });
       await generateMessage(created.id);
 
+      // yes-no-phone reuses "ready-pending-phone" stage so BulkResults
+      // groups it in the Pending bucket alongside maybe-path prospects.
+      // The contextNotes set above distinguishes the two situations in
+      // the detail view.
+      const isReady = isYes && Boolean(phoneFromReveal);
       updateProcessingSlot(idx, {
-        stage: isYes ? "ready" : "ready-pending-phone",
+        stage: isReady ? "ready" : "ready-pending-phone",
       });
     } catch (err) {
       const msg =
