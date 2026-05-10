@@ -47,6 +47,11 @@ import {
   redactApolloKey,
 } from "../services/apolloProspector";
 import type { ResolvedCompany } from "../services/companyResolver";
+import {
+  discover,
+  type DiscoveryInput,
+  type DiscoveryResult,
+} from "../services/discoveryOrchestrator";
 
 const router: IRouter = Router();
 
@@ -1051,6 +1056,257 @@ router.post(
         titleRejected: 0,
         duplicate: 0,
       },
+    });
+  },
+);
+
+// ─── Ticket 2.2-BE-C: /discover (production endpoint) ───────────────────────
+//
+// Production discovery chain. Wraps discoveryOrchestrator.discover() with auth,
+// rate limit, body validation, outer 300s timeout, action_log persistence.
+//
+// Differs from /discover-simple (2.2-BE-B):
+//   - Adds smart cascade (LLM-validated relaxed name search) when strict cascade fails
+//   - Adds Opus rescue with web_search when smart cascade fails
+//   - Adds Phase 3 subsidiary expansion when contacts < target
+//   - Threads AbortSignal through every Apollo call (closes 2.2-BE-B residual F-NEW-A)
+//   - Returns rich audit trail showing which step succeeded and why
+
+const DISCOVER_TIMEOUT_MS = 300_000;
+const DISCOVER_RATE_MAX = 12; // per user per minute — heavier than discover-simple due to Opus + Phase 3 cost
+
+const discoverBodySchema = z
+  .object({
+    brand: z.string().trim().max(500).nullable().optional(),
+    appName: z.string().trim().max(500).nullable().optional(),
+    domain: z.string().trim().max(500).nullable().optional(),
+    country: z.string().trim().max(200).nullable().optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
+    developerEmail: z.string().trim().max(500).nullable().optional(),
+    legalName: z.string().trim().max(500).nullable().optional(),
+    storeUrl: z.string().trim().max(1000).nullable().optional(),
+    storeCategory: z.string().trim().max(200).nullable().optional(),
+    sourceType: z.enum(["play_store", "app_store", "website"]).nullable().optional(),
+    targetContacts: z.number().int().min(1).max(50).optional(),
+    skipSubsidiaryExpansion: z.boolean().optional(),
+    skipOpusRescue: z.boolean().optional(),
+    disableWebSearchInRescue: z.boolean().optional(),
+    apolloCallBudget: z.number().int().min(10).max(200).optional(),
+  })
+  .strict();
+
+router.post(
+  "/prospector/discover",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    const rl = checkStageBRateLimit("discover_simple", user.id, DISCOVER_RATE_MAX);
+    if (!rl.ok) {
+      const retryAfterSec = Math.ceil(rl.resetMs / 1000);
+      try {
+        await db.insert(actionLogsTable).values({
+          userId: user.id,
+          actionType: ACTION_TYPES.prospectorDiscover,
+          actionStatus: "blocked",
+          durationMs: Date.now() - start,
+          metadata: {
+            error_class: "rate_limit",
+            limit_per_window: DISCOVER_RATE_MAX,
+            window_seconds: STAGE_B_RATE_WINDOW_MS / 1000,
+            retry_after_seconds: retryAfterSec,
+          },
+        });
+      } catch {}
+      res.setHeader("Retry-After", String(retryAfterSec));
+      res.status(429).json({
+        error: "rate_limit_exceeded",
+        message: `Too many /discover calls. Limit ${DISCOVER_RATE_MAX}/min. Retry in ${retryAfterSec}s.`,
+        retryAfterSeconds: retryAfterSec,
+      });
+      return;
+    }
+
+    let body: z.infer<typeof discoverBodySchema>;
+    try {
+      body = discoverBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    // External AbortController so the orchestrator can be told to stop when
+    // the outer timeout fires. discoveryOrchestrator threads this signal
+    // through every Apollo call.
+    const ctrl = new AbortController();
+
+    const discoveryInput: DiscoveryInput = {
+      brand: body.brand ?? undefined,
+      appName: body.appName ?? undefined,
+      domain: body.domain ?? undefined,
+      country: body.country ?? undefined,
+      description: body.description ?? undefined,
+      developerEmail: body.developerEmail ?? undefined,
+      legalName: body.legalName ?? undefined,
+      storeUrl: body.storeUrl ?? undefined,
+      storeCategory: body.storeCategory ?? undefined,
+      sourceType: body.sourceType ?? undefined,
+      targetContacts: body.targetContacts,
+      skipSubsidiaryExpansion: body.skipSubsidiaryExpansion,
+      skipOpusRescue: body.skipOpusRescue,
+      disableWebSearchInRescue: body.disableWebSearchInRescue,
+      apolloCallBudget: body.apolloCallBudget,
+      signal: ctrl.signal,
+    };
+
+    let result: DiscoveryResult;
+    try {
+      const work = discover(discoveryInput);
+      // Race the orchestrator against the outer timeout. On timeout we abort
+      // the controller so in-flight Apollo calls stop promptly, then surface
+      // the error.
+      const timer = setTimeout(() => ctrl.abort(), DISCOVER_TIMEOUT_MS);
+      try {
+        result = await work;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isMissingAnthropic = /ANTHROPIC_API_KEY/.test(errMsg);
+      const isMissingApollo = err instanceof ApolloMissingApiKeyError;
+      const isApolloRate = err instanceof ApolloRateLimitError;
+      const isTimeout =
+        ctrl.signal.aborted ||
+        /timeout|timed out|aborted|outer timeout/i.test(errMsg);
+      const safeErr = redactApolloKey(redactSecrets(errMsg)).slice(0, 500);
+
+      try {
+        await db.insert(actionLogsTable).values({
+          userId: user.id,
+          actionType: ACTION_TYPES.prospectorDiscover,
+          actionStatus: "failure",
+          durationMs: Date.now() - start,
+          errorDetail: safeErr,
+          metadata: {
+            brand: sanitizeForStorage(body.brand ?? "", 200),
+            error_class: isMissingAnthropic
+              ? "missing_anthropic_key"
+              : isMissingApollo
+                ? "missing_apollo_key"
+                : isApolloRate
+                  ? "apollo_rate_limit"
+                  : isTimeout
+                    ? "timeout"
+                    : "discovery_error",
+          },
+        });
+      } catch {}
+
+      const status = isMissingAnthropic
+        ? 503
+        : isMissingApollo
+          ? 503
+          : isApolloRate
+            ? 503
+            : isTimeout
+              ? 504
+              : 502;
+      const code = isMissingAnthropic
+        ? "anthropic_not_configured"
+        : isMissingApollo
+          ? "apollo_not_configured"
+          : isApolloRate
+            ? "apollo_rate_limited"
+            : isTimeout
+              ? "discover_timeout"
+              : "discover_failure";
+      res.status(status).json({
+        error: code,
+        message: isMissingAnthropic
+          ? "ANTHROPIC_API_KEY is not configured."
+          : isMissingApollo
+            ? "APOLLO_API_KEY is not configured."
+            : isApolloRate
+              ? "Apollo rate limit hit. Try again in a minute."
+              : isTimeout
+                ? "Discovery cascade exceeded the 300s timeout."
+                : "Discovery failed.",
+        retryAfterSeconds:
+          isApolloRate && err instanceof ApolloRateLimitError
+            ? err.retryAfterSeconds
+            : undefined,
+      });
+      return;
+    }
+
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.prospectorDiscover,
+        actionStatus:
+          result.status === "success"
+            ? "success"
+            : result.status === "no_org_found" ||
+                result.status === "no_contacts_found"
+              ? "skipped"
+              : "failure",
+        durationMs: Date.now() - start,
+        metadata: {
+          brand: sanitizeForStorage(body.brand ?? "", 200),
+          app_name: sanitizeForStorage(body.appName ?? "", 200),
+          status: result.status,
+          resolution: result.audit.resolution,
+          strict_strategy: result.audit.strictStrategy,
+          upgraded_to_parent: result.audit.upgradedToParent,
+          smart_search_ran: Boolean(result.audit.smartSearch),
+          smart_match_confidence:
+            result.audit.smartSearch?.confidence ?? null,
+          opus_rescue_ran: Boolean(result.audit.opusRescue),
+          opus_strategies_attempted:
+            result.audit.opusRescue?.strategiesAttempted ?? null,
+          opus_strategy_succeeded:
+            result.audit.opusRescue?.strategySucceeded ?? null,
+          opus_web_search_used:
+            result.audit.opusRescue?.webSearchUsed ?? null,
+          subsidiary_expansion_ran:
+            result.audit.subsidiaryExpansion?.ran ?? false,
+          subsidiaries_found:
+            result.audit.subsidiaryExpansion?.subsidiariesFound ?? 0,
+          apollo_calls_consumed: result.audit.apolloCallsConsumed,
+          budget_exhausted: result.audit.budgetExhausted,
+          aborted: result.audit.aborted,
+          org_found: Boolean(result.org),
+          org_name: result.org ? sanitizeForStorage(result.org.name, 200) : null,
+          org_employees: result.org?.estimatedNumEmployees ?? null,
+          contacts_returned: result.contacts.length,
+          // Aggregate token usage across resolveCompany + smart + opus
+          llm_input_tokens:
+            (result.llmUsage.resolveCompany?.inputTokens ?? 0) +
+            (result.llmUsage.smartValidator?.inputTokens ?? 0) +
+            (result.llmUsage.opusRescue?.inputTokens ?? 0),
+          llm_output_tokens:
+            (result.llmUsage.resolveCompany?.outputTokens ?? 0) +
+            (result.llmUsage.smartValidator?.outputTokens ?? 0) +
+            (result.llmUsage.opusRescue?.outputTokens ?? 0),
+        },
+      });
+    } catch {}
+
+    res.status(200).json({
+      status: result.status,
+      resolved: result.resolved,
+      org: result.org,
+      contacts: result.contacts,
+      phasesRun: result.phasesRun,
+      rejected: result.rejected,
+      audit: result.audit,
+      llmUsage: result.llmUsage,
     });
   },
 );

@@ -80,6 +80,7 @@ export const ACTION_TYPES = {
   prospectorOrgFound: "prospector.org_found",
   prospectorContactsCollected: "prospector.contacts_collected",
   prospectorDiscoverSimple: "prospector.discover_simple",
+  prospectorDiscover: "prospector.discover",
 } as const;
 
 export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];

@@ -179,18 +179,37 @@ async function withTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   ms: number,
   label: string,
+  externalSignal?: AbortSignal,
 ): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
+
+  // F-NEW-A: forward external aborts. AbortSignal.any may not be available
+  // on older Node runtimes; we wire it manually for portability.
+  const onExternalAbort = () => ctrl.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      ctrl.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+
   try {
     return await fn(ctrl.signal);
   } catch (err) {
     if (ctrl.signal.aborted) {
-      throw new Error(`${label} aborted after ${ms}ms`);
+      const reason = externalSignal?.aborted
+        ? `${label} aborted by caller`
+        : `${label} aborted after ${ms}ms`;
+      throw new Error(reason);
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 
@@ -204,6 +223,11 @@ export interface ApolloPostOptions {
   /** URL query params. Stringified via URLSearchParams. Arrays repeat the key
    *  with [] suffix per Apollo's documented array-param convention. */
   query?: Record<string, string | number | boolean | string[] | undefined | null>;
+  /** Optional external AbortSignal. When provided, fetch is aborted as soon
+   *  as either this signal or the internal 30s per-call timeout fires.
+   *  Used by /discover to halt in-flight Apollo work when its outer 300s
+   *  timeout fires (closes 2.2-BE-B residual finding F-NEW-A). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -250,6 +274,11 @@ export async function apolloPost(
   let last5xxStatus = 0;
 
   while (attempt < APOLLO_5XX_MAX_ATTEMPTS) {
+    // F-NEW-A: bail immediately if caller has aborted, before consuming a
+    // gap-mutex slot or making the next Apollo call.
+    if (opts.signal?.aborted) {
+      throw new Error(`Apollo POST ${path} aborted by caller`);
+    }
     attempt++;
     await _enforceGap();
 
@@ -269,6 +298,7 @@ export async function apolloPost(
           }),
         APOLLO_REQUEST_TIMEOUT_MS,
         `Apollo POST ${path}`,
+        opts.signal,
       );
     } catch (err) {
       // Network or timeout — retry on first attempt only
