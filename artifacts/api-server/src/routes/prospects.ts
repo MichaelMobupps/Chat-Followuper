@@ -225,6 +225,7 @@ router.get(
       language: r.language,
       phone: r.phone,
       phoneRevealStatus: r.phoneRevealStatus,
+      firstMessageBody: r.firstMessageBody,
       firstMessageChannel: r.firstMessageChannel,
       firstMessageSentAt:
         r.firstMessageSentAt instanceof Date

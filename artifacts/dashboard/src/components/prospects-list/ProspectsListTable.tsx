@@ -4,6 +4,7 @@ import {
   XCircle,
   AlertTriangle,
   FileText,
+  MessageSquare,
   Send as SendIcon,
   ExternalLink,
   Loader2,
@@ -174,6 +175,15 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
         <div className="text-xs text-muted-foreground truncate max-w-xs">
           {prospect.title ?? ""}
         </div>
+        {prospect.firstMessageBody && (
+          <div
+            className="mt-1 flex items-start gap-1 text-xs text-muted-foreground/80 italic max-w-xs"
+            title={prospect.firstMessageBody}
+          >
+            <MessageSquare className="h-3 w-3 flex-shrink-0 mt-0.5" />
+            <span className="truncate">{prospect.firstMessageBody}</span>
+          </div>
+        )}
       </td>
       <td className="px-4 py-2.5 align-top">
         <span className="text-xs">{prospect.country ?? "—"}</span>
