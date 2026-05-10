@@ -43,6 +43,7 @@ import { logger } from "../lib/logger";
 import { computeCost, sumCosts, type CostBreakdown } from "../lib/pricing";
 import type { ChannelCode, GenerationMode } from "../lib/channelRegister";
 import { applyFirewall } from "../lib/doctrine/firewall";
+import { resolveLocale } from "../lib/localeResolver";
 import type { ProspectBrief } from "./prospectResearch";
 
 // ─────────────────────────────────────────────────────────────────
@@ -657,7 +658,9 @@ export async function generateChatMessage(
     sub_vertical: opts.prospect.subVertical ?? null,
     product: opts.prospect.product || "",
     country: opts.prospect.country || "",
-    language: opts.prospect.language || "en",
+    // B-locale-plumbing: resolve to BCP 47 locale (e.g. "pt-BR") when
+    // both country and language are present. Falls back to bare language.
+    language: resolveLocale(opts.prospect.country, opts.prospect.language) || opts.prospect.language || "en",
     sender_name: opts.senderName,
     channel: opts.channel,
     mode,

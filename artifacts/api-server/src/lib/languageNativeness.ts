@@ -463,10 +463,16 @@ const GUIDES: Record<string, string> = {
  * for non-English emails. Returns empty string for English/unknown/empty.
  */
 export function buildNativenessBlock(languageTag: string | null | undefined): string {
-  const lang = normalizeLanguageCode(languageTag);
-  if (!lang || lang === "en") return "";
+  // B-locale-plumbing: full tag first, fall back to primary subtag.
+  const tag = (languageTag ?? "").trim();
+  if (!tag) return "";
+  const lang = normalizeLanguageCode(tag);
+  if (!lang) return "";
 
-  const guide = GUIDES[lang] ||
+  const fullTagGuide = GUIDES[tag];
+  if (fullTagGuide === undefined && lang === "en") return "";
+
+  const guide = fullTagGuide || GUIDES[lang] ||
     `Language tag ${languageTag}: No specific code-switching guide ` +
     "available. Default rules: keep English acronyms (CPI, CPA, ROAS, " +
     "DSP, LTV, MMP, D7) and translate only terms that have " +
@@ -537,10 +543,16 @@ export function buildNativenessBlock(languageTag: string | null | undefined): st
  * generator block since the critic just needs to score, not generate.
  */
 export function buildCriticNativenessBlock(languageTag: string | null | undefined): string {
-  const lang = normalizeLanguageCode(languageTag);
-  if (!lang || lang === "en") return "";
+  // B-locale-plumbing: full tag first, fall back to primary subtag.
+  const tag = (languageTag ?? "").trim();
+  if (!tag) return "";
+  const lang = normalizeLanguageCode(tag);
+  if (!lang) return "";
 
-  const guide = GUIDES[lang];
+  const fullTagGuide = GUIDES[tag];
+  if (fullTagGuide === undefined && lang === "en") return "";
+
+  const guide = fullTagGuide || GUIDES[lang];
   if (!guide) {
     return (
       `Language ${languageTag}: no specific guide on file. Still flag: ` +

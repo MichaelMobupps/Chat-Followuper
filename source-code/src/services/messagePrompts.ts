@@ -141,8 +141,10 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
 };
 
 function buildGreetingBlock(language: string, hasName: boolean): string {
-  const lang = (language || "").trim().split(/[-_]/)[0].toLowerCase();
-  const entry = GREETING_TABLE[lang];
+  // B-locale-plumbing: full tag first, fall back to primary subtag.
+  const tag = (language || "").trim();
+  const lang = tag.split(/[-_]/)[0].toLowerCase();
+  const entry = GREETING_TABLE[tag] || GREETING_TABLE[lang];
   if (!entry) {
     // Unknown language — provide guidance only, no specific form.
     return `GREETING: Use the standard B2B WhatsApp greeting for language ${language}, with the prospect's first name if available. If no name, use a neutral language-appropriate greeting. Do NOT use email addresses or website handles as names.`;

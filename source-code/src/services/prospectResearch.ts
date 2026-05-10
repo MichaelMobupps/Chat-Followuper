@@ -28,6 +28,7 @@ import {
   getResearchUserPrompt,
   type ResearchPromptInput,
 } from "../lib/doctrine/researchPrompts";
+import { resolveLocale, primarySubtag } from "../lib/localeResolver";
 import { isValidSubVertical, type SubVertical } from "../lib/doctrine/taxonomy";
 import {
   emitLlmSubstage,
@@ -367,7 +368,10 @@ export async function researchProspect(
     throw new ResearchFailedError("product is required (e.g. 'Mobile UA')");
   }
 
-  const isNonEnglish = input.language.toLowerCase() !== "en";
+  // B-locale-plumbing: resolve to BCP 47 locale (e.g. "pt-BR") when
+  // both country and language are present. Falls back to bare language.
+  const resolvedLocale = resolveLocale(input.country, input.language) || input.language;
+  const isNonEnglish = primarySubtag(resolvedLocale) !== "en";
 
   // ── Substage 1: Build prompt (deterministic) ──
   emitInfo(emitter, {
@@ -396,7 +400,8 @@ export async function researchProspect(
   const promptInput: ResearchPromptInput = {
     brand: sanitizeBrandName(input.brand),
     country: input.country,
-    language: input.language,
+    // B-locale-plumbing: pass resolved BCP 47 locale tag, not bare language.
+    language: resolvedLocale,
     subVertical: input.subVertical as SubVertical,
     product: input.product,
     sdrContextNotes: sanitizeContextNotes(input.sdrContextNotes),
