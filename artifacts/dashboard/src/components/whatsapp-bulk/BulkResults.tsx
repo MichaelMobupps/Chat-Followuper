@@ -22,7 +22,20 @@ interface Props {
 
 export function BulkResults({ states, onStartNewBatch }: Props) {
   const ready = states.filter((s) => s.stage === "ready");
-  const pending = states.filter((s) => s.stage === "ready-pending-phone");
+  const pendingAll = states.filter((s) => s.stage === "ready-pending-phone");
+  // Split pending by Apollo's directPhoneStatus at search time:
+  //   "maybe" → bulk_match webhook will fire — real async pending.
+  //   "yes"   → Apollo claimed to have a phone but reveal returned
+  //             nothing. No webhook will fire. SDR must source the
+  //             phone manually (LinkedIn, company website).
+  // The "Apollo's webhook will deliver in minutes" copy is misleading
+  // for the yes-empty case (Ticket yes-empty-distinct-bucket).
+  const pendingAsync = pendingAll.filter(
+    (s) => s.candidate.person.directPhoneStatus === "maybe",
+  );
+  const pendingManual = pendingAll.filter(
+    (s) => s.candidate.person.directPhoneStatus === "yes",
+  );
   const failed = states.filter((s) => s.stage === "failed");
 
   return (
@@ -33,8 +46,8 @@ export function BulkResults({ states, onStartNewBatch }: Props) {
           Batch complete
         </h2>
         <p className="text-sm text-muted-foreground">
-          {ready.length} ready to send · {pending.length} phone reveal pending ·{" "}
-          {failed.length} failed
+          {ready.length} ready to send · {pendingAsync.length} async pending ·{" "}
+          {pendingManual.length} need manual phone · {failed.length} failed
         </p>
       </header>
 
@@ -50,13 +63,25 @@ export function BulkResults({ states, onStartNewBatch }: Props) {
         </ResultGroup>
       )}
 
-      {pending.length > 0 && (
+      {pendingAsync.length > 0 && (
         <ResultGroup
-          title={`Phone reveal pending (${pending.length})`}
+          title={`Phone reveal pending — async (${pendingAsync.length})`}
           tone="warning"
           description="Apollo's webhook will deliver the phone in minutes. The message is already drafted; you'll get a Mailgun email when these are ready to send."
         >
-          {pending.map((s) => (
+          {pendingAsync.map((s) => (
+            <PendingRow key={s.prospectId} state={s} />
+          ))}
+        </ResultGroup>
+      )}
+
+      {pendingManual.length > 0 && (
+        <ResultGroup
+          title={`Manual phone sourcing needed (${pendingManual.length})`}
+          tone="warning"
+          description="Apollo claimed to have a phone for these but the reveal returned nothing — no webhook will fire. The message is already drafted; source the phone manually (LinkedIn, company website) and add it via the prospect detail page."
+        >
+          {pendingManual.map((s) => (
             <PendingRow key={s.prospectId} state={s} />
           ))}
         </ResultGroup>
