@@ -55,13 +55,13 @@ export function RevealConfirmDialog({
               </p>
               <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
                 <div className="flex justify-between">
-                  <span>Sync reveals (phone cached):</span>
+                  <span>Sync reveals (yes-tagged):</span>
                   <span className="font-mono">
                     {yes} × 8 = {yes * 8} credits
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Async reveals (bulk_match):</span>
+                  <span>Async reveals (maybe-tagged):</span>
                   <span className="font-mono">
                     {maybe} × 8 = {maybe * 8} credits
                   </span>
