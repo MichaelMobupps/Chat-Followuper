@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { parseUploadedUrls } from "@/lib/parse-uploaded-urls";
 
 const MAX_URLS = 50;
 
@@ -54,6 +56,7 @@ function classify(line: string): ClassifiedUrl {
 }
 
 export function UrlInput({ onSubmit }: Props) {
+  const { toast } = useToast();
   const [text, setText] = useState("");
   const [titles, setTitles] = useState(DEFAULT_TITLES);
   const [country, setCountry] = useState("");
@@ -70,15 +73,35 @@ export function UrlInput({ onSubmit }: Props) {
   const invalidCount = classified.length - validCount;
   const overLimit = validCount > MAX_URLS;
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    // Reset the input so the same file can be re-selected after editing.
+    e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const content = String(ev.target?.result ?? "");
-      setText(content);
-    };
-    reader.readAsText(file);
+
+    let result: { urls: string[]; warnings: string[] };
+    try {
+      result = await parseUploadedUrls(file);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Could not read file",
+        description: msg,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    for (const w of result.warnings) {
+      toast({
+        title: result.urls.length === 0 ? "No URLs found" : "Heads up",
+        description: w,
+        variant: result.urls.length === 0 ? "destructive" : "default",
+      });
+    }
+
+    if (result.urls.length === 0) return;
+    setText(result.urls.join("\n"));
   }
 
   function handleSubmit() {
@@ -121,12 +144,12 @@ export function UrlInput({ onSubmit }: Props) {
                 data-testid="button-upload"
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Upload .txt
+                Upload file
               </Button>
               <input
                 id="bulk-url-file"
                 type="file"
-                accept=".txt,text/plain"
+                accept=".txt,.csv,.tsv,.xlsx,.xls,text/plain,text/csv,text/tab-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 className="hidden"
                 onChange={handleFileUpload}
               />
