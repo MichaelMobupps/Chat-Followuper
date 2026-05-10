@@ -226,6 +226,13 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
               </div>
             </div>
           </div>
+          <p className="text-[11px] text-muted-foreground border-t pt-2 leading-relaxed">
+            <span className="font-medium text-green-700 dark:text-green-400">yes</span>{" "}
+            = Apollo has this phone (high success on reveal).{" "}
+            <span className="font-medium text-amber-700 dark:text-amber-400">maybe</span>{" "}
+            = Apollo will search async (lower success, same 8c cost). Both
+            non-refundable. Hover badges for detail.
+          </p>
         </CardContent>
       </Card>
 
@@ -378,6 +385,7 @@ function PhoneBadge({ status }: { status: "yes" | "maybe" | "no" }) {
       <Badge
         variant="outline"
         className="gap-1 text-[10px] border-green-500 text-green-700 dark:text-green-400"
+        title="Apollo has this phone in their DB — high success rate on reveal"
       >
         <Phone className="h-3 w-3" />
         yes ({REVEAL_COST_YES}c)
@@ -389,6 +397,7 @@ function PhoneBadge({ status }: { status: "yes" | "maybe" | "no" }) {
       <Badge
         variant="outline"
         className="gap-1 text-[10px] border-amber-500 text-amber-700 dark:text-amber-400"
+        title="Apollo doesn't have this phone — will search async, lower success rate, same 8c cost"
       >
         <Phone className="h-3 w-3" />
         maybe ({REVEAL_COST_MAYBE}c)
@@ -396,7 +405,11 @@ function PhoneBadge({ status }: { status: "yes" | "maybe" | "no" }) {
     );
   }
   return (
-    <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground">
+    <Badge
+      variant="outline"
+      className="gap-1 text-[10px] text-muted-foreground"
+      title="Apollo has no phone for this person and will not search"
+    >
       <Phone className="h-3 w-3" />
       no
     </Badge>
