@@ -29,7 +29,22 @@ export const prospectsTable = pgTable(
     product: text("product"),
     country: text("country"),
     language: text("language"),
-    phone: text("phone").notNull(),
+    /**
+     * Phone (E.164). Nullable since Ticket 2.3-BE-B to support
+     * pending-reveal prospects in the bulk WhatsApp flow: Apollo's
+     * "Maybe: please request direct dial" path returns no phone, so
+     * we create the prospect with phone=null and apolloPersonId set,
+     * then the webhook handler promotes phoneNumber → phone via the
+     * correlationId lookup once Apollo's bulk_match resolves.
+     *
+     * The (userId, phone) unique constraint still applies once phone
+     * is non-null; PostgreSQL permits multiple NULLs in a UNIQUE index.
+     *
+     * Routes that build wa.me deep links MUST null-check phone before
+     * calling generateLink (see routes/whatsappLink.ts → 409
+     * phone_reveal_pending).
+     */
+    phone: text("phone"),
     telegramHandle: text("telegram_handle"),
     teamsEmail: text("teams_email"),
     slackUserId: text("slack_user_id"),

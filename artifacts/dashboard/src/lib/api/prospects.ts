@@ -43,7 +43,13 @@ export interface Prospect {
   product: string | null;
   country: string | null;
   language: string | null;
-  phone: string;
+  /** Phone (E.164). Null while waiting on async Apollo phone reveal
+   *  (bulk WhatsApp flow, Ticket 2.3-BE-B). The webhook handler in
+   *  services/apollo.ts promotes phoneNumber → phone via the
+   *  correlationId lookup once Apollo's bulk_match resolves. Routes
+   *  building wa.me deep links return 409 phone_reveal_pending when
+   *  this is null. */
+  phone: string | null;
   telegramHandle: string | null;
   teamsEmail: string | null;
   linkedinUrl: string | null;
@@ -65,7 +71,12 @@ export interface Prospect {
 }
 
 export interface CreateProspectInput {
-  phone: string;
+  /** Phone (E.164). Optional starting with Ticket 2.3-BE-B: the bulk
+   *  WhatsApp flow may create a prospect from Apollo's "Maybe" path
+   *  where the phone is unknown until the async webhook lands. When
+   *  omitted, apolloPersonId MUST be set (server-side superRefine
+   *  cross-field check). */
+  phone?: string;
   sourceMode: SourceMode;
   prospectName?: string;
   company?: string;

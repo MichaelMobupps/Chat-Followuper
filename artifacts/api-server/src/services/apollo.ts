@@ -859,6 +859,10 @@ export async function processPhoneRevealCallback(
       .select({
         id: prospectsTable.id,
         userId: prospectsTable.userId,
+        // Ticket 2.3-BE-B: fetch existing phone so the arrived branch
+        // can COALESCE (promote phoneNumber → phone only when phone is
+        // currently null, i.e. pending-reveal bulk-flow prospects).
+        phone: prospectsTable.phone,
         phoneRevealStatus: prospectsTable.phoneRevealStatus,
       })
       .from(prospectsTable)
@@ -953,12 +957,23 @@ export async function processPhoneRevealCallback(
     }
 
     // Allowed. Store the phone, transition to arrived.
+    //
+    // Ticket 2.3-BE-B: promote phoneNumber → phone if and only if the
+    // prospect has no phone yet. Seeder-flow prospects (single-prospect
+    // picker) have phone set at creation, so prospect.phone is non-null
+    // and the COALESCE is a no-op. Bulk-flow pending prospects (Apollo
+    // "Maybe" path) have phone=null at creation; the COALESCE here is
+    // what makes them contactable via wa.me. phoneNumber is the audit/
+    // diagnostic field (always set to the raw webhook value); phone is
+    // the contactable field that generateLink + whatsappLink read from.
+    const promotedPhone = prospect.phone ?? phone;
     await tx
       .update(prospectsTable)
       .set({
         phoneRevealStatus: "arrived",
         phoneRevealCompletedAt: new Date(),
         phoneNumber: phone,
+        phone: promotedPhone,
       })
       .where(eq(prospectsTable.id, prospect.id));
 

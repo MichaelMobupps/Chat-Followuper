@@ -42,6 +42,16 @@ router.get(
       return;
     }
 
+    if (!prospect.phone) {
+      // Ticket 2.3-BE-B: pending-reveal prospects (bulk WhatsApp flow)
+      // have no phone until Apollo's webhook lands and promotes
+      // phoneNumber → phone via the correlationId lookup. Surface a
+      // distinct error code so the FE can render "still waiting on
+      // Apollo" rather than the generic no_message_generated path.
+      res.status(409).json({ error: "phone_reveal_pending" });
+      return;
+    }
+
     try {
       const url = generateLink(prospect.phone, prospect.firstMessageBody);
       res.status(200).json({ url, body: prospect.firstMessageBody });

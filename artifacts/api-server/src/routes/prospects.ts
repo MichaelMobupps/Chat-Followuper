@@ -97,10 +97,32 @@ const createProspectBodySchema = z
       .regex(
         PHONE_RE,
         "Phone must be E.164 format, e.g. '+919900000111'",
-      ),
+      )
+      .nullable()
+      .optional(),
     sourceMode: z.enum(SOURCE_MODES),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    // Ticket 2.3-BE-B: phone is optional ONLY for pending-reveal
+    // prospects (bulk WhatsApp flow). If phone is absent, apolloPersonId
+    // MUST be set so the async webhook handler can later promote
+    // phoneNumber → phone via the correlationId lookup. Without
+    // apolloPersonId, the prospect can never become contactable
+    // through any flow we support today.
+    const phoneIsAbsent =
+      data.phone === undefined ||
+      data.phone === null ||
+      data.phone.length === 0;
+    if (phoneIsAbsent && !data.apolloPersonId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["phone"],
+        message:
+          "phone is required unless apolloPersonId is set (pending-reveal prospect)",
+      });
+    }
+  });
 
 const updateProspectBodySchema = z
   .object(baseProspectFields)
@@ -226,7 +248,10 @@ router.post(
       .insert(prospectsTable)
       .values({
         userId: user.id,
-        phone: body.phone,
+        // phone may be null for pending-reveal prospects (Ticket 2.3-BE-B).
+        // The webhook handler in services/apollo.ts promotes phoneNumber →
+        // phone when Apollo's bulk_match resolves the async reveal.
+        phone: body.phone ?? null,
         sourceMode: body.sourceMode,
         prospectName: body.prospectName ?? null,
         company: body.company ?? null,
