@@ -109,3 +109,38 @@ export function revealContact(
     body: JSON.stringify({ personId }),
   });
 }
+
+/**
+ * Async phone-reveal request (Ticket 2.3-FE, bulk WhatsApp flow).
+ *
+ * Mirrors src/services/apollo.ts requestPhoneReveal + the
+ * /api/apollo/request-phone-reveal route. Returns 202 immediately
+ * with a correlationId; the actual phone arrives later via Apollo's
+ * webhook callback, which writes to prospects.phoneNumber and (per
+ * Ticket 2.3-BE-B) also promotes phoneNumber → phone via COALESCE.
+ *
+ * Caller must have already created the prospect with the given
+ * apolloPersonId; the route looks up the prospect by prospectId and
+ * stamps the correlation token onto its row.
+ */
+export interface RequestPhoneRevealInput {
+  prospectId: string;
+  personId: string;
+}
+
+export interface RequestPhoneRevealResponse {
+  status: "pending";
+  correlationId: string;
+}
+
+export function requestPhoneReveal(
+  input: RequestPhoneRevealInput,
+): Promise<RequestPhoneRevealResponse> {
+  return apiFetch<RequestPhoneRevealResponse>(
+    "/api/apollo/request-phone-reveal",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}

@@ -1,0 +1,34 @@
+import { apiFetch } from "../api";
+
+/**
+ * Mirrors src/services/urlResolver.ts ResolvedUrl + the response shape
+ * of POST /api/prospector/resolve-urls (Ticket 2.1-BE).
+ *
+ * Defensive: the server's exact field set is read tolerantly. Optional
+ * fields are nullable so missing values don't crash the FE.
+ */
+export interface ResolvedUrl {
+  url: string;
+  kind?: "play_store" | "app_store" | "website" | "unknown" | string;
+  brand?: string | null;
+  domain?: string | null;
+  appId?: string | null;
+  error?: string | null;
+}
+
+export interface ResolveUrlsInput {
+  urls: string[];
+}
+
+export interface ResolveUrlsResponse {
+  resolutions: ResolvedUrl[];
+}
+
+export function resolveUrls(
+  input: ResolveUrlsInput,
+): Promise<ResolveUrlsResponse> {
+  return apiFetch<ResolveUrlsResponse>("/api/prospector/resolve-urls", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}

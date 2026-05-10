@@ -4,11 +4,14 @@ import {
   searchOrg,
   searchPeople,
   revealContact,
+  requestPhoneReveal,
   type ApolloOrgSummary,
   type ApolloPersonSummary,
   type ApolloRevealedContact,
   type SearchOrgInput,
   type SearchPeopleInput,
+  type RequestPhoneRevealInput,
+  type RequestPhoneRevealResponse,
 } from "@/lib/api/apollo";
 
 /**
@@ -44,5 +47,19 @@ export function useRevealContact() {
     string
   >({
     mutationFn: revealContact,
+  });
+}
+
+/**
+ * Ticket 2.3-FE: async phone-reveal hook for the bulk WhatsApp flow.
+ * Treat as mutation (POST with side-effects); never auto-refetch.
+ */
+export function useRequestPhoneReveal() {
+  return useMutation<
+    RequestPhoneRevealResponse,
+    ApiError,
+    RequestPhoneRevealInput
+  >({
+    mutationFn: requestPhoneReveal,
   });
 }
