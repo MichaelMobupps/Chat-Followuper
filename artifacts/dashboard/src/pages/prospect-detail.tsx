@@ -3,6 +3,7 @@ import { useParams, useLocation } from "wouter";
 import {
   ArrowLeft,
   Copy,
+  Download,
   CheckCircle2,
   Clock,
   XCircle,
@@ -213,6 +214,14 @@ export default function ProspectDetailPage() {
         </Button>
         <Button
           variant="outline"
+          onClick={() => downloadTechnicalLog(p)}
+          data-testid="button-download-log"
+        >
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Technical log
+        </Button>
+        <Button
+          variant="outline"
           className="text-destructive hover:text-destructive"
           onClick={() => setConfirmDeleteOpen(true)}
           data-testid="button-delete"
@@ -227,6 +236,8 @@ export default function ProspectDetailPage() {
         <CardContent className="p-4 space-y-3">
           <SectionTitle>Prospect data</SectionTitle>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            {/* Sales-facing fields only. Source / Apollo person ID /
+                Updated / sourceMode are debug — see Technical log. */}
             <Field label="Name" value={p.prospectName} />
             <Field label="Company" value={p.company} />
             <Field label="Title" value={p.title} />
@@ -234,12 +245,9 @@ export default function ProspectDetailPage() {
             <Field label="Language" value={p.language} />
             <Field label="Phone" value={p.phone} mono />
             <Field label="Channel" value={p.firstMessageChannel} />
-            <Field label="Source" value={p.sourceMode} />
             <Field label="LinkedIn" value={p.linkedinUrl} truncate />
-            <Field label="Apollo person ID" value={p.apolloPersonId} mono truncate />
             <Field label="Telegram" value={p.telegramHandle} mono />
             <Field label="Created" value={formatDate(p.createdAt)} />
-            <Field label="Updated" value={formatDate(p.updatedAt)} />
             {p.firstMessageSentAt && (
               <Field label="Sent" value={formatDate(p.firstMessageSentAt)} />
             )}
@@ -253,8 +261,8 @@ export default function ProspectDetailPage() {
           <CardContent className="p-4 space-y-3">
             <SectionTitle>Phone reveal</SectionTitle>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              {/* phoneNumber audit field moved to Technical log download. */}
               <Field label="Reveal status" value={p.phoneRevealStatus} />
-              <Field label="phoneNumber (audit)" value={p.phoneNumber} mono />
             </div>
             {p.phoneRevealStatus === "pending" && (
               <p className="text-xs text-muted-foreground">
@@ -370,6 +378,45 @@ function computeStatus(p: Prospect): ProspectStatus {
   return "draft";
 }
 
+/**
+ * Stub-brief detector. Bulk-flow prospects ship with a synthesized
+ * stub brief (generator_model="stub-2.3-fe", daily_volume=0) — these
+ * fields are debug-only artifacts of the stub itself, not real
+ * research output. Hide them from the sales-facing detail view.
+ * Added in Ticket detail-page-cleanup.
+ */
+function isStubBrief(brief: ProspectBrief): boolean {
+  return brief.generatorModel.startsWith("stub-");
+}
+
+/**
+ * Download a JSON technical log of this prospect — full row plus
+ * computed status and stub-brief flag. Replaces the per-field debug
+ * display that used to clutter the sales-facing detail view.
+ * Added in Ticket detail-page-cleanup.
+ */
+function downloadTechnicalLog(p: Prospect): void {
+  const log = {
+    exportedAt: new Date().toISOString(),
+    prospect: p,
+    computed: {
+      status: computeStatus(p),
+      isStubBrief: p.researchBrief ? isStubBrief(p.researchBrief) : null,
+    },
+  };
+  const blob = new Blob([JSON.stringify(log, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `prospect-${p.id}-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   try {
@@ -448,24 +495,30 @@ function CopyButton({ value }: { value: string }) {
 }
 
 function BriefView({ brief }: { brief: ProspectBrief }) {
+  const stub = isStubBrief(brief);
   return (
     <div className="space-y-3 text-sm">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
-        <Field label="Country" value={brief.determinedCountry} />
-        <Field label="Scale tier" value={brief.determinedScaleTier} />
-        <Field
-          label="Daily volume"
-          value={String(brief.calibratedDailyVolume)}
-        />
-        <Field label="Primary event" value={brief.primaryEvent} />
-        <Field label="Generator model" value={brief.generatorModel} mono />
-        <Field
-          label="Generator cost"
-          value={`$${brief.generatorCostUsd.toFixed(4)}`}
-          mono
-        />
-        <Field label="Generated at" value={formatDate(brief.generatedAt)} />
-      </div>
+      {stub ? (
+        <p className="text-xs text-muted-foreground">
+          Stub brief — bulk-flow prospects ship with a placeholder. Real
+          research metadata (scale tier, daily volume, primary event)
+          appears here for seeder-flow prospects that ran the full LLM
+          research pipeline. Re-research per prospect is a future ticket.
+          Generator model and cost are available in the Technical log
+          download regardless.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+          <Field label="Country" value={brief.determinedCountry} />
+          <Field label="Scale tier" value={brief.determinedScaleTier} />
+          <Field
+            label="Daily volume"
+            value={String(brief.calibratedDailyVolume)}
+          />
+          <Field label="Primary event" value={brief.primaryEvent} />
+          <Field label="Generated at" value={formatDate(brief.generatedAt)} />
+        </div>
+      )}
       {brief.prospectSpecificHook && (
         <BriefBlock label="Specific hook" body={brief.prospectSpecificHook} />
       )}
