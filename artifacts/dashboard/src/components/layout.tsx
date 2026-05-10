@@ -6,6 +6,7 @@ import {
   Settings,
   MessageCircle,
   Send,
+  Users,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -21,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Prospect: Telegram", href: "/prospect/telegram", icon: Send },
   { label: "Follow-up: WhatsApp", href: "/followup/whatsapp", icon: MessageCircle },
   { label: "Follow-up: Telegram", href: "/followup/telegram", icon: Send },
+  { label: "Prospects", href: "/prospects", icon: Users },
   { label: "Activity", href: "/activity", icon: Activity },
   { label: "Accounts", href: "/accounts", icon: Settings },
 ];
