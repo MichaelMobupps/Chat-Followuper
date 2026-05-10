@@ -77,6 +77,9 @@ export const ACTION_TYPES = {
   apolloPhoneRevealBlocked: "apollo.phone_reveal_blocked",
   prospectorUrlsResolved: "prospector.urls_resolved",
   prospectorCompanyResolved: "prospector.company_resolved",
+  prospectorOrgFound: "prospector.org_found",
+  prospectorContactsCollected: "prospector.contacts_collected",
+  prospectorDiscoverSimple: "prospector.discover_simple",
 } as const;
 
 export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];
