@@ -118,14 +118,19 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
 
   const cost = useMemo(() => {
     let yesCount = 0,
-      maybeCount = 0;
+      maybeCount = 0,
+      freeCount = 0;
     for (const c of selectedCandidates) {
-      if (c.person.directPhoneStatus === "yes") yesCount++;
+      // existingPhone takes precedence — these candidates skip reveal
+      // paths in processOne, contributing zero to credit cost.
+      if (c.person.existingPhone) freeCount++;
+      else if (c.person.directPhoneStatus === "yes") yesCount++;
       else if (c.person.directPhoneStatus === "maybe") maybeCount++;
     }
     return {
       yes: yesCount,
       maybe: maybeCount,
+      free: freeCount,
       total: yesCount * REVEAL_COST_YES + maybeCount * REVEAL_COST_MAYBE,
     };
   }, [selectedCandidates]);
@@ -294,7 +299,11 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
                   {" · "}
                   <span className="text-muted-foreground font-normal">
                     Est. {cost.total} credits ({cost.yes + cost.maybe}{" "}
-                    × {REVEAL_COST_YES}c, non-refundable)
+                    × {REVEAL_COST_YES}c, non-refundable
+                    {cost.free > 0
+                      ? ` · ${cost.free} already revealed (free)`
+                      : ""}
+                    )
                   </span>
                 </>
               )}
@@ -363,7 +372,10 @@ function CandidateRow({
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <PhoneBadge status={person.directPhoneStatus} />
+          <PhoneBadge
+            status={person.directPhoneStatus}
+            existingPhone={person.existingPhone}
+          />
           {person.hasEmail && (
             <Badge variant="outline" className="gap-1 text-[10px]">
               <Mail className="h-3 w-3" />
@@ -382,7 +394,27 @@ function CandidateRow({
   );
 }
 
-function PhoneBadge({ status }: { status: "yes" | "maybe" | "no" }) {
+function PhoneBadge({
+  status,
+  existingPhone,
+}: {
+  status: "yes" | "maybe" | "no";
+  existingPhone: string | null;
+}) {
+  // existingPhone takes precedence over status — Apollo already revealed
+  // this contact in our account, no credit cost on use.
+  if (existingPhone) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 text-[10px] border-emerald-500 text-emerald-700 dark:text-emerald-400"
+        title="Apollo has this phone already revealed in your account — free to use, no credit charge"
+      >
+        <Phone className="h-3 w-3" />
+        ready (free)
+      </Badge>
+    );
+  }
   if (status === "yes") {
     return (
       <Badge

@@ -23,8 +23,17 @@ export function RevealConfirmDialog({
   selected,
   onConfirm,
 }: Props) {
-  const yes = selected.filter((c) => c.person.directPhoneStatus === "yes").length;
-  const maybe = selected.filter((c) => c.person.directPhoneStatus === "maybe").length;
+  // existingPhone candidates skip both reveal paths in processOne — they
+  // contribute zero to credit cost. Filter them out of yes/maybe so the
+  // breakdown matches actual Apollo charges. Added in Ticket
+  // bulk-already-revealed-free.
+  const yes = selected.filter(
+    (c) => c.person.directPhoneStatus === "yes" && !c.person.existingPhone,
+  ).length;
+  const maybe = selected.filter(
+    (c) => c.person.directPhoneStatus === "maybe" && !c.person.existingPhone,
+  ).length;
+  const free = selected.filter((c) => Boolean(c.person.existingPhone)).length;
   const totalCredits = (yes + maybe) * 8;
 
   return (
@@ -57,6 +66,12 @@ export function RevealConfirmDialog({
                     {maybe} × 8 = {maybe * 8} credits
                   </span>
                 </div>
+                {free > 0 && (
+                  <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                    <span>Already revealed (free):</span>
+                    <span className="font-mono">{free} × 0 credits</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t pt-1 mt-1 font-medium">
                   <span>Total:</span>
                   <span className="font-mono" data-testid="confirm-total-credits">

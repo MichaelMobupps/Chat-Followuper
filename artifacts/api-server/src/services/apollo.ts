@@ -178,6 +178,13 @@ export interface ApolloPersonSummary {
    *  identity for SDR recognition without bypassing the credit gate.
    *  Null when Apollo doesn't surface it. Added in Ticket 2.3-BE-A. */
   lastNameObfuscated: string | null;
+  /** Phone number when Apollo has already revealed this contact in the
+   *  calling account (= phone_numbers populated in the people-search
+   *  response). When non-null, no reveal call is needed — the phone is
+   *  already "your data" and can be used directly at zero credit cost.
+   *  Caller should check this before calling revealContact or
+   *  requestPhoneReveal. Added in Ticket bulk-already-revealed-free. */
+  existingPhone: string | null;
 }
 
 export interface ApolloRevealedContact {
@@ -413,6 +420,12 @@ function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
       typeof rawSearch.last_name_obfuscated === "string"
         ? rawSearch.last_name_obfuscated
         : null,
+    // pickPhone reads phone_numbers from the raw response. Apollo only
+    // surfaces phone_numbers in people-search results for contacts the
+    // calling account has already revealed (= already-spent credit).
+    // For not-yet-revealed contacts, phone_numbers is empty/missing, so
+    // this returns null and the regular reveal flow runs in processOne.
+    existingPhone: pickPhone(raw),
   };
 }
 

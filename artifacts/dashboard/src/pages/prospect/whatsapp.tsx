@@ -298,12 +298,17 @@ export default function ProspectWhatsAppPage() {
 
     try {
       let prospectId: string;
-      let phoneFromReveal: string | null = null;
+      // Initialize from existingPhone — Apollo populates phone_numbers in
+      // the search response only when the contact has already been
+      // revealed in our account. When set, we skip both reveal paths
+      // below (sync revealContact + async requestPhoneReveal) — zero
+      // credit cost. Added in Ticket bulk-already-revealed-free.
+      let phoneFromReveal: string | null = c.person.existingPhone ?? null;
       let revealedLastName: string | null = null;
       let revealedLinkedin: string | null = null;
 
-      // ── Step 1: reveal (yes path only) ──
-      if (isYes) {
+      // ── Step 1: reveal (yes path only, skip when already revealed) ──
+      if (isYes && !phoneFromReveal) {
         updateProcessingSlot(idx, { stage: "revealing" });
         const r = await revealContact(c.person.id);
         phoneFromReveal = r.contact.phone;
@@ -347,7 +352,7 @@ export default function ProspectWhatsAppPage() {
       updateProcessingSlot(idx, { prospectId });
 
       // ── Step 3: request phone reveal (maybe path only) ──
-      if (!isYes) {
+      if (!isYes && !phoneFromReveal) {
         updateProcessingSlot(idx, { stage: "requesting-phone-reveal" });
         await requestPhoneReveal({
           prospectId: created.id,
@@ -364,11 +369,15 @@ export default function ProspectWhatsAppPage() {
       updateProcessingSlot(idx, { stage: "generating-message" });
       await generateMessage(created.id);
 
-      // yes-no-phone reuses "ready-pending-phone" stage so BulkResults
-      // groups it in the Pending bucket alongside maybe-path prospects.
-      // The contextNotes set above distinguishes the two situations in
-      // the detail view.
-      const isReady = isYes && Boolean(phoneFromReveal);
+      // Any non-null phone means we can send WhatsApp immediately —
+      // could be a fresh revealContact result, OR an existingPhone from
+      // a previously-revealed contact (Ticket bulk-already-revealed-free).
+      // The previous isYes-coupling assumed phone could only come via
+      // revealContact; existingPhone breaks that assumption, so a
+      // maybe-tagged prospect with existingPhone is also ready right
+      // away. yes-no-phone case still falls through to "ready-pending-
+      // phone" stage with contextNotes explaining the situation.
+      const isReady = Boolean(phoneFromReveal);
       updateProcessingSlot(idx, {
         stage: isReady ? "ready" : "ready-pending-phone",
       });

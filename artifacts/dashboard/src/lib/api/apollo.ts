@@ -50,6 +50,11 @@ export interface ApolloPersonSummary {
   /** Obfuscated last name from Apollo's people search (e.g. "Gi***l").
    *  Null when Apollo doesn't surface it. */
   lastNameObfuscated: string | null;
+  /** Phone number when Apollo has already revealed this contact in
+   *  your Apollo account. When non-null, no reveal call is needed —
+   *  use directly, zero credit cost. Mirrors BE ApolloPersonSummary.
+   *  Added in Ticket bulk-already-revealed-free. */
+  existingPhone: string | null;
 }
 
 /**
