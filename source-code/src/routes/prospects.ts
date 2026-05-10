@@ -138,7 +138,7 @@ function computeProspectStatus(p: {
 }
 
 router.get(
-  "/",
+  "/prospects",
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     const user = (req as Request & { user: { id: string } }).user;
