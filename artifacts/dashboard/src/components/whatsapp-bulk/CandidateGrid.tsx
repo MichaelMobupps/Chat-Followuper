@@ -78,6 +78,15 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
     });
   }, [candidates, filters]);
 
+  // Selectable = filtered rows that aren't no-phone. Apollo charges 8c
+  // per reveal regardless, so revealing a "no" candidate is pure waste —
+  // they're rendered for visibility (when hideNoPhone toggle is OFF) but
+  // not selectable.
+  const selectable = useMemo(
+    () => filtered.filter((c) => c.person.directPhoneStatus !== "no"),
+    [filtered],
+  );
+
   function toggleOne(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -89,19 +98,23 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
 
   function toggleAllVisible() {
     setSelected((prev) => {
-      const allVisibleSelected = filtered.every((c) => prev.has(c.person.id));
+      const allSelectableSelected = selectable.every((c) => prev.has(c.person.id));
       const next = new Set(prev);
-      if (allVisibleSelected) {
-        for (const c of filtered) next.delete(c.person.id);
+      if (allSelectableSelected) {
+        for (const c of selectable) next.delete(c.person.id);
       } else {
-        for (const c of filtered) next.add(c.person.id);
+        for (const c of selectable) next.add(c.person.id);
       }
       return next;
     });
   }
 
   const selectedCandidates = useMemo(
-    () => candidates.filter((c) => selected.has(c.person.id)),
+    () =>
+      candidates.filter(
+        (c) =>
+          selected.has(c.person.id) && c.person.directPhoneStatus !== "no",
+      ),
     [candidates, selected],
   );
 
@@ -241,14 +254,19 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
           <div className="border-b px-4 py-2 flex items-center gap-3 text-xs">
             <Checkbox
               checked={
-                filtered.length > 0 &&
-                filtered.every((c) => selected.has(c.person.id))
+                selectable.length > 0 &&
+                selectable.every((c) => selected.has(c.person.id))
               }
               onCheckedChange={toggleAllVisible}
+              disabled={selectable.length === 0}
               data-testid="checkbox-select-all"
             />
             <span className="text-muted-foreground">
-              Select all visible ({filtered.length})
+              Select all selectable ({selectable.length}
+              {selectable.length !== filtered.length
+                ? ` of ${filtered.length}, ${filtered.length - selectable.length} no-phone skipped`
+                : ""}
+              )
             </span>
           </div>
           <div className="max-h-[480px] overflow-y-auto">
@@ -327,23 +345,30 @@ function CandidateRow({
   onToggle: () => void;
 }) {
   const { person, org } = candidate;
+  const noPhone = person.directPhoneStatus === "no";
   const displayName =
     [person.firstName, person.lastNameObfuscated].filter(Boolean).join(" ") ||
     person.name ||
     "(no name)";
   return (
     <div
-      className={`flex items-start gap-3 px-4 py-2.5 border-b last:border-b-0 hover-elevate cursor-pointer ${
-        selected ? "bg-accent/40" : ""
-      }`}
-      onClick={onToggle}
+      className={
+        noPhone
+          ? "flex items-start gap-3 px-4 py-2.5 border-b last:border-b-0 opacity-60 cursor-not-allowed"
+          : `flex items-start gap-3 px-4 py-2.5 border-b last:border-b-0 hover-elevate cursor-pointer ${
+              selected ? "bg-accent/40" : ""
+            }`
+      }
+      onClick={noPhone ? undefined : onToggle}
       data-testid={`candidate-row-${person.id}`}
+      title={noPhone ? "Apollo has no phone for this person — not selectable" : undefined}
     >
       <Checkbox
-        checked={selected}
-        onCheckedChange={onToggle}
+        checked={selected && !noPhone}
+        onCheckedChange={noPhone ? undefined : onToggle}
         onClick={(e) => e.stopPropagation()}
         className="mt-1"
+        disabled={noPhone}
         data-testid={`checkbox-${person.id}`}
       />
       <div className="min-w-0 flex-1 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-3">

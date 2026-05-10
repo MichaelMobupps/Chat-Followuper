@@ -264,6 +264,18 @@ export default function ProspectWhatsAppPage() {
   }
 
   async function processOne(idx: number, c: Candidate) {
+    // Defense in depth: the candidate grid prevents selecting "no"
+    // status candidates, but if anything ever slips through, fail fast
+    // here so we don't spend 8 credits asking Apollo for a phone they
+    // already told us they don't have.
+    if (c.person.directPhoneStatus === "no") {
+      updateProcessingSlot(idx, {
+        stage: "failed",
+        error: "candidate has no phone available; selection should have been prevented",
+      });
+      return;
+    }
+
     const isYes = c.person.directPhoneStatus === "yes";
 
     try {
