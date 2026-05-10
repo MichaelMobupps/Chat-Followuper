@@ -122,8 +122,14 @@ router.post(
     const missing: string[] = [];
     if (!prospect.prospectName) missing.push("prospectName");
     if (!prospect.company) missing.push("company");
-    if (!prospect.country) missing.push("country");
     if (!prospect.language) missing.push("language");
+    // country intentionally not required: Apollo's people-search returns
+    // inconsistent country formats (full English names vs ISO-2). The FE
+    // strips non-ISO values to satisfy the strict create schema, which
+    // means country is legitimately null for many Apollo prospects.
+    // The downstream prospectInput uses "" as the country fallback, so
+    // message generation succeeds without country (slightly less
+    // localized output).
     if (missing.length > 0) {
       res.status(409).json({ error: "missing_fields", fields: missing });
       return;
