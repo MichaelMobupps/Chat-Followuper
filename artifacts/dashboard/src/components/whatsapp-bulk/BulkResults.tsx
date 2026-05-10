@@ -135,10 +135,11 @@ function ReadyRow({ state }: { state: CandidateProcessing }) {
         }
       },
       onError: (err) => {
-        const msg =
-          err instanceof ApiError
-            ? `${err.code ?? err.message}`
-            : err.message;
+        // useWhatsappLink declares TError = ApiError so err is typed
+        // accordingly. err.code may be undefined for non-API errors
+        // (network failures still surface as ApiError but with no code);
+        // err.message is always present on ApiError.
+        const msg = err.code ?? err.message;
         toast({
           title: "Could not open WhatsApp link",
           description: msg,
