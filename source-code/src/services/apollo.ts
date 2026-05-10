@@ -185,6 +185,13 @@ export interface ApolloPersonSummary {
    *  Caller should check this before calling revealContact or
    *  requestPhoneReveal. Added in Ticket bulk-already-revealed-free. */
   existingPhone: string | null;
+  /** Prospect ID if a prospect with this Apollo person ID already
+   *  exists for the requesting user. Set by routes/apollo.ts after
+   *  searchPeople returns; mapPerson initializes to null. The FE
+   *  bulk grid renders these candidates as not-selectable so the
+   *  reveal call never fires (would burn 8c on a dupe). Added in
+   *  Ticket search-time-annotation. */
+  existingProspectId: string | null;
 }
 
 export interface ApolloRevealedContact {
@@ -426,6 +433,7 @@ function mapPerson(raw: RawApolloPerson): ApolloPersonSummary {
     // For not-yet-revealed contacts, phone_numbers is empty/missing, so
     // this returns null and the regular reveal flow runs in processOne.
     existingPhone: pickPhone(raw),
+    existingProspectId: null,
   };
 }
 

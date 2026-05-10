@@ -55,6 +55,11 @@ export interface ApolloPersonSummary {
    *  use directly, zero credit cost. Mirrors BE ApolloPersonSummary.
    *  Added in Ticket bulk-already-revealed-free. */
   existingPhone: string | null;
+  /** Prospect ID if a prospect with this Apollo person ID already
+   *  exists for the requesting user. Mirrors BE ApolloPersonSummary.
+   *  Bulk grid renders these candidates as not-selectable. Added in
+   *  Ticket search-time-annotation. */
+  existingProspectId: string | null;
 }
 
 /**

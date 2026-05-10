@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   dailyUsageTable,
   actionLogsTable,
+  prospectsTable,
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
@@ -215,6 +216,40 @@ router.post(
         req.body.orgId,
         req.body.titles ?? [],
       );
+
+      // Cross-reference for already-prospected candidates. Apollo's
+      // search response doesn't know which people are already
+      // prospects in our DB; without this annotation, the FE bulk
+      // flow re-attempts reveal on dupes and burns 8c per attempt
+      // (the createProspect-side dedupe in routes/prospects.ts then
+      // 409s, but the credit is already gone). Annotating here lets
+      // the FE filter dupes out of the candidate grid before the
+      // reveal call ever fires.
+      const apolloIds = people
+        .map((p) => p.id)
+        .filter((id): id is string => id.length > 0);
+      if (apolloIds.length > 0) {
+        const existing = await db
+          .select({
+            id: prospectsTable.id,
+            apolloPersonId: prospectsTable.apolloPersonId,
+          })
+          .from(prospectsTable)
+          .where(
+            and(
+              eq(prospectsTable.userId, user.id),
+              inArray(prospectsTable.apolloPersonId, apolloIds),
+            ),
+          );
+        const existingMap = new Map<string, string>();
+        for (const row of existing) {
+          if (row.apolloPersonId)
+            existingMap.set(row.apolloPersonId, row.id);
+        }
+        for (const p of people) {
+          p.existingProspectId = existingMap.get(p.id) ?? null;
+        }
+      }
 
       await db.insert(actionLogsTable).values({
         userId: user.id,

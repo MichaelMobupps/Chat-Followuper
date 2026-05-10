@@ -111,7 +111,9 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
     () =>
       candidates.filter(
         (c) =>
-          selected.has(c.person.id) && c.person.directPhoneStatus !== "no",
+          selected.has(c.person.id) &&
+          c.person.directPhoneStatus !== "no" &&
+          c.person.existingProspectId == null,
       ),
     [candidates, selected],
   );
@@ -333,6 +335,13 @@ function CandidateRow({
 }) {
   const { person, org } = candidate;
   const noPhone = person.directPhoneStatus === "no";
+  const isAlreadyProspect = person.existingProspectId != null;
+  const notSelectable = noPhone || isAlreadyProspect;
+  const notSelectableReason = isAlreadyProspect
+    ? "Already a prospect — already in your list"
+    : noPhone
+    ? "Apollo has no phone for this person — not selectable"
+    : undefined;
   const displayName =
     [person.firstName, person.lastNameObfuscated].filter(Boolean).join(" ") ||
     person.name ||
@@ -340,22 +349,22 @@ function CandidateRow({
   return (
     <div
       className={
-        noPhone
+        notSelectable
           ? "flex items-start gap-3 px-4 py-2.5 border-b last:border-b-0 opacity-60 cursor-not-allowed"
           : `flex items-start gap-3 px-4 py-2.5 border-b last:border-b-0 hover-elevate cursor-pointer ${
               selected ? "bg-accent/40" : ""
             }`
       }
-      onClick={noPhone ? undefined : onToggle}
+      onClick={notSelectable ? undefined : onToggle}
       data-testid={`candidate-row-${person.id}`}
-      title={noPhone ? "Apollo has no phone for this person — not selectable" : undefined}
+      title={notSelectableReason}
     >
       <Checkbox
-        checked={selected && !noPhone}
-        onCheckedChange={noPhone ? undefined : onToggle}
+        checked={selected && !notSelectable}
+        onCheckedChange={notSelectable ? undefined : onToggle}
         onClick={(e) => e.stopPropagation()}
         className="mt-1"
-        disabled={noPhone}
+        disabled={notSelectable}
         data-testid={`checkbox-${person.id}`}
       />
       <div className="min-w-0 flex-1 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-3">
