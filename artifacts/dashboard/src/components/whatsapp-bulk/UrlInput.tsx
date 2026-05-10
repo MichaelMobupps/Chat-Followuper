@@ -10,7 +10,12 @@ import { Badge } from "@/components/ui/badge";
 const MAX_URLS = 50;
 
 const DEFAULT_TITLES =
-  "Head of Growth, VP Marketing, Marketing Director, UA Manager, User Acquisition Manager, Performance Marketing Manager, CMO";
+  // Mirrors the email prospector's title strategy (PRIMARY + SECONDARY
+  // + EXEC_FALLBACK from prospector/stages/s3_enrich.py:237-252).
+  // Lowercase fuzzy-match terms — Apollo's person_titles does partial
+  // matching, so "growth" catches "Head of Growth", "VP Growth", etc.
+  // The textarea remains editable; user can override per-search.
+  "user acquisition, ua, growth, performance marketing, paid acquisition, paid media, digital marketing, media buying, customer acquisition, marketing manager, growth marketing, business development, partnerships, strategic partnerships, growth partnerships, marketing director, marketing lead, ceo, chief executive, founder, co-founder, cmo, chief marketing, vp marketing, head of marketing, director of marketing, vp growth, head of growth";
 
 export interface UrlInputSubmit {
   urls: string[];
