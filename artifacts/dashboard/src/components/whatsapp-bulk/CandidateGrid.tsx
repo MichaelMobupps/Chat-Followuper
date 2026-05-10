@@ -13,7 +13,7 @@ import type {
 } from "@/lib/api/apollo";
 
 const SOFT_CAP = 25;
-const REVEAL_COST_YES = 1;
+const REVEAL_COST_YES = 8;
 const REVEAL_COST_MAYBE = 8;
 
 export interface Candidate {
@@ -41,8 +41,8 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
   const [overrideCap, setOverrideCap] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     hideNoPhone: true,
-    showMaybe: true,
-    hasEmail: false,
+    showMaybe: false,
+    hasEmail: true,
     search: "",
     country: "",
   });
@@ -272,8 +272,8 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
                 <>
                   {" · "}
                   <span className="text-muted-foreground font-normal">
-                    Est. {cost.total} credits ({cost.yes} yes × {REVEAL_COST_YES} +{" "}
-                    {cost.maybe} maybe × {REVEAL_COST_MAYBE})
+                    Est. {cost.total} credits ({cost.yes + cost.maybe}{" "}
+                    × {REVEAL_COST_YES}c, non-refundable)
                   </span>
                 </>
               )}

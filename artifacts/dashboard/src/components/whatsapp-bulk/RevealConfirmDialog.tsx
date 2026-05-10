@@ -25,7 +25,7 @@ export function RevealConfirmDialog({
 }: Props) {
   const yes = selected.filter((c) => c.person.directPhoneStatus === "yes").length;
   const maybe = selected.filter((c) => c.person.directPhoneStatus === "maybe").length;
-  const totalCredits = yes * 1 + maybe * 8;
+  const totalCredits = (yes + maybe) * 8;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -38,13 +38,17 @@ export function RevealConfirmDialog({
             <div className="space-y-3">
               <p>
                 This will spend Apollo credits and create prospect records.
-                Apollo credits are not refunded if a reveal fails.
+              </p>
+              <p className="text-amber-700 dark:text-amber-400 font-medium">
+                ⚠ Each reveal costs 8 credits regardless of "yes" or "maybe"
+                tag. Credits are NOT refunded when Apollo returns no phone —
+                this happens occasionally even on "yes" reveals.
               </p>
               <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
                 <div className="flex justify-between">
                   <span>Sync reveals (phone cached):</span>
                   <span className="font-mono">
-                    {yes} × 1 = {yes} credits
+                    {yes} × 8 = {yes * 8} credits
                   </span>
                 </div>
                 <div className="flex justify-between">
