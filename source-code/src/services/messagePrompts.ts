@@ -138,6 +138,23 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
   el: { withName: "Γεια σας, {NAME},", withoutName: "Γεια σας,", note: "" },
   sw: { withName: "Habari {NAME},", withoutName: "Habari,", note: "" },
   am: { withName: "ሰላም {NAME},", withoutName: "ሰላም,", note: "" },
+
+  // ── REGIONAL LOCALES (B-locale-tier1) ──────────────────────────
+  // Region-aware overrides for languages that vary materially across
+  // markets. The lookup at buildGreetingBlock tries the full tag first
+  // (e.g. "pt-BR") and falls back to the primary subtag ("pt").
+
+  "pt-BR": { withName: "Olá {NAME},", withoutName: "Olá,", note: "Brazilian Portuguese, casual-professional B2B WhatsApp register; use 'voce' verb forms throughout. Avoid Iberian formality ('Prezado'). BR-localized vocabulary only (celular, tela, arquivo, mouse, onibus)." },
+  "pt-PT": { withName: "Olá {NAME},", withoutName: "Olá,", note: "European Portuguese, more formal than BR; use 'voce' or 'o senhor / a senhora' verb forms. PT-localized vocabulary only (telemovel, ecra, ficheiro, rato, autocarro)." },
+  "es-MX": { withName: "Hola {NAME},", withoutName: "Hola,", note: "Mexican Spanish, 'usted' for cold outreach; 'Buen dia' / 'Buenos dias' also acceptable. Use computadora, celular, carro." },
+  "es-AR": { withName: "Hola {NAME},", withoutName: "Hola,", note: "Argentinian / Southern Cone Spanish, 'usted' for cold; voseo (vos) is informal, fine once warm. Avoid 'che' for B2B. Use computadora, celular, auto." },
+  "es-CO": { withName: "Hola {NAME},", withoutName: "Cordial saludo,", note: "Colombian / Northern LATAM Spanish, high politeness register; 'usted' throughout. 'Cordial saludo {NAME},' also acceptable as opener. Use computador (masculine), celular." },
+  "es-ES": { withName: "Hola {NAME},", withoutName: "Hola,", note: "Iberian Spanish, 'usted' (formal) or 'tu' (modern tech B2B). Use ordenador, movil, coche. 'Vosotros' for plural informal (Spain only)." },
+  "zh-Hans": { withName: "您好，{NAME}：", withoutName: "您好，", note: "Simplified Chinese (Mainland China + Singapore). EVERY character must be Simplified, never mix Traditional. 您 register only, never 你 alone." },
+  "zh-Hant": { withName: "您好，{NAME}：", withoutName: "您好，", note: "Traditional Chinese (Taiwan, Hong Kong, Macau). EVERY character must be Traditional, never mix Simplified. 您 register only." },
+  "ar-EG": { withName: "مرحبا {NAME}،", withoutName: "مرحبا،", note: "Egyptian Arabic, write body in MSA (not عامية). 'السلام عليكم' acceptable for visibly Muslim contexts; 'مرحبا' is the secular default for unknown recipients." },
+  "ar-SA": { withName: "السلام عليكم {NAME}،", withoutName: "السلام عليكم،", note: "Gulf Arabic, most formal MSA register. 'السلام عليكم' is the standard cold-B2B opener across SA, AE, QA, KW, BH, OM." },
+  "ar-MA": { withName: "مرحبا {NAME}،", withoutName: "مرحبا،", note: "Maghrebi Arabic, French loanwords are standard in B2B. 'Bonjour {NAME},' as French opener is also acceptable in MA, DZ, TN where French is the working language." },
 };
 
 function buildGreetingBlock(language: string, hasName: boolean): string {
