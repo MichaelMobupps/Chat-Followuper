@@ -188,6 +188,20 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
   "ar-EG": { withName: "مرحبا {NAME}،", withoutName: "مرحبا،", note: "Egyptian Arabic, write body in MSA (not عامية). 'السلام عليكم' acceptable for visibly Muslim contexts; 'مرحبا' is the secular default for unknown recipients." },
   "ar-SA": { withName: "السلام عليكم {NAME}،", withoutName: "السلام عليكم،", note: "Gulf Arabic, most formal MSA register. 'السلام عليكم' is the standard cold-B2B opener across SA, AE, QA, KW, BH, OM." },
   "ar-MA": { withName: "مرحبا {NAME}،", withoutName: "مرحبا،", note: "Maghrebi Arabic, French loanwords are standard in B2B. 'Bonjour {NAME},' as French opener is also acceptable in MA, DZ, TN where French is the working language." },
+
+  // ── REGIONAL LOCALES (B-locale-tier2) ──────────────────────────
+  // English / French / German regional variants. English variants
+  // emphasise spelling, regional brand references, and register.
+  // French and German variants follow tier1 depth.
+
+  "en-IN": { withName: "Hello {NAME},", withoutName: "Hello,", note: "Indian English B2B, more formal than US/UK. 'Hi' acceptable on WhatsApp once warm; 'Dear Mr./Ms. {LastName},' for cold email. Avoid US slang (ballpark, low-hanging fruit). Spelling follows en-GB (optimisation, behaviour, centre). Currency INR (lakh / crore for amounts under 100M)." },
+  "en-GB": { withName: "Hi {NAME},", withoutName: "Hello,", note: "British English, slightly more reserved than en-US. 'Hello {NAME},' for cold email; 'Hi {NAME},' for WhatsApp. Use en-GB spelling (optimisation, organisation, behaviour, centre, licence/license). Avoid Americanisms (gotten, awesome, super)." },
+  "en-US": { withName: "Hi {NAME},", withoutName: "Hi there,", note: "American English, warm-direct. Default for most LLMs; explicit en-US tag mainly enforces US spelling (optimization, behavior, center) and US peer-brand references." },
+  "fr-FR": { withName: "Bonjour {NAME},", withoutName: "Bonjour,", note: "Metropolitan French, vous-form for cold outreach (never tu). Sign-off: 'Cordialement,'. Numbers: '1 234,56 €' (space thousands separator, comma decimal)." },
+  "fr-CA": { withName: "Bonjour {NAME},", withoutName: "Bonjour,", note: "Quebec French, stronger anti-anglicisme than fr-FR. Use courriel (NOT email), magasinage (NOT shopping), fin de semaine (NOT week-end), cellulaire (NOT mobile/portable). Vous-form for cold outreach. Sign-off: 'Cordialement,' or 'Salutations distinguées,'." },
+  "de-DE": { withName: "Hallo {NAME},", withoutName: "Hallo,", note: "Standard German, Sie-form for cold outreach (never du for first contact). Cold-email opener: 'Sehr geehrte Frau / Sehr geehrter Herr {LastName},'. Sign-off: 'Mit freundlichen Grüßen,'. Numbers: '1.234,56 €' (period thousands separator, comma decimal)." },
+  "de-AT": { withName: "Hallo {NAME},", withoutName: "Hallo,", note: "Austrian German, Sie-form for cold; slightly softer than de-DE. Avoid 'Servus' (too informal) and 'Grüß Gott' (traditional, not modern B2B WhatsApp). Use Jänner (NOT Januar) for January. Same orthography as de-DE (uses ß)." },
+  "de-CH": { withName: "Guten Tag {NAME},", withoutName: "Guten Tag,", note: "Swiss High German, NO ß (use ss: Grüsse, Strasse, gross, weiss, dass, Mass). Most formal German variant; Sie-form throughout. Sign-off: 'Freundliche Grüsse,' (NOT Grüße). Currency CHF (NOT €)." },
 };
 
 function buildGreetingBlock(language: string, hasName: boolean): string {
