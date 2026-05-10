@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Copy,
   Download,
+  Pencil,
   CheckCircle2,
   Clock,
   XCircle,
@@ -37,6 +38,7 @@ import { ApiError } from "@/lib/api";
 import {
   getProspect,
   deleteProspect,
+  updateProspect,
   type Prospect,
   type ProspectStatus,
   type ProspectBrief,
@@ -51,6 +53,8 @@ export default function ProspectDetailPage() {
   const queryClient = useQueryClient();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [briefExpanded, setBriefExpanded] = useState(false);
+  const [editingMessage, setEditingMessage] = useState(false);
+  const [messageDraft, setMessageDraft] = useState("");
 
   const query = useQuery<Prospect, ApiError>({
     queryKey: ["prospect", id],
@@ -68,6 +72,24 @@ export default function ProspectDetailPage() {
     onError: (err) => {
       toast({
         title: "Could not regenerate message",
+        description: err.code ?? err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const editMessage = useMutation<unknown, ApiError, string>({
+    mutationFn: (newBody) =>
+      updateProspect(id!, { firstMessageBody: newBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", id] });
+      queryClient.invalidateQueries({ queryKey: ["prospects-list"] });
+      setEditingMessage(false);
+      toast({ title: "Message updated" });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not update message",
         description: err.code ?? err.message,
         variant: "destructive",
       });
@@ -290,12 +312,63 @@ export default function ProspectDetailPage() {
       <Card data-testid="message-card">
         <CardContent className="p-4 space-y-3">
           <SectionTitle>First message</SectionTitle>
-          {p.firstMessageBody ? (
+          {editingMessage ? (
+            <>
+              <textarea
+                value={messageDraft}
+                onChange={(e) => setMessageDraft(e.target.value)}
+                rows={Math.max(8, messageDraft.split("\n").length + 1)}
+                className="w-full rounded-md border bg-muted/30 p-3 text-sm font-sans resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                data-testid="textarea-message-edit"
+                disabled={editMessage.isPending}
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => editMessage.mutate(messageDraft.trim())}
+                  disabled={
+                    editMessage.isPending ||
+                    messageDraft.trim().length === 0 ||
+                    messageDraft.trim() === (p.firstMessageBody ?? "").trim()
+                  }
+                  data-testid="button-save-message"
+                >
+                  {editMessage.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : null}
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditingMessage(false)}
+                  disabled={editMessage.isPending}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : p.firstMessageBody ? (
             <>
               <div className="rounded-md border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
                 {p.firstMessageBody}
               </div>
-              <CopyButton value={p.firstMessageBody} />
+              <div className="flex gap-2">
+                <CopyButton value={p.firstMessageBody} />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setMessageDraft(p.firstMessageBody ?? "");
+                    setEditingMessage(true);
+                  }}
+                  data-testid="button-edit-message"
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Edit
+                </Button>
+              </div>
             </>
           ) : (
             <p className="text-xs text-muted-foreground">

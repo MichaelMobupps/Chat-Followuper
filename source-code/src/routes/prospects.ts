@@ -266,12 +266,23 @@ const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 const ISO_LANG_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
 const ISO_COUNTRY_RE = /^[A-Z]{2}$/;
 
-// System-only fields (firstMessage*, replied, followupPaused, phoneReveal*,
-// id, userId, createdAt, updatedAt) are rejected automatically by the
-// schema's .strict() — any key not declared in baseProspectFields raises
-// "unrecognized_keys". No separate allowlist is needed.
+// System-only fields (replied, followupPaused, phoneReveal*, id, userId,
+// createdAt, updatedAt, firstMessageChannel, firstMessageSentAt) are
+// rejected automatically by the schema's .strict() — any key not
+// declared in baseProspectFields raises "unrecognized_keys". No separate
+// allowlist is needed.
+//
+// firstMessageBody is admitted (added in Ticket edit-message-capability)
+// to support manual edits from the detail page. Channel and SentAt
+// remain system-only — they are set by generateMessage and the send
+// pipeline respectively.
 
 const baseProspectFields = {
+  /** First message body — manually editable on PATCH, system-set
+   *  on initial generation by generateMessage. Trimmed non-empty
+   *  string up to 20k chars, or null to clear. Added in Ticket
+   *  edit-message-capability. */
+  firstMessageBody: z.string().trim().min(1).max(20000).nullable().optional(),
   prospectName: z.string().trim().min(1).max(200).nullable().optional(),
   company: z.string().trim().min(1).max(200).nullable().optional(),
   title: z.string().trim().min(1).max(200).nullable().optional(),
@@ -642,6 +653,7 @@ router.patch(
     // Build the update set explicitly. `undefined` means "not in body —
     // do not update"; explicit null means "clear this field".
     const updates: Partial<typeof prospectsTable.$inferInsert> = {};
+    if (body.firstMessageBody !== undefined) updates.firstMessageBody = body.firstMessageBody;
     if (body.prospectName !== undefined) updates.prospectName = body.prospectName;
     if (body.company !== undefined) updates.company = body.company;
     if (body.title !== undefined) updates.title = body.title;
