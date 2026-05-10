@@ -12,7 +12,6 @@ import type {
   ApolloPersonSummary,
 } from "@/lib/api/apollo";
 
-const SOFT_CAP = 25;
 const REVEAL_COST_YES = 8;
 const REVEAL_COST_MAYBE = 8;
 
@@ -38,7 +37,6 @@ interface Filters {
 
 export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [overrideCap, setOverrideCap] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     hideNoPhone: true,
     showMaybe: false,
@@ -132,9 +130,7 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
     };
   }, [selectedCandidates]);
 
-  const overSoftCap = selectedCandidates.length > SOFT_CAP;
-  const canConfirm =
-    selectedCandidates.length > 0 && (!overSoftCap || overrideCap);
+  const canConfirm = selectedCandidates.length > 0;
 
   return (
     <section className="space-y-4" data-testid="candidate-grid">
@@ -303,24 +299,6 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
                 </>
               )}
             </p>
-            {overSoftCap && (
-              <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
-                <Badge variant="outline" className="border-amber-500 text-amber-700">
-                  Over soft cap of {SOFT_CAP}
-                </Badge>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-xs"
-                  onClick={() => setOverrideCap(true)}
-                  disabled={overrideCap}
-                  data-testid="button-override-cap"
-                >
-                  {overrideCap ? "Override active" : "Override"}
-                </Button>
-              </div>
-            )}
           </div>
           <Button
             disabled={!canConfirm}

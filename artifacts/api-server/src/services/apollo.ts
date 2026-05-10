@@ -465,8 +465,20 @@ export async function searchOrg(
 
 /**
  * Search Apollo people inside a specific organization, filtered by titles.
- * Returns up to 25 people.
+ *
+ * Paginates Apollo's people-search endpoint with per_page=100 (Apollo's
+ * max for single-page) and a hard 5-page (500-candidate) safety cap.
+ * Stops early when Apollo returns fewer than per_page (= last page
+ * reached). For typical companies this fetches all candidates in 1 call;
+ * large orgs (>500 marketing/UA-titled people) hit the cap and SDR can
+ * re-run with stricter title filters.
+ *
+ * Removed in Ticket bulk-unlimited-candidates: the prior fixed cap of
+ * 25 was hiding most candidates from larger orgs.
  */
+const SEARCH_PEOPLE_PER_PAGE = 100;
+const SEARCH_PEOPLE_MAX_PAGES = 5;
+
 export async function searchPeople(
   orgId: string,
   titles: string[],
@@ -478,20 +490,32 @@ export async function searchPeople(
   const titleList =
     titles.length > 0 ? titles : Array.from(DEFAULT_SDR_TITLES);
 
-  const body = {
-    organization_ids: [orgId],
-    person_titles: titleList,
-    page: 1,
-    per_page: 25,
-  };
+  const allPeople: ApolloPersonSummary[] = [];
+  for (let page = 1; page <= SEARCH_PEOPLE_MAX_PAGES; page++) {
+    const body = {
+      organization_ids: [orgId],
+      person_titles: titleList,
+      page,
+      per_page: SEARCH_PEOPLE_PER_PAGE,
+    };
 
-  const response = await apolloFetch<PeopleSearchResponse>(
-    "/mixed_people/api_search",
-    { method: "POST", body },
-  );
+    const response = await apolloFetch<PeopleSearchResponse>(
+      "/mixed_people/api_search",
+      { method: "POST", body },
+    );
 
-  const people = response.people ?? [];
-  return people.map(mapPerson).filter((p) => p.id.length > 0);
+    const pagePeople = (response.people ?? [])
+      .map(mapPerson)
+      .filter((p) => p.id.length > 0);
+    allPeople.push(...pagePeople);
+
+    // Stop when Apollo returns fewer than per_page (= last page reached)
+    if (pagePeople.length < SEARCH_PEOPLE_PER_PAGE) {
+      break;
+    }
+  }
+
+  return allPeople;
 }
 
 /**
