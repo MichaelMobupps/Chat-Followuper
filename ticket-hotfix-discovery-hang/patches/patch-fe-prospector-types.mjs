@@ -1,26 +1,19 @@
 #!/usr/bin/env node
 /**
- * Hotfix: align FE prospector types with actual BE response shape
+ * Hotfix v2: align FE prospector types with actual BE response shape
  *
  * artifacts/dashboard/src/lib/api/prospector.ts
  *
- * Single anchored edit replaces the ResolvedUrl + ResolveUrlsResponse
- * interfaces with the correct field names matching the actual BE
- * response (verified via devtools network inspection):
+ * Three small atomic anchored edits — each has a tight anchor that
+ * doesn't depend on the layout between interfaces (blank lines, etc).
  *
- *   FE was wrong         →  BE actually returns
- *   ─────────────────────────────────────────────
- *   resolutions          →  resolved          ← this is the hang bug
- *   kind                 →  type
- *   appId                →  appName
- *   (missing)            →  country
+ *   Edit 1: rename inner field `kind` → `type` (cosmetic)
+ *   Edit 2: rename inner field `appId` → `appName` + add `country`
+ *           (anchor on the appId+error lines, replace with appName+country+error)
+ *   Edit 3: rename wrapper field `resolutions` → `resolved`
+ *           (THIS IS THE OPERATIONAL FIX — fixes the hang)
  *
- * The orchestrator in pages/prospect/whatsapp.tsx only consumes
- * `.url`, `.brand`, `.error` — all present in BE response — so once
- * the wrapper field name is fixed, the rest of the pipeline runs.
- * The other field renames are hygiene to prevent future drift.
- *
- * Idempotent.
+ * Idempotent. Each edit has its own marker.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -31,39 +24,57 @@ const FILE = resolve(
   "artifacts/dashboard/src/lib/api/prospector.ts",
 );
 
-const EDIT_OLD = `export interface ResolvedUrl {
-  url: string;
-  kind?: "play_store" | "app_store" | "website" | "unknown" | string;
-  brand?: string | null;
-  domain?: string | null;
-  appId?: string | null;
-  error?: string | null;
-}
-export interface ResolveUrlsInput {
-  urls: string[];
-}
-export interface ResolveUrlsResponse {
+// ──────────────────────────────────────────────────────────────────
+// Edit 1 — rename `kind` to `type` in ResolvedUrl
+// ──────────────────────────────────────────────────────────────────
+
+const E1_OLD = `  kind?: "play_store" | "app_store" | "website" | "unknown" | string;`;
+const E1_NEW = `  type?: "play_store" | "app_store" | "website" | "unknown" | string;`;
+const E1_MARKER = `  type?: "play_store" | "app_store" | "website" | "unknown" | string;`;
+
+// ──────────────────────────────────────────────────────────────────
+// Edit 2 — replace `appId` line with `appName` + add `country`
+//
+// Anchor on two consecutive lines (appId + error) so the insertion of
+// country is unambiguously between them.
+// ──────────────────────────────────────────────────────────────────
+
+const E2_OLD = `  appId?: string | null;
+  error?: string | null;`;
+
+const E2_NEW = `  appName?: string | null;
+  country?: string | null;
+  error?: string | null;`;
+
+const E2_MARKER = `  appName?: string | null;
+  country?: string | null;`;
+
+// ──────────────────────────────────────────────────────────────────
+// Edit 3 — rename wrapper field `resolutions` → `resolved`
+//
+// THIS IS THE OPERATIONAL FIX. Without this, FE reads `r.resolutions`
+// which is undefined at runtime, the next-line iteration throws
+// TypeError, and because runDiscovery was launched with `void`, it
+// becomes an unhandled rejection — UI stuck on "Resolving URL".
+//
+// Tight 2-line anchor: only the field declaration inside the response
+// interface. Layout between interfaces (blank lines, comments) doesn't
+// affect this match.
+// ──────────────────────────────────────────────────────────────────
+
+const E3_OLD = `export interface ResolveUrlsResponse {
   resolutions: ResolvedUrl[];
 }`;
 
-const EDIT_NEW = `export interface ResolvedUrl {
-  url: string;
-  type?: "play_store" | "app_store" | "website" | "unknown" | string;
-  brand?: string | null;
-  domain?: string | null;
-  appName?: string | null;
-  country?: string | null;
-  error?: string | null;
-}
-export interface ResolveUrlsInput {
-  urls: string[];
-}
-export interface ResolveUrlsResponse {
+const E3_NEW = `export interface ResolveUrlsResponse {
   resolved: ResolvedUrl[];
 }`;
 
-// Marker = the post-patch wrapper field name. If present, patch already applied.
-const EDIT_MARKER = `resolved: ResolvedUrl[];`;
+const E3_MARKER = `  resolved: ResolvedUrl[];`;
+
+// ──────────────────────────────────────────────────────────────────
+// applyEdit
+// ──────────────────────────────────────────────────────────────────
 
 function countOccurrences(haystack, needle) {
   if (!needle) return 0;
@@ -75,6 +86,25 @@ function countOccurrences(haystack, needle) {
   return count;
 }
 
+function applyEdit(label, source, oldStr, newStr, marker) {
+  const m = countOccurrences(source, marker);
+  const o = countOccurrences(source, oldStr);
+  if (m > 0) {
+    console.log(`[${label}] SKIP — already applied`);
+    return { source, ok: true };
+  }
+  if (o === 0) {
+    console.log(`[${label}] NOOP — anchor not found`);
+    return { source, ok: false };
+  }
+  if (o > 1) {
+    console.log(`[${label}] FAIL — anchor matched ${o} times`);
+    return { source, ok: false };
+  }
+  console.log(`[${label}] APPLY`);
+  return { source: source.replace(oldStr, newStr), ok: true };
+}
+
 let source;
 try {
   source = readFileSync(FILE, "utf8");
@@ -83,39 +113,35 @@ try {
   process.exit(2);
 }
 
-const m = countOccurrences(source, EDIT_MARKER);
-const o = countOccurrences(source, EDIT_OLD);
+const r1 = applyEdit("kind→type", source, E1_OLD, E1_NEW, E1_MARKER);
+if (!r1.ok) process.exit(3);
+source = r1.source;
 
-if (m > 0) {
-  console.log("[fe-prospector-types] SKIP — already applied");
-  process.exit(0);
-}
-if (o === 0) {
-  console.log("[fe-prospector-types] NOOP — anchor not found");
-  process.exit(3);
-}
-if (o > 1) {
-  console.log(`[fe-prospector-types] FAIL — anchor matched ${o} times`);
-  process.exit(3);
-}
+const r2 = applyEdit("appId→appName+country", source, E2_OLD, E2_NEW, E2_MARKER);
+if (!r2.ok) process.exit(3);
+source = r2.source;
 
-writeFileSync(FILE, source.replace(EDIT_OLD, EDIT_NEW), "utf8");
-const next = readFileSync(FILE, "utf8");
+const r3 = applyEdit("resolutions→resolved", source, E3_OLD, E3_NEW, E3_MARKER);
+if (!r3.ok) process.exit(3);
+source = r3.source;
+
+writeFileSync(FILE, source, "utf8");
 
 const evidence = {
-  resolvedFieldPresent: countOccurrences(next, "resolved: ResolvedUrl[];") === 1,
-  resolutionsFieldGone: countOccurrences(next, "resolutions: ResolvedUrl[];") === 0,
-  typeFieldPresent: countOccurrences(next, "type?:") === 1,
-  kindFieldGone: countOccurrences(next, "kind?:") === 0,
-  appNameFieldPresent: countOccurrences(next, "appName?:") === 1,
-  appIdFieldGone: countOccurrences(next, "appId?:") === 0,
-  countryFieldPresent: countOccurrences(next, "country?:") === 1,
+  typeFieldPresent: countOccurrences(source, "type?: ") === 1,
+  kindFieldGone: countOccurrences(source, "kind?:") === 0,
+  appNameFieldPresent: countOccurrences(source, "appName?: string | null;") === 1,
+  appIdFieldGone: countOccurrences(source, "appId?:") === 0,
+  countryFieldPresent: countOccurrences(source, "country?: string | null;") === 1,
+  resolvedFieldPresent: countOccurrences(source, "resolved: ResolvedUrl[];") === 1,
+  resolutionsFieldGone: countOccurrences(source, "resolutions: ResolvedUrl[];") === 0,
 };
-console.log("[fe-prospector-types] APPLY — patch applied");
 console.log("[fe-prospector-types] [evidence]", JSON.stringify(evidence));
 
 if (Object.values(evidence).some((v) => !v)) {
   console.log("[fe-prospector-types] FAIL — evidence check failed");
   process.exit(4);
 }
+
+console.log("[fe-prospector-types] DONE");
 process.exit(0);

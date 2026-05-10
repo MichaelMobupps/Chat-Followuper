@@ -98,7 +98,7 @@ export default function ProspectWhatsAppPage() {
     let resolutions;
     try {
       const r = await resolveUrls({ urls: input.urls });
-      resolutions = r.resolutions;
+      resolutions = r.resolved;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "resolve-urls failed";
       setStage((prev) => {

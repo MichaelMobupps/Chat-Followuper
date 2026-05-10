@@ -9,10 +9,11 @@ import { apiFetch } from "../api";
  */
 export interface ResolvedUrl {
   url: string;
-  kind?: "play_store" | "app_store" | "website" | "unknown" | string;
+  type?: "play_store" | "app_store" | "website" | "unknown" | string;
   brand?: string | null;
   domain?: string | null;
-  appId?: string | null;
+  appName?: string | null;
+  country?: string | null;
   error?: string | null;
 }
 
@@ -21,7 +22,7 @@ export interface ResolveUrlsInput {
 }
 
 export interface ResolveUrlsResponse {
-  resolutions: ResolvedUrl[];
+  resolved: ResolvedUrl[];
 }
 
 export function resolveUrls(
