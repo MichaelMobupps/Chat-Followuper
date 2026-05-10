@@ -120,6 +120,10 @@ export type UpdateProspectInput = Partial<
   contextNotes?: string | null;
   researchBrief?: ProspectBrief | null;
   campaignId?: string | null;
+  /** First message body — manually edited via the prospect detail
+   *  page. Null clears the field. Backed by PATCH /prospects/:id.
+   *  Added in Ticket edit-message-capability. */
+  firstMessageBody?: string | null;
 };
 
 export function getProspect(id: string): Promise<Prospect> {
