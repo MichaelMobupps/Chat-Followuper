@@ -37,6 +37,8 @@ import {
   type MessageContext,
   type ConversationRow,
   type PreviousFollowup,
+  type CriticIssue,
+  type CriticCategory,
 } from "./messagePrompts";
 import { summaryLooksMeta, resanitizeStoredSummary } from "./messageSummarizer";
 import { logger } from "../lib/logger";
@@ -617,6 +619,69 @@ function runChatLint(message: string): ChatLintResult {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Sanitizer 9: critic-issue normalisation + formatting helpers
+// ─────────────────────────────────────────────────────────────────
+//
+// The critic returns issues as structured objects of shape CriticIssue.
+// normalizeCriticIssue is defensive: it accepts both the new object
+// format and legacy free-text strings (so prompts that backslide do
+// not crash the pipeline). issueToString renders an issue for log
+// lines and any place that wants a single-line summary.
+
+const CRITIC_CATEGORIES: readonly CriticCategory[] = [
+  "machine_artifact",
+  "term_leakage",
+  "event_mismatch",
+  "unnatural_phrasing",
+  "translation_artifact",
+  "vertical_incoherence",
+  "formatting_leak",
+  "why_structure_violation",
+];
+
+function isCriticCategory(value: unknown): value is CriticCategory {
+  return typeof value === "string" && (CRITIC_CATEGORIES as readonly string[]).includes(value);
+}
+
+function normalizeCriticIssue(raw: unknown): CriticIssue {
+  // Legacy fallback: a bare string. Wrap as machine_artifact / warn.
+  if (typeof raw === "string") {
+    return {
+      excerpt: "",
+      reason: raw,
+      category: "machine_artifact",
+      severity: "warn",
+    };
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      excerpt: typeof obj.excerpt === "string" ? obj.excerpt : "",
+      reason: typeof obj.reason === "string" ? obj.reason : "",
+      category: isCriticCategory(obj.category) ? obj.category : "machine_artifact",
+      severity: obj.severity === "block" ? "block" : "warn",
+      suggested_fix: typeof obj.suggested_fix === "string" && obj.suggested_fix.length > 0
+        ? obj.suggested_fix
+        : undefined,
+    };
+  }
+  return {
+    excerpt: "",
+    reason: String(raw),
+    category: "machine_artifact",
+    severity: "warn",
+  };
+}
+
+function issueToString(issue: CriticIssue): string {
+  const parts = [`[${issue.severity}/${issue.category}]`];
+  if (issue.excerpt) parts.push(`"${issue.excerpt}"`);
+  parts.push(issue.reason);
+  if (issue.suggested_fix) parts.push(`(suggested: "${issue.suggested_fix}")`);
+  return parts.join(" ");
+}
+
+// ─────────────────────────────────────────────────────────────────
 // JSON parser — handles markdown fences, unescaped braces, etc.
 // ─────────────────────────────────────────────────────────────────
 
@@ -735,7 +800,7 @@ async function generateDraft(
 interface CriticResult {
   scores: Record<string, number>;
   overall: number;
-  issues: string[];
+  issues: CriticIssue[];
   suggestions: string[];
   needs_rewrite: boolean;
 }
@@ -764,7 +829,7 @@ async function critiqueDraft(
   const parsed = parseJsonResponse(textBlock.text) as {
     scores?: Record<string, number>;
     overall?: number;
-    issues?: string[];
+    issues?: unknown[];
     suggestions?: string[];
     needs_rewrite?: boolean;
   };
@@ -772,7 +837,7 @@ async function critiqueDraft(
     critique: {
       scores: parsed.scores || {},
       overall: parsed.overall ?? 5,
-      issues: parsed.issues || [],
+      issues: (parsed.issues || []).map(normalizeCriticIssue),
       suggestions: parsed.suggestions || [],
       needs_rewrite: parsed.needs_rewrite ?? false,
     },
@@ -1025,7 +1090,12 @@ export async function generateChatMessage(
 
     // Inject meta-language detection issues into the critique.
     if (metaCheck.found) {
-      const metaIssue = `META-LANGUAGE DETECTED — the message is describing what it does instead of writing literal content. Offending phrases: ${metaCheck.matches.join(" | ")}. Rewrite to use concrete, literal statements (real numbers, real competitor names, real outcomes), not descriptions of message tactics.`;
+      const metaIssue: CriticIssue = {
+        excerpt: metaCheck.matches.slice(0, 3).join(" | "),
+        reason: `Message describes what it does instead of writing literal content. Offending phrases: ${metaCheck.matches.join(" | ")}. Rewrite to use concrete, literal statements (real numbers, real competitor names, real outcomes), not descriptions of message tactics.`,
+        category: "machine_artifact",
+        severity: "block",
+      };
       critique.issues = [metaIssue, ...critique.issues];
       critique.suggestions = [
         "Replace every -ing meta-verb (citing, referencing, mentioning, highlighting, claiming, pitched) with the actual concrete fact.",
@@ -1042,7 +1112,12 @@ export async function generateChatMessage(
     if (claimCheck.found) {
       const briefVolume = ctx.research_brief?.calibratedDailyVolume ?? "(no brief volume)";
       const briefProofs = ctx.research_brief?.tangibleReasons?.slice(0, 2).join(" | ") ?? "(no brief proofs)";
-      const claimIssue = `UNGROUNDED CLAIMS DETECTED: the message contains numbers or claims that do not trace to the research brief or prior conversation. Findings: ${claimCheck.matches.join(" | ")}. Replace with brief-grounded numbers (calibrated_daily_volume: ${briefVolume}) or remove the unsupported claim entirely.`;
+      const claimIssue: CriticIssue = {
+        excerpt: claimCheck.matches.slice(0, 3).join(" | "),
+        reason: `Message contains numbers or claims that do not trace to the research brief or prior conversation. Findings: ${claimCheck.matches.join(" | ")}. Replace with brief-grounded numbers (calibrated_daily_volume: ${briefVolume}) or remove the unsupported claim entirely.`,
+        category: "machine_artifact",
+        severity: "block",
+      };
       critique.issues = [claimIssue, ...critique.issues];
       critique.suggestions = [
         `Replace ungrounded numbers with the brief's calibrated_daily_volume (${briefVolume}) or with figures pulled directly from the brief's WHY/VALIDATION/HOW arguments.`,

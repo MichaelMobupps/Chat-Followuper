@@ -51,6 +51,39 @@ export interface PreviousFollowup {
   body: string;
 }
 
+/**
+ * The eight critic-issue categories. Ported from email Prospector's
+ * s6_critic.py taxonomy. Every issue the critic emits MUST fall into
+ * one of these eight buckets.
+ */
+export type CriticCategory =
+  | "machine_artifact"
+  | "term_leakage"
+  | "event_mismatch"
+  | "unnatural_phrasing"
+  | "translation_artifact"
+  | "vertical_incoherence"
+  | "formatting_leak"
+  | "why_structure_violation";
+
+/**
+ * A single critic finding. Replaces the prior free-text string in
+ * CriticResult.issues so the rewriter (and downstream telemetry) can
+ * prioritise by severity and category.
+ */
+export interface CriticIssue {
+  /** Exact problematic text from the message, or a short description. */
+  excerpt: string;
+  /** What is wrong with this text. */
+  reason: string;
+  /** Which of the eight categories this falls into. */
+  category: CriticCategory;
+  /** "block" forces needs_rewrite=true; "warn" is nice-to-fix. */
+  severity: "block" | "warn";
+  /** Optional replacement text or rephrasing. */
+  suggested_fix?: string;
+}
+
 export interface MessageContext {
   // Prospect identity
   prospect_name: string;          // First name or full name; may be empty
@@ -534,10 +567,34 @@ OUTPUT FORMAT — return ONLY a JSON object:
 {
   "scores": { "no_meta_language": 1-5, "claim_grounding": 1-5, "language_match": 1-5, "language_naturalness": 1-5, ${modeSpecificScores} "no_machine_artifacts": 1-5, "no_meta_commentary": 1-5, "no_bracketed_notes": 1-5, "tone": 1-5, "conciseness": 1-5 },
   "overall": 1-5,
-  "issues": ["list of specific problems with quoted phrases from the message"],
-  "suggestions": ["list of specific concrete rewrites"],
+  "issues": [
+    {
+      "excerpt": "exact problematic text from the message (or short description if not literal)",
+      "reason": "what is wrong with this text",
+      "category": "machine_artifact | term_leakage | event_mismatch | unnatural_phrasing | translation_artifact | vertical_incoherence | formatting_leak | why_structure_violation",
+      "severity": "block | warn",
+      "suggested_fix": "optional replacement text"
+    }
+  ],
+  "suggestions": ["list of specific concrete rewrites for issues that need them"],
   "needs_rewrite": true/false
 }
+
+ISSUE CATEGORY DEFINITIONS:
+- machine_artifact: underscore tokens (word_word), placeholders ([volume], [metric], {event}), raw config keys, meta-language verbs (citing, referencing, mentioning, noting, highlighting), bracketed editorial notes, hallucinated stats not traceable to the research brief
+- term_leakage: wrong vertical jargon (subscription terms in non-subscription verticals, gaming terms in non-gaming, fintech terms in commerce)
+- event_mismatch: wrong primary conversion event for the prospect's business model (e.g. "first deposit" used for an e-commerce app)
+- unnatural_phrasing: LLM-isms (delve, leverage, seamless, synergy), robotic compound structure, hollow corporate phrasing
+- translation_artifact: script-mixing in non-Latin languages (e.g. Latin word adjacent to CJK characters), English-derived word order in target language, inconsistent code-switching, translated-manifesto tone
+- vertical_incoherence: mechanics described do not match the vertical, wrong competitor references for the market
+- formatting_leak: markdown markers (** __), em dashes, bullets, spelled-out percentages (12 percent instead of 12%)
+- why_structure_violation: prospector mode opens with self-referential We/Our/At MobUpps/I'm reaching out; followuper mode missing acknowledgment of the prior thread topic
+
+ISSUE SEVERITY:
+- "block": must be fixed before shipping. A single block-severity issue forces needs_rewrite=true.
+- "warn": should be fixed but does not by itself block shipping.
+
+If ANY issue has severity="block", needs_rewrite MUST be true.
 
 RULES FOR needs_rewrite:
 - needs_rewrite MUST be true if overall < 4.
@@ -646,7 +703,7 @@ Do not include any other text, markdown, or explanation.`;
 export function getRewriterUserPrompt(
   ctx: MessageContext,
   draft: { subject: string; message: string },
-  critique: { issues: string[]; suggestions: string[] },
+  critique: { issues: CriticIssue[]; suggestions: string[] },
 ): string {
   const flatConversation = flattenConversation(ctx.conversation);
   const conversationBlock = flatConversation
@@ -695,7 +752,15 @@ Message:
 ${draft.message}
 
 CRITIC ISSUES:
-${critique.issues.map((i) => `- ${i}`).join("\n")}
+${critique.issues.length === 0
+    ? "(no critic issues recorded)"
+    : critique.issues.map((i, idx) =>
+        `${idx + 1}. [${i.severity.toUpperCase()}] ${i.category}\n` +
+        `   Problem: "${i.excerpt}"\n` +
+        `   Reason: ${i.reason}` +
+        (i.suggested_fix ? `\n   Suggested: "${i.suggested_fix}"` : "")
+      ).join("\n\n")
+}
 
 CRITIC SUGGESTIONS:
 ${critique.suggestions.map((s) => `- ${s}`).join("\n")}
