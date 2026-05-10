@@ -57,6 +57,24 @@ type Stage =
       states: CandidateProcessing[];
     };
 
+/**
+ * Apollo's people/org search returns country as either a full English
+ * name ("India", "United States") or an ISO 3166-1 alpha-2 code ("IN",
+ * "US"), inconsistently. The BE schema (routes/prospects.ts) enforces
+ * ISO-2 via /^[A-Z]{2}$/. Strip anything that isn't already ISO-2 — we
+ * lose the signal for those prospects but don't crash the batch with a
+ * 400 invalid_body. Future ticket can add a name → ISO mapping if this
+ * loss becomes painful.
+ */
+function extractIso2Country(
+  raw: string | null | undefined,
+): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (/^[A-Z]{2}$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
 export default function ProspectWhatsAppPage() {
   const { toast } = useToast();
   const [stage, setStage] = useState<Stage>({ name: "input" });
@@ -315,7 +333,7 @@ export default function ProspectWhatsAppPage() {
         prospectName: prospectName || undefined,
         company: c.org.name ?? c.person.organizationName ?? undefined,
         title: c.person.title ?? undefined,
-        country: c.person.country ?? c.org.country ?? undefined,
+        country: extractIso2Country(c.person.country ?? c.org.country),
         language: "en",
         linkedinUrl: revealedLinkedin ?? c.person.linkedinUrl ?? undefined,
         apolloPersonId: c.person.id,
