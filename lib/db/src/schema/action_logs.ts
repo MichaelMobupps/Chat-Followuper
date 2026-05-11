@@ -60,6 +60,9 @@ export const ACTION_TYPES = {
   followupSent: "followup.sent",
   followupFailed: "followup.failed",
   followupSnoozed: "followup.snoozed",
+  // Ticket 2.5-BE — followup management
+  followupEdited: "followup.edited",
+  sequenceConfigUpdated: "sequence_config.updated",
   digestSent: "digest.sent",
   digestReplyHandled: "digest.reply_handled",
   capExceededSpend: "cap.exceeded.spend",

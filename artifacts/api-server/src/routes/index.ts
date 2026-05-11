@@ -8,6 +8,8 @@ import prospectorRouter from "./prospector";
 import prospectsRouter from "./prospects";
 import campaignsRouter from "./campaigns";
 import generateMessageRouter from "./generateMessage";
+import followupsRouter from "./followups";
+import sequenceConfigRouter from "./sequenceConfig";
 
 const router: IRouter = Router();
 
@@ -20,6 +22,8 @@ router.use(prospectorRouter);
 router.use(prospectsRouter);
 router.use(campaignsRouter);
 router.use(generateMessageRouter);
+router.use(followupsRouter);
+router.use(sequenceConfigRouter);
 
 // NOTE: the apollo webhook router is NOT mounted here. It is mounted
 // directly in app.ts BEFORE express.json() so that express.raw can
