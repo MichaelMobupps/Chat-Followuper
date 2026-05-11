@@ -1,0 +1,11 @@
+Apply ticket-locale-en-be-nl from the uploaded zip.
+First ticket adding regional en-* entries beyond the existing en-GB/en-US/en-IN. Adds en-BE and en-NL via extending the existing en block in LOCALE_TABLE (BE -> en-BE, NL -> en-NL). For en-BE: Belgian English with linguistic-split context (Flemish 60% / Walloon 40% / Brussels bilingual / German east), routing notes (use nl for Flemish-only, fr-BE for Walloon-only, en-BE for cross-Belgium), en-GB spelling, EUR European separators, full Brussels/Antwerp/Ghent/Liege/Charleroi/Leuven/Bruges/Mons cities, KBC+BNP Paribas Fortis+ING Belgium+Belfius banking, UCB+Janssen+Solvay+GSK Wavre+Pfizer Puurs pharma, AB InBev largest beer globally Leuven HQ, Colruyt largest Belgian-owned retail, Proximus/Orange Belgium/Telenet telco, Odoo+Showpad+Collibra tech, formal-warm tone between Dutch directness and French politeness. For en-NL: Dutch B2B in English with one-in-four enterprises English-as-working-language note, en-GB spelling, EUR, Amsterdam(Zuidas+Houthavens)+Rotterdam(largest European port)+Hague(ICJ/ICC)+Utrecht(Rabobank HQ)+Eindhoven(ASML+Philips+NXP+Brainport)+Groningen, Booking.com+ASML+Adyen+Mollie+TomTom+Just Eat+Bol.com+Mendix+Picnic tech, ING/Rabobank/ABN AMRO/Triodos banking, Philips+DSM-Firmenich+Heineken industrial, KPN+VodafoneZiggo+Odido telco (Odido is T-Mobile NL post-2024 Apax/Warburg acquisition new brand), Albert Heijn ~35% share retail, Action Dutch-founded discount, TONE with 7 specific Dutch B2B norms enumerated (no small talk / no hedging / no hype / counter-questions normal / no means no / transparency positive / high outbound skepticism). 3 edits across 3 files. Requires ticket-locale-tier3-bg-el.
+
+Steps:
+1. rm -rf ticket-locale-en-be-nl && unzip -o ticket-locale-en-be-nl.zip
+2. chmod +x ticket-locale-en-be-nl/apply.sh
+3. ticket-locale-en-be-nl/apply.sh
+4. RESTART api-server workflow.
+5. Verify per the verification checklist in apply.sh output. Test with Belgian and Dutch test prospects (language='en', country='Belgium' or 'Netherlands') and confirm peer-brand/tone calibration.
+
+Hammer-vs-nail: do not modify source files yourself.

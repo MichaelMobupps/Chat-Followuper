@@ -450,6 +450,8 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
     LK: "en-IN",
     US: "en-US",
     CA: "en-US", // Canadian B2B largely en-US in adtech
+    BE: "en-BE", // Belgium: English as neutral lingua franca in B2B tech (BE-Flemish vs BE-Walloon split)
+    NL: "en-NL", // Netherlands: tech B2B defaults to English; bare nl remains fallback for explicit Dutch contexts
   },
 
   // ── French ────────────────────────────────────────────────────
