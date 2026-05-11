@@ -537,11 +537,12 @@ export function getCriticSystemPrompt(mode: GenerationMode, channel: ChannelCode
   const channelCriticBlock = buildCriticRegisterBlock(channel, mode);
 
   const modeSpecificScores = mode === "followuper"
-    ? `"channel_register_match": 1-5, "context_grounding": 1-5, "followup_ack": 1-5,`
+    ? `"channel_register_match": 1-5, "context_grounding": 1-5, "followup_ack": 1-5, "angle_freshness": 1-5,`
     : `"channel_register_match": 1-5, "no_self_referential_why": 1-5, "country_matched_references": 1-5, "vertical_native_terminology": 1-5,`;
 
   const additionalRule = mode === "followuper"
-    ? `- needs_rewrite MUST be true if context_grounding < 4 (any unsupported claim must be cut). This is the single most important check in followuper mode.`
+    ? `- needs_rewrite MUST be true if context_grounding < 4 (any unsupported claim must be cut). This is the single most important check in followuper mode.
+- needs_rewrite MUST be true if angle_freshness < 3 AND stage >= 2 (the message must bring a fresh angle relative to prior followups in the thread; stage 1 is exempt because there are no prior followups to compare against).`
     : `- needs_rewrite MUST be true if no_self_referential_why < 4 (any "We/Our/At MobUpps" opener after the greeting is an automatic fail).`;
 
   return `You are a senior sales operations reviewer at a mobile advertising company. Your job is to read a chat message and identify anything that would make it look non-human, technically broken, off-register for the channel, or vertically incoherent.
@@ -570,7 +571,9 @@ CHECK FOR THESE CATEGORIES:
 
 ${mode === "followuper" ? `10. CONTEXT GROUNDING (followuper-only, critical). Every claim must trace to something in the prior conversation. New numbers, new competitor names, new facts that weren't in the prior thread = fabrication. Score context_grounding 1-2 and demand rewrite.
 
-11. FOLLOWUP ACKNOWLEDGMENT. Within sentence 1, does the message explicitly reference the prior thread by a SPECIFIC topic name? Vague "following up" is not enough; specific "following up on the Lazada CPS angle" is what we want.` : `10. NO SELF-REFERENTIAL WHY. The first content sentence after the greeting must NOT start with "We ...", "Our ...", "At MobUpps ...", or "I'm reaching out". Any such opener is an automatic fail.
+11. FOLLOWUP ACKNOWLEDGMENT. Within sentence 1, does the message explicitly reference the prior thread by a SPECIFIC topic name? Vague "following up" is not enough; specific "following up on the Lazada CPS angle" is what we want.
+
+12. ANGLE FRESHNESS / STAGE ROTATION (followuper-only, evaluated when STAGE is 2 or higher). The current followup must bring a fresh angle relative to prior followups in the same thread. Stage strategy rotation: stage 1 = new insight or data point, stage 2 = competitor or market move (shift angle), stage 3 = direct and easy out, stage 4+ = continue rotating fresh angles. Compare the current draft's main value point, hook, and competitor reference against the PREVIOUS FOLLOWUPS BY STAGE block in the user prompt. If the draft repeats a prior stage's angle, hook, value-point construction, or competitor reference, score angle_freshness 1-2 and demand rewrite. Stage 1 has no prior followups so angle_freshness defaults to 5.` : `10. NO SELF-REFERENTIAL WHY. The first content sentence after the greeting must NOT start with "We ...", "Our ...", "At MobUpps ...", or "I'm reaching out". Any such opener is an automatic fail.
 
 11. COUNTRY-MATCHED REFERENCES. All peers, metrics, and market context match the prospect's country. No US default for non-US prospects.
 
@@ -651,6 +654,14 @@ export function getCriticUserPrompt(
 
   const nativenessCriticBlock = buildCriticNativenessBlock(ctx.language);
 
+  // B-followup-stage-rotation: surface prior followups by stage so the
+  // critic can score angle_freshness without having to reverse-engineer
+  // stage boundaries from the flattened conversation (which mixes
+  // outbound + inbound and is not stage-labeled).
+  const previousFollowupsBlock = (ctx.mode === "followuper" && ctx.previous_followups && ctx.previous_followups.length > 0)
+    ? `\nPREVIOUS FOLLOWUPS BY STAGE (the current draft must bring a fresh angle vs these):\n---BEGIN PREVIOUS FOLLOWUPS---\n${ctx.previous_followups.map((pf) => `--- Stage ${pf.stage} ---\n${pf.body}`).join("\n\n")}\n---END PREVIOUS FOLLOWUPS---\n`
+    : "";
+
   // B-claim-grounding: pass research brief into critic so it can
   // verify numeric claims and competitor names trace to brief contents
   // instead of guessing or trusting the writer.
@@ -682,6 +693,7 @@ PRODUCT: ${ctx.product}
 ${ctx.mode === "followuper" ? `STAGE: ${ctx.stage ?? 1} (${ctx.days_since_first ?? 0} days since first contact)` : ""}
 ${conversationBlock}
 ${briefBlock}
+${previousFollowupsBlock}
 ${nativenessCriticBlock ? `\n${nativenessCriticBlock}\n` : ""}
 DRAFT TO EVALUATE:
 Subject (internal tag): ${draft.subject}
