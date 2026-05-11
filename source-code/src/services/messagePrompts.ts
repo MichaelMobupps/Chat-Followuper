@@ -149,7 +149,7 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
   fa: { withName: "سلام {NAME},", withoutName: "سلام,", note: "" },
   tr: { withName: "Merhaba {NAME},", withoutName: "Merhaba,", note: "" },
   hi: { withName: "Namaste {NAME},", withoutName: "Hello,", note: "Latin-script transliteration is fine on WhatsApp; Devanagari नमस्ते is also acceptable." },
-  bn: { withName: "Hello {NAME},", withoutName: "Hello,", note: "WhatsApp B2B in Bengali markets defaults to English greeting." },
+  bn: { withName: "নমস্কার {NAME},", withoutName: "নমস্কার,", note: "Standard Bengali formal greeting; works for both Bangladesh and India / West Bengal B2B contexts. English code-mixing is heavy throughout the message body in adtech contexts; the greeting stays Bengali." },
   ur: { withName: "السلام علیکم {NAME},", withoutName: "السلام علیکم,", note: "" },
   th: { withName: "เรียน {NAME},", withoutName: "เรียน คุณ,", note: "Keep formal เรียน even on WhatsApp; Thai B2B expects this." },
   vi: { withName: "Chào {NAME},", withoutName: "Chào anh/chị,", note: "Soft WhatsApp variant of the email's 'Kính gửi anh/chị'." },
@@ -202,6 +202,17 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
   "de-DE": { withName: "Hallo {NAME},", withoutName: "Hallo,", note: "Standard German, Sie-form for cold outreach (never du for first contact). Cold-email opener: 'Sehr geehrte Frau / Sehr geehrter Herr {LastName},'. Sign-off: 'Mit freundlichen Grüßen,'. Numbers: '1.234,56 €' (period thousands separator, comma decimal)." },
   "de-AT": { withName: "Hallo {NAME},", withoutName: "Hallo,", note: "Austrian German, Sie-form for cold; slightly softer than de-DE. Avoid 'Servus' (too informal) and 'Grüß Gott' (traditional, not modern B2B WhatsApp). Use Jänner (NOT Januar) for January. Same orthography as de-DE (uses ß)." },
   "de-CH": { withName: "Guten Tag {NAME},", withoutName: "Guten Tag,", note: "Swiss High German, NO ß (use ss: Grüsse, Strasse, gross, weiss, dass, Mass). Most formal German variant; Sie-form throughout. Sign-off: 'Freundliche Grüsse,' (NOT Grüße). Currency CHF (NOT €)." },
+
+  // ── REGIONAL LOCALES (B-locale-tier3) ──────────────────────────
+  // Hindi and Bengali script-aware entries. Hindi has one region
+  // (hi-IN; India is the only Hindi B2B adtech market). Bengali
+  // has two regions because Bangladesh (bn-BD) and India / West
+  // Bengal (bn-IN) differ materially in peer brands, currency,
+  // and English code-mixing intensity.
+
+  "hi-IN": { withName: "Namaste {NAME},", withoutName: "Namaste,", note: "India Hindi. Latin transliteration default for WhatsApp / Telegram / Slack; Devanagari नमस्ते acceptable. Adtech body is English-heavy; structural sentences in Hindi. INR currency with lakh / crore formatting. Use आप (formal) form throughout for cold B2B." },
+  "bn-BD": { withName: "নমস্কার {NAME},", withoutName: "নমস্কার,", note: "Bangladesh Bengali. Structural sentences in Bengali script, adtech terms in English. Currency BDT (Taka, ৳) with lakh / crore. Peer brands: bKash, Pathao, Daraz Bangladesh, Foodpanda Bangladesh, Robi, Grameenphone. Cities: Dhaka, Chittagong, Sylhet. Avoid Indian peers (Flipkart, Paytm, Jio) which signal wrong market. Use আপনি (formal) form." },
+  "bn-IN": { withName: "নমস্কার {NAME},", withoutName: "নমস্কার,", note: "India Bengali (primarily West Bengal). Heavier English code-mixing than bn-BD; structural sentences regularly switch between Bengali and English in B2B contexts. INR currency with lakh / crore. Peer brands: India-wide (Flipkart, Paytm, Jio, Swiggy, Zomato) plus Kolkata-regional where relevant (Bandhan Bank, Spencer's). Avoid Bangladesh peer references. Use আপনি (formal) form." },
 };
 
 function buildGreetingBlock(language: string, hasName: boolean): string {

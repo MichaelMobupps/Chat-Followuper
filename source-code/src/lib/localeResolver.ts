@@ -471,4 +471,22 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
     CH: "de-CH",
     LU: "de-DE",
   },
+
+  // ── Hindi ─────────────────────────────────────────────────────
+  // India is the only major Hindi B2B adtech market. Pakistan and
+  // Nepal use Urdu and Nepali respectively in business contexts.
+  hi: {
+    IN: "hi-IN",
+  },
+
+  // ── Bengali ───────────────────────────────────────────────────
+  // Two distinct markets that differ materially in vocabulary, peer
+  // brands, and English code-mixing intensity: Bangladesh (bn-BD)
+  // and India / West Bengal (bn-IN). Both default to the formal
+  // আপনি (apni) verb form for B2B; bn-BD is somewhat less English-
+  // heavy than bn-IN in everyday register.
+  bn: {
+    BD: "bn-BD",
+    IN: "bn-IN",
+  },
 };
