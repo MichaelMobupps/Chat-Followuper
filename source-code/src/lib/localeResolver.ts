@@ -612,4 +612,18 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   el: {
     GR: "el-GR",
   },
+
+  // ── Thai ──────────────────────────────────────────────────────
+  // Thailand is the only major Thai B2B adtech market.
+  th: {
+    TH: "th-TH",
+  },
+
+  // ── Vietnamese ────────────────────────────────────────────────
+  // Vietnam is the only major Vietnamese B2B market. Overseas
+  // Vietnamese communities (US, Australia, Canada) use host-country
+  // language for B2B.
+  vi: {
+    VN: "vi-VN",
+  },
 };
