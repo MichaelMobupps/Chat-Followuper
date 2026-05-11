@@ -505,4 +505,20 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   ko: {
     KR: "ko-KR",
   },
+
+  // ── Hebrew ────────────────────────────────────────────────────
+  // Israel is the only major Hebrew B2B adtech market. Hebrew is
+  // not used in business contexts outside Israel; diaspora Jewish
+  // communities communicate in their host-country language for B2B.
+  he: {
+    IL: "he-IL",
+  },
+
+  // ── Turkish ───────────────────────────────────────────────────
+  // Turkey is the primary Turkish B2B adtech market. Turkish is
+  // also spoken in Cyprus and parts of the Balkans, but those are
+  // not commercial B2B targets for mobile adtech.
+  tr: {
+    TR: "tr-TR",
+  },
 };
