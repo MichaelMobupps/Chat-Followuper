@@ -43,6 +43,13 @@
       "when": 1778339783809,
       "tag": "0005_early_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778532360720,
+      "tag": "0006_extend_stage_timing_with_doctrine_variant",
+      "breakpoints": true
     }
   ]
 }

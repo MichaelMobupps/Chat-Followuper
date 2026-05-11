@@ -1,0 +1,2 @@
+ALTER TABLE "users" ALTER COLUMN "stage_timing" SET DEFAULT '[{"minDays":3,"maxDays":7,"doctrineVariant":"new_insight"},{"minDays":10,"maxDays":14,"doctrineVariant":"competitor_move"},{"minDays":21,"maxDays":28,"doctrineVariant":"easy_out"}]'::jsonb;--> statement-breakpoint
+ALTER TABLE "prospects" ALTER COLUMN "phone" DROP NOT NULL;
