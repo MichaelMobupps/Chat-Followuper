@@ -452,6 +452,8 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
     CA: "en-US", // Canadian B2B largely en-US in adtech
     BE: "en-BE", // Belgium: English as neutral lingua franca in B2B tech (BE-Flemish vs BE-Walloon split)
     NL: "en-NL", // Netherlands: tech B2B defaults to English; bare nl remains fallback for explicit Dutch contexts
+    AE: "en-AE", // UAE: English-default B2B; ar-SA via ar block remains for Arabic-language prospects
+    SG: "en-SG", // Singapore: English official business language; zh-Hans via zh block remains for Chinese-language prospects
   },
 
   // ── French ────────────────────────────────────────────────────
