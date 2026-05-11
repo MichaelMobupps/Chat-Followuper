@@ -2,7 +2,7 @@
  * Chat message generator — three-stage doctrine pipeline.
  *
  * Pipeline:
- *   1. DRAFT     (Sonnet 4.6)  — initial message from prompts + context
+ *   1. DRAFT     (Opus 4.7)    — initial message from prompts + context
  *   2. CRITIC    (Opus 4.7)    — scores draft against criteria, demands rewrite if low
  *   3. REWRITE   (Sonnet 4.6)  — fixes flagged issues, loop max 3 times
  *
