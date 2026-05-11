@@ -1,0 +1,24 @@
+Apply ticket-locale-prospector-1 from the uploaded zip.
+Email Prospector infrastructure refactor. Extracts the inline _build_nativeness_block implementation from prospector/stages/s5_write.py (~480 lines: 33 bare-language guide entries + global rules + lookup logic) into a new prospector/core/nativeness_guides.py module. WriteStage._build_nativeness_block becomes a thin delegation wrapper that calls build_nativeness_block from the new module. Behavior change is ZERO — output of WriteStage._build_nativeness_block is byte-identical for all 33 bare languages, all regional tags currently in use (ja-JP, pt-BR, etc. all normalize to bare language as before), and all edge cases (empty, None, unknown 'xx', English variants). Verified against a captured baseline of 51 test inputs.
+
+The new module's build_nativeness_block uses full-tag-first lookup with bare-language fallback, which is the architectural enabler for follow-up tickets (locale-prospector-2 / -3 / -4) that will add regional GUIDES entries (ja-JP, th-TH, en-AE, en-SG, etc.) ported from the Followuper sweep. With zero regional entries today, the full-tag-first lookup falls through to bare-language behavior identical to the original method.
+
+Also adds build_critic_nativeness_block in the new module as a concise variant intended for s6_critic.py. NOT wired into the critic yet — provided for future use. The critic's existing inline nativeness rules remain unchanged.
+
+Files changed:
+- prospector/core/nativeness_guides.py (NEW, ~566 lines)
+- prospector/stages/s5_write.py (refactor: 1063 → 602 lines; adds one import; replaces method body with delegation)
+
+Architectural notes:
+- Prospector's existing CLDR/Babel-based locale_utils.py is kept as-is and is functionally superior to the Followuper hand-built LOCALE_TABLE. Do NOT replace it.
+- The greeting case list inline in s5_write.py (~lines 472-509) is INTENTIONALLY left as-is in this ticket. Separate concern; would only be worth refactoring if telemetry justifies it.
+
+Steps:
+1. rm -rf ticket-locale-prospector-1 && unzip -o ticket-locale-prospector-1.zip
+2. chmod +x ticket-locale-prospector-1/apply.sh
+3. ticket-locale-prospector-1/apply.sh
+4. The apply.sh script runs the test suite (prospector/tests/test_locale_resolution.py) at the end as a regression check. Verify it passes.
+5. No service restart needed for this refactor — the Python module is imported at runtime.
+6. Spot-check: pull up any prospector run and confirm the generated email prompt contains the same nativeness rules text as before (it will — output is byte-identical).
+
+Hammer-vs-nail: do not modify source files yourself.
