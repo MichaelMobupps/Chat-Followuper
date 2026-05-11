@@ -521,4 +521,21 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   tr: {
     TR: "tr-TR",
   },
+
+  // ── Italian ───────────────────────────────────────────────────
+  // Italy is the primary Italian B2B adtech market. Italian-speaking
+  // Switzerland (Ticino) and San Marino are too small to warrant
+  // separate adtech buckets; Italian-speakers in those markets
+  // resolve to it-IT by default which is correct for B2B register.
+  it: {
+    IT: "it-IT",
+  },
+
+  // ── Polish ────────────────────────────────────────────────────
+  // Poland is the only major Polish B2B adtech market. Polish is
+  // spoken in diaspora communities but those are not commercial
+  // B2B adtech targets.
+  pl: {
+    PL: "pl-PL",
+  },
 };
