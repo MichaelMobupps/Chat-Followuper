@@ -575,4 +575,21 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   cs: {
     CZ: "cs-CZ",
   },
+
+  // ── Romanian ──────────────────────────────────────────────────
+  // Romania is the primary Romanian B2B adtech market. Moldova
+  // (ro-MD) is technically Romanian-speaking but its adtech market
+  // is too small to warrant a separate bucket; falls back to bare ro.
+  ro: {
+    RO: "ro-RO",
+  },
+
+  // ── Hungarian ─────────────────────────────────────────────────
+  // Hungary is the only major Hungarian B2B adtech market.
+  // Hungarian-speaking minorities exist in Slovakia, Romania
+  // (Transylvania), and Serbia (Vojvodina), but those use the
+  // host-country language for B2B.
+  hu: {
+    HU: "hu-HU",
+  },
 };
