@@ -489,4 +489,20 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
     BD: "bn-BD",
     IN: "bn-IN",
   },
+
+  // ── Japanese ──────────────────────────────────────────────────
+  // Japan is the only major Japanese B2B adtech market. No other
+  // country has commercial Japanese-language B2B volume.
+  ja: {
+    JP: "ja-JP",
+  },
+
+  // ── Korean ────────────────────────────────────────────────────
+  // South Korea is the only major Korean B2B adtech market. North
+  // Korea has no commercial B2B market access. Korean diaspora
+  // markets (Korean-speakers in US, Japan, China) communicate in
+  // their host-country language for B2B, not Korean.
+  ko: {
+    KR: "ko-KR",
+  },
 };
