@@ -592,4 +592,22 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   hu: {
     HU: "hu-HU",
   },
+
+  // ── Bulgarian ─────────────────────────────────────────────────
+  // Bulgaria is the only major Bulgarian B2B adtech market.
+  // Bulgarian-speaking minorities exist in Greece, North Macedonia,
+  // Serbia, and Romania, but those use the host-country language
+  // for B2B.
+  bg: {
+    BG: "bg-BG",
+  },
+
+  // ── Greek ─────────────────────────────────────────────────────
+  // Greece is the primary Greek B2B adtech market. Cyprus (el-CY)
+  // is technically Greek-speaking but the adtech market is too
+  // small for a separate bucket; falls back to bare el for non-GR
+  // contexts.
+  el: {
+    GR: "el-GR",
+  },
 };
