@@ -1,0 +1,11 @@
+Apply ticket-locale-tier3-ru-id from the uploaded zip.
+Final tier-3 sweep ticket (3 of 3). Tier-3 regional promotion for Russian (ru-RU) and Indonesian (id-ID). For ru-RU: formal вы register with four-level greeting hierarchy, RUB with European separators, млн/млрд units, Moscow/SPb/Yekaterinburg/Novosibirsk/Kazan-Innopolis/Krasnodar cities, Yandex super-ecosystem + Sber super-app + VK Group + Ozon + Wildberries + Avito tech tier, Gazprom + Rosneft + Nornickel state/resource tier, T-Bank 2024 rebrand from Tinkoff. For id-ID: formal Bapak/Ibu honorific register (honorifics precede first name), time-of-day greeting rotation (Selamat pagi/siang/sore/malam), greeting override "Selamat pagi, Bapak/Ibu {NAME}," replacing bare "Halo", IDR with European separators, rb/jt/M unit notation with critical M-disambiguation warning, Jakarta CBD detail (Sudirman/SCBD/Mega Kuningan), Jabodetabek metro definition, Astra International conglomerate framing, GoTo (Gojek+Tokopedia merger) + Grab tech tier, Mandiri/BCA/BRI banking tier, Indomaret/Alfamart retail-density reference, Garena/Moonton mobile gaming. 3 edits across localeResolver.ts, messagePrompts.ts, languageNativeness.ts. Requires ticket-locale-tier3-it-pl to have landed.
+
+Steps:
+1. rm -rf ticket-locale-tier3-ru-id && unzip -o ticket-locale-tier3-ru-id.zip
+2. chmod +x ticket-locale-tier3-ru-id/apply.sh
+3. ticket-locale-tier3-ru-id/apply.sh
+4. RESTART api-server workflow.
+5. Send one prospector message to a test Russia / Indonesia prospect. For ru-RU verify Здравствуйте or Добрый день opening (NEVER Привет), lowercase вы register throughout (NEVER ты), RUB amounts use European separators (1 234 567,89 ₽), and tier matches the prospect's company (Yandex-tier for tech, Sber-tier for fintech, Gazprom-tier for traditional state/resource). For id-ID verify Selamat pagi/siang/sore/malam + Bapak/Ibu opening (NEVER first name alone), Bapak/Ibu honorifics throughout precede the first name, IDR amounts use European separators (Rp1.234.567,89), and tier matches (GoTo/Grab for tech, Mandiri/BCA for banking, Astra/Pertamina for traditional enterprise).
+
+Hammer-vs-nail: do not modify source files yourself.

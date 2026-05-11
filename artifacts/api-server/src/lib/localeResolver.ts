@@ -538,4 +538,23 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   pl: {
     PL: "pl-PL",
   },
+
+  // ── Russian ───────────────────────────────────────────────────
+  // Russia is the primary Russian B2B adtech market. Russian is
+  // widely spoken in Belarus, Kazakhstan, Kyrgyzstan, and other
+  // post-Soviet states; B2B Russian in those markets is register-
+  // adjacent enough to RU that a single bucket suffices for adtech.
+  ru: {
+    RU: "ru-RU",
+  },
+
+  // ── Indonesian ────────────────────────────────────────────────
+  // Indonesia is the only major Indonesian B2B adtech market.
+  // Bahasa Indonesia is the formal register; Malay (ms) is a
+  // separate language with its own register and is routed
+  // separately when present. Indonesian-speaking diaspora
+  // communities are not commercial B2B adtech targets.
+  id: {
+    ID: "id-ID",
+  },
 };
