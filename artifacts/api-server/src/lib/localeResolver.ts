@@ -557,4 +557,22 @@ const LOCALE_TABLE: Record<string, Record<string, string>> = {
   id: {
     ID: "id-ID",
   },
+
+  // ── Ukrainian ─────────────────────────────────────────────────
+  // Ukraine is the only major Ukrainian B2B adtech market. The
+  // Ukrainian diaspora in Poland and elsewhere uses host-country
+  // languages for B2B; Ukrainian B2B adtech is concentrated in
+  // Ukraine itself plus a growing Lviv-IT remote-work footprint.
+  uk: {
+    UA: "uk-UA",
+  },
+
+  // ── Czech ─────────────────────────────────────────────────────
+  // Czech Republic / Czechia is the only major Czech B2B adtech
+  // market. Czech is a separate language from Slovak (sk) and the
+  // two should not be bundled despite mutual intelligibility; B2B
+  // norms differ meaningfully.
+  cs: {
+    CZ: "cs-CZ",
+  },
 };
