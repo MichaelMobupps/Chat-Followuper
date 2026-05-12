@@ -35,6 +35,10 @@
 #   - localhost:80                 (NOT :3000 — Replit workflow proxy)
 #   - Skip @workspace/db build     (no build script there)
 #   - No --name passed to a pnpm-wrapped drizzle-kit (no migration here anyway)
+#   - Verify with `typecheck`, NOT `build`. Per pnpm-workspace skill:
+#     `build` needs workflow-provided PORT and BASE_PATH and fails from
+#     bash even when the code is correct. Vite HMR picks up the changes
+#     once the dashboard workflow restarts.
 
 set -euo pipefail
 
@@ -109,13 +113,13 @@ echo "  ok"
 echo
 
 # ── Step 1: ensure the new components dir exists ──────────────────
-echo "[apply] step 1/5 — ensure components/followup/ exists"
+echo "[apply] step 1/4 — ensure components/followup/ exists"
 mkdir -p artifacts/dashboard/src/components/followup
 echo "  ok"
 echo
 
 # ── Step 2: copy new files (and replace the scaffold) ─────────────
-echo "[apply] step 2/5 — copy files into place"
+echo "[apply] step 2/4 — copy files into place"
 
 NEW_FILES=(
   "artifacts/dashboard/src/lib/api/followups.ts"
@@ -143,17 +147,16 @@ done
 echo
 
 # ── Step 3: typecheck the dashboard ───────────────────────────────
-echo "[apply] step 3/5 — typecheck @workspace/dashboard"
+# Verification command per pnpm-workspace skill. `build` is NOT used
+# here because vite.config.ts reads PORT from the workflow env and
+# fails when invoked from bash. Vite HMR will pick up new files when
+# the dashboard workflow is restarted.
+echo "[apply] step 3/4 — typecheck @workspace/dashboard"
 pnpm --filter @workspace/dashboard run typecheck
 echo
 
-# ── Step 4: build the dashboard (catch Vite issues early) ─────────
-echo "[apply] step 4/5 — build @workspace/dashboard"
-pnpm --filter @workspace/dashboard run build
-echo
-
-# ── Step 5: mirror sync ───────────────────────────────────────────
-echo "[apply] step 5/5 — mirror sync to source-code/"
+# ── Step 4: mirror sync ───────────────────────────────────────────
+echo "[apply] step 4/4 — mirror sync to source-code/"
 if [[ -f "scripts/sync-source-code.sh" ]]; then
   bash scripts/sync-source-code.sh
 else
