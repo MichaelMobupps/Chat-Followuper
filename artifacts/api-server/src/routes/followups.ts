@@ -51,6 +51,7 @@ import {
   generateLink,
   GeoGateBlockedError,
 } from "../services/channels/whatsapp";
+import { generateLink as generateTelegramLink } from "../services/channels/telegram";
 
 const router: IRouter = Router();
 
@@ -63,6 +64,7 @@ type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
 const SEND_IMPLEMENTED_CHANNELS: ReadonlySet<SupportedChannel> = new Set([
   "whatsapp",
+  "telegram",
 ]);
 
 const LIST_STATUSES = [
@@ -471,6 +473,13 @@ router.post(
       }
       return;
     }
+    if (!prospect.telegramHandle && body.channel === "telegram") {
+      // Telegram needs the @handle to build the t.me link. There is
+      // no async reveal flow for handles today; absence is always a
+      // hard "no handle" case, unlike the WhatsApp phone-reveal nuance.
+      res.status(409).json({ error: "no_telegram_handle" });
+      return;
+    }
 
     // Find next scheduled followup for this prospect+channel (lowest stage,
     // not yet sent).
@@ -529,6 +538,22 @@ router.post(
         }
         throw err;
       }
+    } else if (body.channel === "telegram") {
+      // Same model as the WhatsApp branch above: build the deep link
+      // and let the FE open it. No geo gate (Telegram is universally
+      // available), no async reveal step. sentAt stays null; the
+      // click event flows through send-intent / clickedAt when that
+      // route is channel-parameterized in a later ticket.
+      const url = generateTelegramLink(
+        prospect.telegramHandle!,
+        next.generatedMessage,
+      );
+      res.status(200).json({
+        followupId: next.id,
+        stage: next.stage,
+        deepLinkUrl: url,
+        generatedMessage: next.generatedMessage,
+      });
     } else {
       // Defensive — should be impossible given the SEND_IMPLEMENTED guard above.
       res.status(501).json({ error: "channel_send_not_implemented" });
