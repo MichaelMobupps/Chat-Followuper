@@ -95,6 +95,23 @@ export const usersTable = pgTable("users", {
   digestTimezone: text("digest_timezone").notNull().default("Asia/Jerusalem"),
   microsoftRefreshToken: text("microsoft_refresh_token"),
   slackBotToken: text("slack_bot_token"),
+  /**
+   * Channels with manual prospect ingest enabled (Ticket 2.7-BE-A).
+   *
+   * Per-user toggle for each follow-up channel. When a channel slug
+   * appears in this array, the channel page UI exposes the manual
+   * contact ingest controls. Empty array means manual ingest is off
+   * everywhere; the page behaves as it did pre-2.7.
+   *
+   * Stored as a string array rather than a per-channel boolean record
+   * to keep schema additions minimal as Teams/Slack land. Channel slug
+   * values: "whatsapp" (scoped to whatsapp this ticket; "telegram"
+   * lands in 2.9-BE once the identifier-shape decision resolves).
+   */
+  manualIngestChannels: jsonb("manual_ingest_channels")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

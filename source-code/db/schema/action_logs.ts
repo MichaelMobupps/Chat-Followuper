@@ -55,6 +55,18 @@ export const ACTION_TYPES = {
   prospectPaused: "prospect.paused",
   prospectSkipped: "prospect.skipped",
   prospectDeleted: "prospect.deleted",
+  // Ticket 2.7-BE-A — manual prospect ingest.
+  //
+  // manualIngestSingle: SDR submitted a one-off manual prospect via the
+  // manual ingest form (4 fields plus optional context). Source mode on
+  // the resulting prospect is "manual"; metadata records channel/ticker
+  // and whether prePlatformContext was provided.
+  //
+  // manualIngestToggle: SDR flipped the manual-ingest toggle for a given
+  // channel. metadata.channel records the channel slug; metadata.enabled
+  // records the new boolean state.
+  manualIngestSingle: "prospect.manual_ingest.single",
+  manualIngestToggle: "user.manual_ingest_toggle",
   followupQueued: "followup.queued",
   followupGenerated: "followup.generated",
   followupSent: "followup.sent",

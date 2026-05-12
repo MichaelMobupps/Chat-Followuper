@@ -40,9 +40,11 @@ import {
   actionLogsTable,
   ACTION_TYPES,
   followupsTable,
+  usersTable,
   type Prospect,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { detectCountry } from "../lib/geoGate";
 
 const router: IRouter = Router();
 
@@ -989,6 +991,232 @@ router.post(
     }
 
     res.status(200).json({ updated: targetIds.length, ids: targetIds });
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// Manual ingest routes — Ticket 2.7-BE-A — manual prospect ingest
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Two endpoints supporting the SDR-driven flow of "follow up on people
+// I'm already in touch with" — prospects who never came through Apollo.
+//
+//   POST  /api/prospects/manual-ingest             — create one
+//   PATCH /api/users/me/manual-ingest-settings     — toggle channel on/off
+//
+// Scope this ticket: WhatsApp only. Telegram manual ingest is deferred to
+// its own ticket because the t.me deep-link mechanism needs a handle, not
+// a phone, and the identifier-shape decision was left open at scoping
+// time.
+//
+// PATCH path note: settings live under /users/me/* not /prospects/* to
+// avoid being shadowed by the existing wildcard PATCH /prospects/:id —
+// Express matches in registration order and the :id route would catch
+// "manual-ingest-settings" first, isUuidLike rejects it, 404. Using the
+// users/me namespace matches the existing /api/users/me/sequence-config
+// pattern and keeps the path collision-free.
+//
+// Enrichment posture: ingest stores ONLY what the SDR provided plus
+// derived country from the phone. Company-name disambiguation, vertical
+// classification, and the research_brief are filled lazily by the
+// existing prospectResearch / message generation pipeline on first
+// draft, same as for Apollo prospects. This keeps ingest snappy (no
+// 5-10s LLM wait on the form) and avoids new wiring against
+// classification code paths that have drifted since the 2.2 work.
+
+const MANUAL_INGEST_CHANNELS = ["whatsapp"] as const;
+
+const TICKERS = ["web", "mobile"] as const;
+type Ticker = (typeof TICKERS)[number];
+
+// firstName is constrained to 100 chars (matches prospectName max). It is
+// stored as prospect_name verbatim; the LLM uses it in the greeting.
+// company is constrained to 200 (matches existing company column max).
+// prePlatformContext is constrained to 5000 (one paragraph of pasted
+// conversation; matches contextNotes max).
+const manualIngestBodySchema = z
+  .object({
+    channel: z.enum(MANUAL_INGEST_CHANNELS),
+    firstName: z.string().trim().min(1).max(100),
+    phone: z
+      .string()
+      .trim()
+      .regex(PHONE_RE, "Phone must be E.164 format, e.g. '+919900000111'"),
+    company: z.string().trim().min(1).max(200),
+    ticker: z.enum(TICKERS),
+    prePlatformContext: z.string().trim().max(5000).nullable().optional(),
+  })
+  .strict();
+
+const manualIngestToggleBodySchema = z
+  .object({
+    channel: z.enum(MANUAL_INGEST_CHANNELS),
+    enabled: z.boolean(),
+  })
+  .strict();
+
+/**
+ * Map the SDR's web/mobile ticker to a coarse vertical string. The
+ * existing research/classification pipeline refines this on first
+ * message draft; what we store here is just enough to route through
+ * the right doctrine pack initially.
+ */
+function tickerToCoarseVertical(ticker: Ticker): string {
+  return ticker === "web" ? "web_cps" : "mobile";
+}
+
+/**
+ * POST /api/prospects/manual-ingest
+ *
+ * Creates a manually-ingested prospect.
+ *
+ *   201 → { ...prospect }
+ *   400 → invalid_body (Zod issues attached)
+ *   409 → duplicate_phone (existing (user_id, phone) unique index)
+ */
+router.post(
+  "/prospects/manual-ingest",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    let body: z.infer<typeof manualIngestBodySchema>;
+    try {
+      body = manualIngestBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    // Country derivation is best-effort. detectCountry may return null
+    // for prefixes outside the known allow-list; in that case country
+    // is left null and the language defaults apply downstream. We do
+    // NOT reject on unknown country here — the existing wa.me send
+    // path surfaces geo issues at click time via geoGate, matching the
+    // Apollo flow's behavior.
+    const country = detectCountry(body.phone);
+
+    const inserted = await db
+      .insert(prospectsTable)
+      .values({
+        userId: user.id,
+        phone: body.phone,
+        sourceMode: "manual",
+        prospectName: body.firstName,
+        company: body.company,
+        vertical: tickerToCoarseVertical(body.ticker),
+        country: country ?? null,
+        prePlatformContext: body.prePlatformContext ?? null,
+      })
+      .onConflictDoNothing({
+        target: [prospectsTable.userId, prospectsTable.phone],
+      })
+      .returning();
+
+    if (inserted.length === 0) {
+      res.status(409).json({
+        error: "duplicate_phone",
+        detail: "A prospect with this phone already exists for this user.",
+      });
+      return;
+    }
+
+    const prospect = inserted[0]!;
+
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        prospectId: prospect.id,
+        actionType: ACTION_TYPES.manualIngestSingle,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          channel: body.channel,
+          ticker: body.ticker,
+          hasPrePlatformContext: !!body.prePlatformContext,
+          country: country ?? null,
+        },
+      });
+    } catch {
+      // ignore audit failure
+    }
+
+    res.status(201).json(prospect);
+  },
+);
+
+/**
+ * PATCH /api/users/me/manual-ingest-settings
+ *
+ * Toggle manual ingest on/off for a given channel. State persists on
+ * users.manualIngestChannels — the array of channel slugs currently
+ * enabled. FE reads the array to render toggle state and the manual
+ * contacts section.
+ *
+ * Mounted under /users/me/* rather than /prospects/* to dodge the
+ * wildcard PATCH /prospects/:id route — see top-of-section note.
+ *
+ *   200 → { manualIngestChannels: string[] }
+ *   400 → invalid_body
+ */
+router.patch(
+  "/users/me/manual-ingest-settings",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+
+    let body: z.infer<typeof manualIngestToggleBodySchema>;
+    try {
+      body = manualIngestToggleBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    // Read-modify-write on the JSON array. Last-write-wins semantics —
+    // concurrent toggles on the same channel are non-issues since the
+    // operation is idempotent (enable-then-enable === enable).
+    const existing = await db
+      .select({ channels: usersTable.manualIngestChannels })
+      .from(usersTable)
+      .where(eq(usersTable.id, user.id))
+      .limit(1);
+
+    const current = existing[0]?.channels ?? [];
+    const currentSet = new Set<string>(current);
+    if (body.enabled) {
+      currentSet.add(body.channel);
+    } else {
+      currentSet.delete(body.channel);
+    }
+    const next = Array.from(currentSet);
+
+    await db
+      .update(usersTable)
+      .set({ manualIngestChannels: next })
+      .where(eq(usersTable.id, user.id));
+
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.manualIngestToggle,
+        actionStatus: "success",
+        metadata: { channel: body.channel, enabled: body.enabled },
+      });
+    } catch {
+      // ignore audit failure
+    }
+
+    res.status(200).json({ manualIngestChannels: next });
   },
 );
 

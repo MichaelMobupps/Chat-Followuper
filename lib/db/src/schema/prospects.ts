@@ -56,6 +56,19 @@ export const prospectsTable = pgTable(
       onDelete: "set null",
     }),
     contextNotes: text("context_notes"),
+    /**
+     * Pre-platform context (Ticket 2.7-BE-A).
+     *
+     * Optional free-text paste of the last message the SDR sent to this
+     * prospect in their actual WhatsApp/Telegram, captured at manual
+     * ingest time so the first Followuper-generated message can pick up
+     * where the off-platform conversation left off. Fed into the
+     * message generator's context when present.
+     *
+     * Null for Apollo-sourced prospects and for manual-ingest prospects
+     * where the SDR skipped the optional field.
+     */
+    prePlatformContext: text("pre_platform_context"),
     researchBrief: jsonb("research_brief"),
     firstMessageBody: text("first_message_body"),
     firstMessageChannel: text("first_message_channel"),
