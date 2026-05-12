@@ -72,6 +72,7 @@ import { StatusBadge } from "./StatusBadge";
 import { EditFollowupDialog } from "./EditFollowupDialog";
 import { BulkToolbar } from "./BulkToolbar";
 import { SequenceConfigPanel } from "./SequenceConfigPanel";
+import { ManualContactsSection } from "./ManualContactsSection";
 
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
@@ -320,6 +321,10 @@ export function ChannelFollowupPage({ channel }: Props) {
           {total} prospect{total === 1 ? "" : "s"} in the current view.
         </p>
       </header>
+
+      {channel === "whatsapp" && (
+        <ManualContactsSection channel="whatsapp" />
+      )}
 
       <Tabs
         value={status}

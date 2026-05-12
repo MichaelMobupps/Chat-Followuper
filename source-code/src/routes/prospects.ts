@@ -1151,6 +1151,35 @@ router.post(
 );
 
 /**
+ * GET /api/users/me/manual-ingest-settings
+ *
+ * Read the current manual ingest toggle state for the authenticated
+ * user. Returns the same shape as PATCH so the FE can use one type
+ * across both endpoints.
+ *
+ * Added Ticket 2.7-FE: the FE needs the initial toggle state on page
+ * load; PATCH alone wasn't enough.
+ *
+ *   200 → { manualIngestChannels: string[] }
+ */
+router.get(
+  "/users/me/manual-ingest-settings",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+
+    const rows = await db
+      .select({ channels: usersTable.manualIngestChannels })
+      .from(usersTable)
+      .where(eq(usersTable.id, user.id))
+      .limit(1);
+
+    const manualIngestChannels = rows[0]?.channels ?? [];
+    res.status(200).json({ manualIngestChannels });
+  },
+);
+
+/**
  * PATCH /api/users/me/manual-ingest-settings
  *
  * Toggle manual ingest on/off for a given channel. State persists on
