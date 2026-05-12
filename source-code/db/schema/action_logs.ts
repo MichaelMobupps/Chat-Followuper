@@ -69,6 +69,8 @@ export const ACTION_TYPES = {
   capExceededReveals: "cap.exceeded.reveals",
   whatsappSendIntent: "whatsapp.send_intent",
   whatsappLinkGenerated: "whatsapp.link_generated",
+  telegramSendIntent: "telegram.send_intent",
+  telegramLinkGenerated: "telegram.link_generated",
   // Ticket 1.5b — async Apollo phone reveal flow. Three terminal states
   // for the audit trail: requested (outbound POST sent), arrived (webhook
   // delivered phone, geo gate passed, phone stored), blocked (webhook

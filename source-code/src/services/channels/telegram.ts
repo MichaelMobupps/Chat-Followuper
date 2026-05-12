@@ -1,8 +1,118 @@
+import { and, eq, sql } from "drizzle-orm";
+import {
+  db,
+  prospectsTable,
+  followupsTable,
+  dailyUsageTable,
+  actionLogsTable,
+  ACTION_TYPES,
+} from "@workspace/db";
+
 /**
- * Telegram Mode A adapter stub. Phase 2 will implement this; for now it
- * throws so the dispatcher can still route ChannelCode "telegram" without
- * silently producing a broken link.
+ * Telegram channel adapter (Ticket 2.6-BE).
+ *
+ * Pattern mirrors services/channels/whatsapp.ts so the route layer
+ * imports a uniform surface per channel: generateLink + recordSendIntent
+ * + a typed RecordSendIntentInput.
+ *
+ * Differences from WhatsApp:
+ *   - No geo gate. Telegram is universally available; the WhatsApp
+ *     geoGate library exists because of country-level rate-of-return
+ *     and compliance signals that do not apply to Telegram. Therefore
+ *     no GeoGateBlockedError export; the route layer simply does not
+ *     need to catch one for this channel.
+ *   - Identifier is the user's public handle, not a phone number. The
+ *     handle is normalized by stripping a leading "@" if present
+ *     (Telegram's web deep link requires the raw username; t.me/@x
+ *     redirects through an extra hop on most clients).
+ *   - generateLink does not validate handle format. The route layer
+ *     guards on `!prospect.telegramHandle` before calling, and the BE
+ *     trusts whatever string the prospect record holds — same trust
+ *     model as the phone-based WhatsApp flow.
+ *
+ * recordSendIntent is structurally identical to WhatsApp's: the daily
+ * usage upsert, followup.clickedAt vs prospect.firstMessageSentAt
+ * branch, and action_logs row all behave the same way. Only the
+ * action_type differs (telegramSendIntent vs whatsappSendIntent). It
+ * is duplicated rather than extracted because each channel file is
+ * self-contained in this codebase; a cross-channel refactor is its own
+ * ticket once Teams/Slack land and the shared shape is established.
  */
-export function generateLink(_phone: string, _body: string): string {
-  throw new Error("Telegram Mode A is not yet implemented");
+
+/**
+ * Build a https://t.me/<handle>?text=<urlencoded-body> deep link for
+ * the given Telegram handle and message body. Strips a leading "@"
+ * when present so both stored conventions ("@user" and "user") work.
+ */
+export function generateLink(handle: string, body: string): string {
+  const normalized = handle.startsWith("@") ? handle.slice(1) : handle;
+  const encoded = encodeURIComponent(body);
+  return `https://t.me/${normalized}?text=${encoded}`;
+}
+
+export interface RecordSendIntentInput {
+  prospectId: string;
+  userId: string;
+  followupId: number | null;
+}
+
+/**
+ * Records that the user clicked through to the Telegram deep link.
+ * Treated as the "send" event for the manual-send model. Three effects
+ * in one transaction:
+ *
+ *   1. Either prospects.first_message_sent_at = now() (followupId null)
+ *      or followups.clicked_at = now() (followupId numeric).
+ *   2. Upsert daily_usage for (userId, today) with messages_sent + 1.
+ *   3. Insert action_logs row with action_type telegram.send_intent.
+ *
+ * Does NOT touch followups.sent_at; sentAt is reserved for the worker
+ * dispatch path. The click event lives in clickedAt.
+ */
+export async function recordSendIntent(
+  input: RecordSendIntentInput,
+): Promise<void> {
+  const { prospectId, userId, followupId } = input;
+  const today = new Date().toISOString().slice(0, 10);
+
+  await db.transaction(async (tx) => {
+    if (followupId === null) {
+      await tx
+        .update(prospectsTable)
+        .set({ firstMessageSentAt: new Date() })
+        .where(
+          and(
+            eq(prospectsTable.id, prospectId),
+            eq(prospectsTable.userId, userId),
+          ),
+        );
+    } else {
+      await tx
+        .update(followupsTable)
+        .set({ clickedAt: new Date() })
+        .where(eq(followupsTable.id, followupId));
+    }
+
+    await tx
+      .insert(dailyUsageTable)
+      .values({
+        userId,
+        date: today,
+        messagesSent: 1,
+      })
+      .onConflictDoUpdate({
+        target: [dailyUsageTable.userId, dailyUsageTable.date],
+        set: {
+          messagesSent: sql`${dailyUsageTable.messagesSent} + 1`,
+        },
+      });
+
+    await tx.insert(actionLogsTable).values({
+      userId,
+      prospectId,
+      followupId,
+      actionType: ACTION_TYPES.telegramSendIntent,
+      actionStatus: "success",
+    });
+  });
 }
