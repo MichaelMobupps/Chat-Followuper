@@ -56,16 +56,21 @@ async function http<T>(
   if (!res.ok) {
     let code: string | undefined;
     let message = `${method} ${path} failed (${res.status})`;
+    let parsedBody: unknown = undefined;
     try {
-      const parsed = await res.json();
-      if (parsed && typeof parsed.error === "string") {
-        code = parsed.error;
-        message = parsed.error;
+      parsedBody = await res.json();
+      if (
+        parsedBody &&
+        typeof (parsedBody as { error?: unknown }).error === "string"
+      ) {
+        const errStr = (parsedBody as { error: string }).error;
+        code = errStr;
+        message = errStr;
       }
     } catch {
       // not json
     }
-    throw new ApiError(message, res.status, code);
+    throw new ApiError(message, res.status, code, parsedBody);
   }
   return (await res.json()) as T;
 }
