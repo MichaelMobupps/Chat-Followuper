@@ -12,15 +12,11 @@
  *
  * Sequence-config endpoints live in lib/api/sequence-config.ts.
  *
- * Conventions:
- *   - All requests credentials: "include" so the session cookie flows.
- *   - Non-2xx responses throw ApiError with the parsed `error` code from
- *     the body where available.
- *   - Returned shapes mirror the routes' JSON exactly; the UI status
- *     mapping is server-side (derived.uiStatus on list items), so no
- *     client-side recomputation here.
+ * Implementation: every wrapper delegates to the project's canonical
+ * `apiFetch` helper (lib/api.ts) so error handling and field-detail
+ * surfacing stay consistent across modules. Don't reinvent the helper.
  */
-import { ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────
 // Shared types — mirror the BE wire format
@@ -172,47 +168,19 @@ export interface BulkPauseResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Internal fetch helper
+// Internal helper — thin wrapper handling method + JSON body
+// serialization on top of the canonical apiFetch.
 // ─────────────────────────────────────────────────────────────────
 
-async function http<T>(
+function req<T>(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const init: RequestInit = {
+  return apiFetch<T>(path, {
     method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-  };
-  if (body !== undefined) {
-    init.body = JSON.stringify(body);
-  }
-  const res = await fetch(path, init);
-  if (!res.ok) {
-    let code: string | undefined;
-    let message = `${method} ${path} failed (${res.status})`;
-    let parsedBody: unknown = undefined;
-    try {
-      parsedBody = await res.json();
-      if (
-        parsedBody &&
-        typeof (parsedBody as { error?: unknown }).error === "string"
-      ) {
-        const errStr = (parsedBody as { error: string }).error;
-        code = errStr;
-        message = errStr;
-      }
-    } catch {
-      // body wasn't json; keep the default message
-    }
-    throw new ApiError(message, res.status, code, parsedBody);
-  }
-  // 204 No Content is valid; return undefined cast as T
-  if (res.status === 204) {
-    return undefined as T;
-  }
-  return (await res.json()) as T;
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -227,14 +195,14 @@ export function listFollowups(
   if (args.status) params.set("status", args.status);
   if (args.page) params.set("page", String(args.page));
   if (args.perPage) params.set("perPage", String(args.perPage));
-  return http("GET", `/api/followups?${params.toString()}`);
+  return req("GET", `/api/followups?${params.toString()}`);
 }
 
 export function sendNextFollowup(
   prospectId: string,
   channel: SupportedChannel,
 ): Promise<SendNextFollowupResponse> {
-  return http("POST", `/api/prospects/${prospectId}/send-next-followup`, {
+  return req("POST", `/api/prospects/${prospectId}/send-next-followup`, {
     channel,
   });
 }
@@ -243,32 +211,34 @@ export function patchFollowup(
   followupId: number,
   input: PatchFollowupInput,
 ): Promise<{ followup: Followup }> {
-  return http("PATCH", `/api/followups/${followupId}`, input);
+  return req("PATCH", `/api/followups/${followupId}`, input);
 }
 
 export function bulkArchiveFollowups(
   input: BulkArchiveInput,
 ): Promise<BulkArchiveResponse> {
-  return http("POST", "/api/followups/bulk/archive", input);
+  return req("POST", "/api/followups/bulk/archive", input);
 }
 
 export function markProspectReplied(
   prospectId: string,
   repliedAt?: string,
 ): Promise<MarkRepliedResponse> {
-  return http("POST", `/api/prospects/${prospectId}/mark-replied`, {
-    ...(repliedAt ? { repliedAt } : {}),
-  });
+  return req(
+    "POST",
+    `/api/prospects/${prospectId}/mark-replied`,
+    repliedAt ? { repliedAt } : {},
+  );
 }
 
 export function archiveProspect(
   prospectId: string,
 ): Promise<ArchiveProspectResponse> {
-  return http("POST", `/api/prospects/${prospectId}/archive`);
+  return req("POST", `/api/prospects/${prospectId}/archive`);
 }
 
 export function bulkPauseProspects(
   input: BulkPauseInput,
 ): Promise<BulkPauseResponse> {
-  return http("POST", "/api/prospects/bulk/pause", input);
+  return req("POST", "/api/prospects/bulk/pause", input);
 }

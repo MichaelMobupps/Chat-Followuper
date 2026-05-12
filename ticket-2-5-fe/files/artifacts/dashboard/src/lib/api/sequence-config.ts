@@ -9,7 +9,7 @@
  * the SDR can pre-set their preference; behavior changes when the
  * variant-aware critic ticket lands.
  */
-import { ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export const DOCTRINE_VARIANTS = [
   "new_insight",
@@ -41,48 +41,17 @@ export interface SequenceConfig {
 
 export type SequenceConfigPatch = Partial<SequenceConfig>;
 
-async function http<T>(
-  method: "GET" | "PATCH",
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const init: RequestInit = {
-    method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-  };
-  if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(path, init);
-  if (!res.ok) {
-    let code: string | undefined;
-    let message = `${method} ${path} failed (${res.status})`;
-    let parsedBody: unknown = undefined;
-    try {
-      parsedBody = await res.json();
-      if (
-        parsedBody &&
-        typeof (parsedBody as { error?: unknown }).error === "string"
-      ) {
-        const errStr = (parsedBody as { error: string }).error;
-        code = errStr;
-        message = errStr;
-      }
-    } catch {
-      // not json
-    }
-    throw new ApiError(message, res.status, code, parsedBody);
-  }
-  return (await res.json()) as T;
-}
-
 export function getSequenceConfig(): Promise<SequenceConfig> {
-  return http("GET", "/api/users/me/sequence-config");
+  return apiFetch<SequenceConfig>("/api/users/me/sequence-config");
 }
 
 export function patchSequenceConfig(
   input: SequenceConfigPatch,
 ): Promise<SequenceConfig> {
-  return http("PATCH", "/api/users/me/sequence-config", input);
+  return apiFetch<SequenceConfig>("/api/users/me/sequence-config", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
