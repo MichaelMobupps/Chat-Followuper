@@ -261,19 +261,20 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
 
   // Reset state when dialog closes. Defer the reset to the close
   // transition so the user doesn't see the grid empty out mid-animation.
+  // Early-return when open=true so the effect has a single return path
+  // (TS noImplicitReturns flags the conditional-cleanup pattern).
   useEffect(() => {
-    if (!open) {
-      const t = setTimeout(() => {
-        setRows([]);
-        setCsvText("");
-        setCsvOpen(true);
-        setImportErrors([]);
-        setImportTruncated(false);
-        setRejectedById(new Map());
-        setBanner(null);
-      }, 150);
-      return () => clearTimeout(t);
-    }
+    if (open) return;
+    const t = setTimeout(() => {
+      setRows([]);
+      setCsvText("");
+      setCsvOpen(true);
+      setImportErrors([]);
+      setImportTruncated(false);
+      setRejectedById(new Map());
+      setBanner(null);
+    }, 150);
+    return () => clearTimeout(t);
   }, [open]);
 
   // Auto-collapse the CSV paste area once the grid has rows. Users
