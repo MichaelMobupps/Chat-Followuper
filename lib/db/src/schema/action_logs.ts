@@ -67,6 +67,16 @@ export const ACTION_TYPES = {
   // records the new boolean state.
   manualIngestSingle: "prospect.manual_ingest.single",
   manualIngestToggle: "user.manual_ingest_toggle",
+  // Ticket 2.8-BE — bulk manual prospect ingest.
+  //
+  // manualIngestBulk: SDR submitted a multi-row manual ingest payload via
+  // POST /api/prospects/manual-ingest/bulk. Recorded once per request,
+  // independent of how many rows succeeded. metadata.rowCount /
+  // .acceptedCount / .rejectedCount give the request-level breakdown.
+  // Per-accepted-row audit rows are still emitted under manualIngestSingle
+  // (with metadata.viaBulk = true) so per-prospect audit trails stay
+  // queryable by the existing single-ingest action type.
+  manualIngestBulk: "prospect.manual_ingest.bulk",
   followupQueued: "followup.queued",
   followupGenerated: "followup.generated",
   followupSent: "followup.sent",

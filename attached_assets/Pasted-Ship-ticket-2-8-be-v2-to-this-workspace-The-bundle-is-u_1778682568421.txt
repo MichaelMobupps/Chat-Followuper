@@ -1,0 +1,59 @@
+Ship ticket-2-8-be v2 to this workspace. The bundle is uploaded at /tmp/ticket-2-8-be.zip.
+
+SHA-256 to verify before extract: 7ed97c36b458a58935f7d01edee9c02d14c930a1fb7707b183e106533cd60ef3
+
+Execute exactly these steps, in order, from the repo root. Stop and report on the first non-zero exit.
+
+Step 1 — verify SHA, extract, run apply.sh:
+
+```bash
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+echo "7ed97c36b458a58935f7d01edee9c02d14c930a1fb7707b183e106533cd60ef3  /tmp/ticket-2-8-be.zip" | sha256sum -c -
+rm -rf /tmp/ticket-2-8-be
+unzip -o /tmp/ticket-2-8-be.zip -d /tmp/ > /dev/null
+bash /tmp/ticket-2-8-be/apply.sh
+```
+
+Expected output: SHA `OK`, then `[1/5]` through `[5/5]` each ending in `ok`, then `ticket-2-8-be v2: apply.sh completed successfully`.
+
+Step 2 — restart the api-server workflow.
+
+Step 3 — capture the workflow startup log (full output from restart through the first ~30 lines after startup). The log MUST contain `Server listening port: 8080` with no error stack traces or unhandled-rejection lines.
+
+Step 4 — run the mount probe (no auth, expect HTTP 401):
+
+```bash
+curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+  -X POST http://localhost:80/api/prospects/manual-ingest/bulk \
+  -H 'Content-Type: application/json' \
+  -d '{"channel":"whatsapp","contacts":[]}'
+```
+
+PASS = `HTTP 401`. This proves the route is mounted and `requireAuth` is gating it. The remaining 5 smoke probes need a `cf_session` cookie value from a logged-in browser tab and will be run manually by the operator.
+
+Report back in this exact format:
+
+  apply.sh:          [exit code]
+  sha verify:        [OK or MISMATCH]
+  [1/5] pre-flight:  [ok or error message]
+  [2/5] patches:     [list each patch line as printed]
+  [3/5] tsc -b:      [ok or error]
+  [4/5] typecheck:   [ok or error]
+  [5/5] sync:        [ok or error]
+  restart_workflow:  [success or error]
+  startup log:       [paste verbatim, including any errors]
+  mount probe:       HTTP [code]
+  files changed:     [run `git status --porcelain` and paste]
+  source-code diff:  [run `git diff --stat source-code/` and paste]
+
+What yes:
+  - Run the bash steps verbatim.
+  - Stop on first non-zero exit, paste the full error context.
+  - Report verbatim. Do not summarize.
+
+What not:
+  - Do not modify the patches, apply.sh, or the bundle.
+  - Do not run the 5 cookie-auth smoke probes (operator runs those).
+  - Do not delete the test prospects (none should exist yet).
+  - Do not commit anything to git. The sync step writes to source-code/; that is expected and intentional. Leave it staged for the operator to commit.

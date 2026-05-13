@@ -1321,4 +1321,276 @@ router.patch(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────
+// Bulk manual ingest — Ticket 2.8-BE — bulk variant of manual ingest
+// ─────────────────────────────────────────────────────────────────────────
+//
+// POST /api/prospects/manual-ingest/bulk
+//
+// Per-row mirror of POST /api/prospects/manual-ingest. Same identifier
+// routing (WhatsApp → phone column, Telegram + E.164 → phone column,
+// Telegram + @handle → telegram_handle column), same dedupe semantics
+// (phone via unique index, handle via explicit pre-check), same enrichment
+// posture (store what the SDR provided; classification/research run
+// lazily on first draft).
+//
+// Partial-success contract: rows are processed sequentially and
+// independently. Each row either lands in `accepted` (with the inserted
+// prospect row) or in `rejected` (with the original 0-based index and an
+// error code). No transactional rollback across rows. Response is always
+// 200, regardless of whether some, all, or zero rows succeeded.
+//
+// Why sequential, not parallel: the Telegram @handle path uses an
+// explicit SELECT pre-check because `telegram_handle` is not behind a
+// unique index. Sequential processing means a later row in the same
+// batch carrying the same handle as an earlier accepted row will see
+// the earlier row in its pre-check and reject as duplicate. Parallel
+// processing would race that pre-check and could insert duplicates.
+//
+// Within-batch phone duplicates are handled by the unique index on
+// (user_id, phone): the second row hits onConflictDoNothing, returns
+// zero inserted rows, and goes into rejected as duplicate_phone.
+//
+// Rate limiting: no per-user rate limit yet. The 200-row hard cap in
+// the schema is the only governor. Add a token-bucket / async queue if
+// real usage volume warrants — punted from scoping (handoff §6).
+//
+// Action logs: one bulk row per request, plus N single rows for accepted
+// prospects (metadata.viaBulk = true to distinguish from form-driven
+// single ingest). Audit failure is swallowed, same as single ingest.
+
+const MANUAL_INGEST_BULK_MAX_ROWS = 200;
+
+const manualIngestBulkBodySchema = z
+  .object({
+    channel: z.enum(MANUAL_INGEST_CHANNELS),
+    contacts: z
+      .array(
+        z
+          .object({
+            firstName: z.string().trim().min(1).max(100),
+            // Identifier — per-row format validation runs in the handler,
+            // same as the single-ingest endpoint. Outer Zod just enforces
+            // presence and a generous length cap.
+            phone: z.string().trim().min(1).max(64),
+            company: z.string().trim().min(1).max(200),
+            ticker: z.enum(TICKERS),
+            prePlatformContext: z
+              .string()
+              .trim()
+              .max(5000)
+              .nullable()
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MANUAL_INGEST_BULK_MAX_ROWS),
+  })
+  .strict();
+
+type BulkRejectedRow = {
+  index: number;
+  identifier: string;
+  error:
+    | "invalid_identifier"
+    | "duplicate_phone"
+    | "duplicate_telegram_handle"
+    | "insert_failed";
+  detail?: string;
+};
+
+/**
+ * POST /api/prospects/manual-ingest/bulk
+ *
+ *   200 → { accepted: Prospect[], rejected: BulkRejectedRow[] }
+ *   400 → invalid_body (Zod issues attached) — outer envelope only
+ */
+router.post(
+  "/prospects/manual-ingest/bulk",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    let body: z.infer<typeof manualIngestBulkBodySchema>;
+    try {
+      body = manualIngestBulkBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    const accepted: Prospect[] = [];
+    const rejected: BulkRejectedRow[] = [];
+
+    for (let i = 0; i < body.contacts.length; i++) {
+      const row = body.contacts[i]!;
+      const identifier = row.phone;
+
+      let phoneToStore: string | null = null;
+      let handleToStore: string | null = null;
+      let country: string | null = null;
+
+      if (body.channel === "whatsapp") {
+        if (!PHONE_RE.test(identifier)) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "invalid_identifier",
+            detail: "Phone must be E.164 format, e.g. '+919900000111'.",
+          });
+          continue;
+        }
+        phoneToStore = identifier;
+        country = detectCountry(identifier) ?? null;
+      } else {
+        // channel === "telegram"
+        if (PHONE_RE.test(identifier)) {
+          phoneToStore = identifier;
+          country = detectCountry(identifier) ?? null;
+        } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
+          handleToStore = identifier.startsWith("@")
+            ? identifier.slice(1)
+            : identifier;
+        } else {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "invalid_identifier",
+            detail:
+              "For Telegram, use an international phone (e.g. '+972547734033') or a handle (e.g. '@yaronk', 5-32 chars).",
+          });
+          continue;
+        }
+      }
+
+      // Handle-path dedupe pre-check. Sequential processing makes this
+      // also catch within-batch duplicates (a later row with the same
+      // handle as an earlier accepted row sees the earlier row here and
+      // rejects). See top-of-section note for the parallel-vs-sequential
+      // rationale.
+      if (handleToStore !== null) {
+        const existingByHandle = await db
+          .select({ id: prospectsTable.id })
+          .from(prospectsTable)
+          .where(
+            and(
+              eq(prospectsTable.userId, user.id),
+              eq(prospectsTable.telegramHandle, handleToStore),
+            ),
+          )
+          .limit(1);
+        if (existingByHandle.length > 0) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "duplicate_telegram_handle",
+            detail:
+              "A prospect with this Telegram handle already exists for this user.",
+          });
+          continue;
+        }
+      }
+
+      try {
+        const insertedRows = await db
+          .insert(prospectsTable)
+          .values({
+            userId: user.id,
+            phone: phoneToStore,
+            telegramHandle: handleToStore,
+            sourceMode: "manual",
+            prospectName: row.firstName,
+            company: row.company,
+            vertical: tickerToCoarseVertical(row.ticker),
+            country,
+            prePlatformContext: row.prePlatformContext ?? null,
+          })
+          .onConflictDoNothing({
+            target: [prospectsTable.userId, prospectsTable.phone],
+          })
+          .returning();
+
+        if (insertedRows.length === 0) {
+          // Only reachable on the phone-path unique-index conflict. The
+          // handle-path dedupe pre-check above already returned
+          // duplicate_telegram_handle for handle conflicts.
+          rejected.push({
+            index: i,
+            identifier,
+            error: "duplicate_phone",
+            detail:
+              "A prospect with this phone already exists for this user.",
+          });
+          continue;
+        }
+
+        const prospect = insertedRows[0]!;
+        accepted.push(prospect);
+
+        // Per-accepted-row audit log. Same shape as single-ingest's
+        // manualIngestSingle entry, with viaBulk=true to distinguish from
+        // form-driven single ingest. Nested try so audit-log failure
+        // never invalidates an otherwise-successful row.
+        try {
+          await db.insert(actionLogsTable).values({
+            userId: user.id,
+            prospectId: prospect.id,
+            actionType: ACTION_TYPES.manualIngestSingle,
+            actionStatus: "success",
+            metadata: {
+              channel: body.channel,
+              ticker: row.ticker,
+              identifierKind:
+                handleToStore !== null ? "telegram_handle" : "phone",
+              hasPrePlatformContext: !!row.prePlatformContext,
+              country: country ?? null,
+              viaBulk: true,
+            },
+          });
+        } catch {
+          // ignore audit failure
+        }
+      } catch (err) {
+        // DB-level unexpected failure (constraint violation outside the
+        // (user_id, phone) unique index, transient error). Log to row
+        // and continue; do not halt the batch.
+        rejected.push({
+          index: i,
+          identifier,
+          error: "insert_failed",
+          detail: err instanceof Error ? err.message : "unknown insert error",
+        });
+        continue;
+      }
+    }
+
+    // One bulk-request audit row per call. Always success status; the
+    // per-row outcome is captured in metadata counts.
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.manualIngestBulk,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          channel: body.channel,
+          rowCount: body.contacts.length,
+          acceptedCount: accepted.length,
+          rejectedCount: rejected.length,
+        },
+      });
+    } catch {
+      // ignore audit failure
+    }
+
+    res.status(200).json({ accepted, rejected });
+  },
+);
+
 export default router;

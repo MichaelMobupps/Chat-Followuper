@@ -39,7 +39,7 @@ app.use(cookieParser());
 // own express.raw middleware scoped to the webhook path.
 app.use("/api", apolloWebhookRouter);
 
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Best-effort session loader: populates req.user when a valid session cookie
