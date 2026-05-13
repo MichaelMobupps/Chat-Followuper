@@ -17,6 +17,9 @@ import {
   getManualIngestSettings,
   patchManualIngestSettings,
   postManualIngest,
+  postManualIngestBulk,
+  type ManualIngestBulkInput,
+  type ManualIngestBulkResponse,
   type ManualIngestCreateInput,
   type ManualIngestProspect,
   type ManualIngestSettings,
@@ -64,6 +67,30 @@ export function useAddManualContact(): UseMutationResult<
       // pipeline picks it up. Invalidate so the SDR sees it without
       // hitting the manual refresh button.
       void qc.invalidateQueries({ queryKey: ["followups"] });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ticket 2.8-FE — bulk manual ingest mutation.
+//
+// Invalidates the follow-ups list only when at least one row landed.
+// Empty-accepted responses (full rejection) leave caches alone so the UI
+// doesn't bounce.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function useAddManualContactsBulk(): UseMutationResult<
+  ManualIngestBulkResponse,
+  ApiError,
+  ManualIngestBulkInput
+> {
+  const qc = useQueryClient();
+  return useMutation<ManualIngestBulkResponse, ApiError, ManualIngestBulkInput>({
+    mutationFn: (input) => postManualIngestBulk(input),
+    onSuccess: (data) => {
+      if (data.accepted.length > 0) {
+        void qc.invalidateQueries({ queryKey: ["followups"] });
+      }
     },
   });
 }

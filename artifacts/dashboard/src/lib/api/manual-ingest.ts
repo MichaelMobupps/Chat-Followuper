@@ -83,3 +83,61 @@ export function postManualIngest(
     body: JSON.stringify(input),
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ticket 2.8-FE — bulk client
+// ─────────────────────────────────────────────────────────────────────────
+//
+// POST /api/prospects/manual-ingest/bulk
+//
+// 1..200 contacts per request. Partial-success response always 200 (unless
+// the outer envelope is malformed), with accepted[] and rejected[] arrays.
+// The rejected[].index field refers to the position in the request's
+// contacts[] array — preserve order client-side so the index maps cleanly
+// back to the source row.
+//
+// prePlatformContext is omitted from the bulk shape per Ticket 2.8-FE scope
+// decision #6 (per-contact context paste doesn't fit a 200-row grid UX).
+// Use the single-row dialog for context-seeded ingest.
+
+export interface ManualIngestBulkContact {
+  firstName: string;
+  phone: string;
+  company: string;
+  ticker: Ticker;
+}
+
+export interface ManualIngestBulkInput {
+  channel: ManualIngestChannel;
+  contacts: ManualIngestBulkContact[];
+}
+
+export type ManualIngestBulkErrorCode =
+  | "invalid_identifier"
+  | "duplicate_phone"
+  | "duplicate_telegram_handle"
+  | "insert_failed";
+
+export interface ManualIngestBulkRejectedRow {
+  index: number;
+  identifier: string;
+  error: ManualIngestBulkErrorCode;
+  detail?: string;
+}
+
+export interface ManualIngestBulkResponse {
+  accepted: ManualIngestProspect[];
+  rejected: ManualIngestBulkRejectedRow[];
+}
+
+export function postManualIngestBulk(
+  input: ManualIngestBulkInput,
+): Promise<ManualIngestBulkResponse> {
+  return apiFetch<ManualIngestBulkResponse>(
+    "/api/prospects/manual-ingest/bulk",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}

@@ -25,7 +25,7 @@
  * land in a follow-up ticket if usage warrants.
  */
 import { useState } from "react";
-import { Plus, Sparkles } from "lucide-react";
+import { Plus, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/api/manual-ingest";
 import { ApiError } from "@/lib/api";
 import { AddManualContactDialog } from "./AddManualContactDialog";
+import { BulkAddDialog } from "./BulkAddDialog";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -67,6 +68,7 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
 export function ManualContactsSection({ channel }: Props) {
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const settings = useManualIngestSettings();
   const toggle = useToggleManualIngest();
 
@@ -174,6 +176,20 @@ export function ManualContactsSection({ channel }: Props) {
               Add contact
             </Button>
           )}
+          {enabled && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setBulkOpen(true)}
+              data-testid="manual-add-many-button"
+              style={{
+                boxShadow: IGNITE.glowSoft,
+              }}
+            >
+              <Users className="h-4 w-4 mr-1" />
+              Add many
+            </Button>
+          )}
           <Switch
             id={`manual-ingest-toggle-${channel}`}
             checked={enabled}
@@ -192,6 +208,12 @@ export function ManualContactsSection({ channel }: Props) {
         channel={channel}
         open={addOpen}
         onOpenChange={setAddOpen}
+      />
+
+      <BulkAddDialog
+        channel={channel}
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
       />
     </div>
   );
