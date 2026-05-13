@@ -48,6 +48,15 @@ import { cn } from "@/lib/utils";
 // Mirrored here for client-side hint-only validation; the BE is authoritative.
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 
+// Telegram-only: a handle is 5-32 alphanumeric+underscore chars with an
+// optional leading "@". Matches TELEGRAM_HANDLE_RE in routes/prospects.ts.
+const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+
+const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};
+
 interface Props {
   channel: ManualIngestChannel;
   open: boolean;
@@ -81,7 +90,10 @@ export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
   // The BE re-validates and is the source of truth for error reporting;
   // this just trims the obvious user mistakes before hitting the wire.
   const phoneTrimmed = form.phone.trim();
-  const phoneLooksValid = PHONE_RE.test(phoneTrimmed);
+  const phoneLooksValid =
+    channel === "whatsapp"
+      ? PHONE_RE.test(phoneTrimmed)
+      : PHONE_RE.test(phoneTrimmed) || HANDLE_RE.test(phoneTrimmed);
   const canSubmit =
     form.firstName.trim().length > 0 &&
     phoneLooksValid &&
@@ -126,9 +138,11 @@ export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
           const description =
             apiCode === "duplicate_phone"
               ? "A prospect with this phone already exists in your list."
-              : err instanceof ApiError
-                ? `${err.status} ${apiCode ?? err.message}`
-                : (err as Error).message;
+              : apiCode === "duplicate_telegram_handle"
+                ? "A prospect with this Telegram handle already exists in your list."
+                : err instanceof ApiError
+                  ? `${err.status} ${apiCode ?? err.message}`
+                  : (err as Error).message;
           toast({
             title: "Could not add contact",
             description,
@@ -149,8 +163,8 @@ export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Add a contact</DialogTitle>
           <DialogDescription>
-            Send follow-ups to someone already in your WhatsApp. We figure
-            out the right pitch from the company and product type.
+            Send follow-ups to someone already in your {CHANNEL_NAME[channel]}.
+            We figure out the right pitch from the company and product type.
           </DialogDescription>
         </DialogHeader>
 
@@ -169,17 +183,27 @@ export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="manual-phone">Phone (with country code)</Label>
+            <Label htmlFor="manual-phone">
+              {channel === "whatsapp"
+                ? "Phone (with country code)"
+                : "Phone or Telegram handle"}
+            </Label>
             <Input
               id="manual-phone"
               value={form.phone}
               onChange={(e) => update("phone", e.target.value)}
-              placeholder="+972501234567"
+              placeholder={
+                channel === "whatsapp"
+                  ? "+972501234567"
+                  : "+972501234567 or @yaronk"
+              }
               data-testid="manual-phone"
             />
             {form.phone.length > 0 && !phoneLooksValid && (
               <p className="text-xs text-muted-foreground">
-                Start with + and country code. Example: +972501234567.
+                {channel === "whatsapp"
+                  ? "Start with + and country code. Example: +972501234567."
+                  : "Use international phone (+972...) or Telegram handle (@yaronk, 5-32 chars)."}
               </p>
             )}
           </div>

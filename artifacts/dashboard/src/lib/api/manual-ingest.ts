@@ -13,7 +13,7 @@
  */
 import { apiFetch } from "@/lib/api";
 
-export const MANUAL_INGEST_CHANNELS = ["whatsapp"] as const;
+export const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
 export type ManualIngestChannel = (typeof MANUAL_INGEST_CHANNELS)[number];
 
 export const TICKERS = ["web", "mobile"] as const;

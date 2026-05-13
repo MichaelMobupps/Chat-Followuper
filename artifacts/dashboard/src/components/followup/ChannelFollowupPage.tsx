@@ -322,9 +322,12 @@ export function ChannelFollowupPage({ channel }: Props) {
         </p>
       </header>
 
-      {channel === "whatsapp" && (
-        <ManualContactsSection channel="whatsapp" />
-      )}
+      {/*
+        Manual Contacts is channel-parameterized as of ticket-2-9.
+        The section's own toggle state (per-user, per-channel) governs
+        whether the Add button shows; rendering here is unconditional.
+      */}
+      <ManualContactsSection channel={channel} />
 
       <Tabs
         value={status}
