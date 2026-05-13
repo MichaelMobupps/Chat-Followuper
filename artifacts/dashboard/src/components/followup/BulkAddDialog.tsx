@@ -320,6 +320,49 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
     setCsvOpen(true);
   }
 
+  // Wrap setRows so edits/deletes to a previously-rejected row clear its
+  // server error. Without this, an SDR who fixes the duplicate-phone row
+  // sees "Already exists with this phone" persist visually until they
+  // re-submit, even though the underlying field has changed. The compare
+  // is cheap (at most rejectedById.size lookups + a per-row field check)
+  // and skips entirely when there are no rejections in play.
+  function handleRowsChange(newRows: BulkRow[]) {
+    if (rejectedById.size > 0) {
+      const newRowIds = new Set(newRows.map((r) => r.id));
+      const newRejected = new Map(rejectedById);
+      let cleared = false;
+
+      // Delete-case: the row is gone from the array. Its rejection
+      // entry would otherwise leak in state (harmless but messy).
+      for (const id of rejectedById.keys()) {
+        if (!newRowIds.has(id)) {
+          newRejected.delete(id);
+          cleared = true;
+        }
+      }
+
+      // Edit-case: any field on a rejected row has changed since the
+      // server response.
+      for (const newRow of newRows) {
+        if (!rejectedById.has(newRow.id)) continue;
+        const oldRow = rows.find((r) => r.id === newRow.id);
+        if (!oldRow) continue;
+        if (
+          oldRow.firstName !== newRow.firstName ||
+          oldRow.phone !== newRow.phone ||
+          oldRow.company !== newRow.company ||
+          oldRow.ticker !== newRow.ticker
+        ) {
+          newRejected.delete(newRow.id);
+          cleared = true;
+        }
+      }
+
+      if (cleared) setRejectedById(newRejected);
+    }
+    setRows(newRows);
+  }
+
   // Submit gate. Filters blank rows (they stay in the grid as
   // scaffolding for manual entry) and requires every non-blank row to
   // be valid. Single-row dialog uses the same gate model (all required
@@ -516,7 +559,7 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
                   {banner.accepted} added.{" "}
                   {banner.rejected > 0 && (
                     <span className="text-yellow-600 dark:text-yellow-400">
-                      {banner.rejected} had issues — review below.
+                      {banner.rejected} had issues. Review below.
                     </span>
                   )}
                 </div>
@@ -569,7 +612,7 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
               <BulkPreviewGrid
                 channel={channel}
                 rows={rows}
-                onRowsChange={setRows}
+                onRowsChange={handleRowsChange}
                 rejectedById={rejectedById}
                 disabled={bulk.isPending}
               />
