@@ -40,13 +40,29 @@ import {
  */
 
 /**
- * Build a https://t.me/<handle>?text=<urlencoded-body> deep link for
- * the given Telegram handle and message body. Strips a leading "@"
- * when present so both stored conventions ("@user" and "user") work.
+ * Build a Telegram deep link for the given identifier and message body.
+ *
+ * Two identifier shapes are supported:
+ *   - @handle (or bare handle without "@"): builds the standard
+ *     https://t.me/<normalized>?text=... form.
+ *   - E.164 phone starting with "+": builds the phone-based deep link
+ *     https://t.me/+<digits>?text=... — the leading "+" is required by
+ *     Telegram's client deep-link routing. (Contrast with wa.me which
+ *     strips the "+" and accepts only digits.) The "+" is a valid
+ *     RFC 3986 sub-delim in a path segment and does not need encoding.
+ *
+ * The handler at the route layer decides which shape is being passed
+ * (typically phone if prospects.phone is set, otherwise telegram_handle).
  */
-export function generateLink(handle: string, body: string): string {
-  const normalized = handle.startsWith("@") ? handle.slice(1) : handle;
+export function generateLink(identifier: string, body: string): string {
   const encoded = encodeURIComponent(body);
+  if (identifier.startsWith("+")) {
+    // Phone-based deep link. Keep the "+" verbatim.
+    return `https://t.me/${identifier}?text=${encoded}`;
+  }
+  const normalized = identifier.startsWith("@")
+    ? identifier.slice(1)
+    : identifier;
   return `https://t.me/${normalized}?text=${encoded}`;
 }
 

@@ -59,6 +59,11 @@ const IGNITE = {
   glowMedium: "0 0 0 1px rgba(0,245,212,.35), 0 0 28px rgba(0,245,212,.32)",
 } as const;
 
+const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};
+
 export function ManualContactsSection({ channel }: Props) {
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
@@ -148,8 +153,8 @@ export function ManualContactsSection({ channel }: Props) {
             </Label>
             <p className="text-xs text-muted-foreground">
               {enabled
-                ? "Add people you're already in touch with. They flow into the queue with the rest."
-                : "Off. Flip on to add contacts who aren't from Apollo."}
+                ? `Add people you're already in touch with on ${CHANNEL_NAME[channel]}. They flow into the queue with the rest.`
+                : `Off. Flip on to add ${CHANNEL_NAME[channel]} contacts who aren't from Apollo.`}
             </p>
           </div>
         </div>

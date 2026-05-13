@@ -183,9 +183,11 @@ export function ChannelFollowupPage({ channel }: Props) {
                   ? "The follow-up message has not been generated yet."
                   : apiCode === "phone_reveal_pending"
                     ? "Apollo phone reveal has not arrived yet."
-                    : apiCode === "no_phone"
-                      ? "No phone number for this prospect."
-                      : apiCode === "prospect_paused"
+                    : apiCode === "no_telegram_identifier" || apiCode === "no_telegram_handle"
+                      ? "No Telegram handle or phone number for this prospect."
+                      : apiCode === "no_phone"
+                        ? "No phone number for this prospect."
+                        : apiCode === "prospect_paused"
                         ? "This prospect is paused. Resume to send."
                         : apiCode === "prospect_replied"
                           ? "This prospect already replied."
@@ -327,7 +329,13 @@ export function ChannelFollowupPage({ channel }: Props) {
         The section's own toggle state (per-user, per-channel) governs
         whether the Add button shows; rendering here is unconditional.
       */}
-      <ManualContactsSection channel={channel} />
+      {/**
+       * Manual Contacts supports whatsapp + telegram as of ticket-2-9.
+       * Other channels do not have manual ingest yet.
+       */}
+      {(channel === "whatsapp" || channel === "telegram") && (
+        <ManualContactsSection channel={channel} />
+      )}
 
       <Tabs
         value={status}

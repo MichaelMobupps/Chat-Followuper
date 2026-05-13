@@ -1,64 +1,39 @@
 #!/usr/bin/env node
-// ──────────────────────────────────────────────────────────────────────────
-// Patch 01: BE — allow Telegram in MANUAL_INGEST_CHANNELS and teach the
-// POST /api/prospects/manual-ingest handler to accept either an E.164
-// phone or a Telegram @handle for the Telegram path. WhatsApp path
-// remains phone-only.
-//
-// Three insertions, all in artifacts/api-server/src/routes/prospects.ts:
-//   A. Expand MANUAL_INGEST_CHANNELS from ["whatsapp"] to
-//      ["whatsapp", "telegram"]. Cascades into manualIngestToggleBody-
-//      Schema's z.enum(MANUAL_INGEST_CHANNELS) automatically.
-//   B. Add a HANDLE_RE constant + extend the schema (drop the regex
-//      from `phone` so it can carry either a phone or a handle; the
-//      handler validates per-channel below).
-//   C. Replace the handler's identifier-extraction + dedupe + insert
-//      block with a channel-branching version that stores to either
-//      `phone` (WhatsApp + phone-shape Telegram) or `telegram_handle`
-//      (handle-shape Telegram), with a pre-check duplicate query on
-//      the handle path (no unique index on telegram_handle yet).
-//
-// No schema changes. The `telegram_handle` column already exists on
-// prospects (nullable). The `phone` unique index is unchanged.
-//
-// Idempotent — keyed on a unique marker inside the new code.
-// ──────────────────────────────────────────────────────────────────────────
-
+// BE: allow Telegram manual ingest. Rescue-safe against clean post-2.7
+// and partial prior 2.9 applications.
 const fs = require("fs");
 const path = require("path");
 
-const REPO_ROOT = process.cwd();
-const FILE = path.join(
-  REPO_ROOT,
-  "artifacts/api-server/src/routes/prospects.ts",
-);
-
-const MARKER = "TELEGRAM_HANDLE_RE";
-
+const FILE = path.join(process.cwd(), "artifacts/api-server/src/routes/prospects.ts");
 let src = fs.readFileSync(FILE, "utf8");
+let changed = false;
 
-if (src.includes(MARKER)) {
-  console.log("  01-be-prospects-route-telegram: already applied, skipping");
-  process.exit(0);
-}
-
-// ── Step A: expand the channel allow-list ────────────────────────────────
-{
-  const before = 'const MANUAL_INGEST_CHANNELS = ["whatsapp"] as const;';
-  const after = 'const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;';
+function replaceOnce(label, before, after) {
   if (!src.includes(before)) {
-    console.error("  01-be-prospects-route-telegram: anchor A not found");
-    console.error("    expected: " + JSON.stringify(before));
+    console.error(`  01-be-prospects-route-telegram: anchor ${label} not found`);
     process.exit(1);
   }
   src = src.replace(before, after);
+  changed = true;
 }
 
-// ── Step B: drop regex from the schema's `phone` field, add HANDLE_RE ───
-// The current schema validates phone with PHONE_RE inside Zod. We move
-// the per-channel format validation to the handler so Telegram can also
-// accept @handles in the same field. The Zod schema continues to enforce
-// presence, trimming, and a sensible upper bound on length.
+// A. Expand the channel allow-list.
+{
+  const before = 'const MANUAL_INGEST_CHANNELS = ["whatsapp"] as const;';
+  const after = 'const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;';
+  if (src.includes(before)) {
+    src = src.replace(before, after);
+    changed = true;
+  } else if (/const MANUAL_INGEST_CHANNELS\s*=\s*\[[^\]]*"whatsapp"[^\]]*"telegram"[^\]]*\]\s*as const;/.test(src)) {
+    // already expanded
+  } else {
+    console.error("  01-be-prospects-route-telegram: channel allow-list is neither original nor expanded");
+    process.exit(1);
+  }
+}
+
+// B. Add TELEGRAM_HANDLE_RE and relax the schema phone field from E.164-only
+// to bounded identifier string. Handler validation below remains strict.
 {
   const before = `const manualIngestBodySchema = z
   .object({
@@ -75,8 +50,8 @@ if (src.includes(MARKER)) {
   .strict();`;
 
   const after = `// Telegram handle: 5-32 chars, alphanumeric + underscore, optional
-// leading "@" which the handler strips before storage. Per Telegram's
-// public username rules.
+// leading "@" which the handler strips before storage. Usernames are
+// normalized to lowercase for duplicate detection.
 const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
 
 const manualIngestBodySchema = z
@@ -94,20 +69,18 @@ const manualIngestBodySchema = z
   })
   .strict();`;
 
-  if (!src.includes(before)) {
-    console.error("  01-be-prospects-route-telegram: anchor B not found");
-    console.error("    expected the original manualIngestBodySchema block");
+  if (src.includes(before)) {
+    src = src.replace(before, after);
+    changed = true;
+  } else if (src.includes("const TELEGRAM_HANDLE_RE") && src.includes("phone: z.string().trim().min(1).max(64)")) {
+    // already patched
+  } else {
+    console.error("  01-be-prospects-route-telegram: body schema is neither original nor patched");
     process.exit(1);
   }
-  src = src.replace(before, after);
 }
 
-// ── Step C: replace the handler's body validation + insert section ──────
-// The old code derives country from `body.phone` and inserts with
-// `phone: body.phone`. The new code branches by channel, decides which
-// column to populate (phone vs telegram_handle), runs a pre-check
-// dedupe on the handle path, and stores accordingly. The action_log
-// metadata also widens to surface which column ended up populated.
+// C. Replace original country/insert block with branch-aware identifier handling.
 {
   const before = `    // Country derivation is best-effort. detectCountry may return null
     // for prefixes outside the known allow-list; in that case country
@@ -147,7 +120,7 @@ const manualIngestBodySchema = z
     // which storage column it belongs in.
     //
     // WhatsApp: phone column only (E.164 required).
-    // Telegram + E.164 input: phone column (channel just affects deep-link shape downstream).
+    // Telegram + E.164 input: phone column.
     // Telegram + @handle input: telegram_handle column.
     let phoneToStore: string | null = null;
     let handleToStore: string | null = null;
@@ -171,9 +144,10 @@ const manualIngestBodySchema = z
         phoneToStore = identifier;
         country = detectCountry(identifier) ?? null;
       } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
-        handleToStore = identifier.startsWith("@")
+        const withoutAt = identifier.startsWith("@")
           ? identifier.slice(1)
           : identifier;
+        handleToStore = withoutAt.toLowerCase();
       } else {
         res.status(400).json({
           error: "invalid_body",
@@ -185,11 +159,9 @@ const manualIngestBodySchema = z
       }
     }
 
-    // Handle-path dedupe — explicit pre-check because there is no
-    // unique index on prospects.telegram_handle yet. Race window is
-    // small (single SDR adding the same handle twice in parallel) and
-    // an index can land in a follow-on schema ticket if real volume
-    // demands it.
+    // Handle-path dedupe. Explicit pre-check because there is no unique
+    // index on prospects.telegram_handle yet. The handle is normalized
+    // to lowercase above so casing variants map to one row.
     if (handleToStore !== null) {
       const existingByHandle = await db
         .select({ id: prospectsTable.id })
@@ -230,9 +202,6 @@ const manualIngestBodySchema = z
       .returning();
 
     if (inserted.length === 0) {
-      // Only reachable on the phone-path conflict (telegram_handle has
-      // no unique index, and the handle-path dedupe above already
-      // returned 409 if a match existed).
       res.status(409).json({
         error: "duplicate_phone",
         detail: "A prospect with this phone already exists for this user.",
@@ -240,21 +209,18 @@ const manualIngestBodySchema = z
       return;
     }`;
 
-  if (!src.includes(before)) {
-    console.error("  01-be-prospects-route-telegram: anchor C not found");
-    console.error(
-      "    expected the original handler's country-derivation + insert block",
-    );
+  if (src.includes(before)) {
+    src = src.replace(before, after);
+    changed = true;
+  } else if (src.includes("let phoneToStore: string | null = null;") && src.includes("handleToStore")) {
+    // already patched or partially patched enough for this block
+  } else {
+    console.error("  01-be-prospects-route-telegram: handler insert block is neither original nor patched");
     process.exit(1);
   }
-  src = src.replace(before, after);
 }
 
-// ── Step D: widen the action_log metadata to include identifier-kind ────
-// The existing metadata records channel + ticker + hasPrePlatformContext
-// + country. We add `identifierKind` ("phone" | "telegram_handle") so an
-// audit query can distinguish a handle-routed Telegram ingest from a
-// phone-routed one without inferring from the prospect row.
+// D. Add identifierKind to manual-ingest action-log metadata.
 {
   const before = `        metadata: {
           channel: body.channel,
@@ -262,7 +228,6 @@ const manualIngestBodySchema = z
           hasPrePlatformContext: !!body.prePlatformContext,
           country: country ?? null,
         },`;
-
   const after = `        metadata: {
           channel: body.channel,
           ticker: body.ticker,
@@ -270,14 +235,16 @@ const manualIngestBodySchema = z
           hasPrePlatformContext: !!body.prePlatformContext,
           country: country ?? null,
         },`;
-
-  if (!src.includes(before)) {
-    console.error("  01-be-prospects-route-telegram: anchor D not found");
-    console.error("    expected the original action_log metadata block");
+  if (src.includes("identifierKind:")) {
+    // already patched
+  } else if (src.includes(before)) {
+    src = src.replace(before, after);
+    changed = true;
+  } else {
+    console.error("  01-be-prospects-route-telegram: action-log metadata anchor not found");
     process.exit(1);
   }
-  src = src.replace(before, after);
 }
 
 fs.writeFileSync(FILE, src);
-console.log("  01-be-prospects-route-telegram: applied");
+console.log(`  01-be-prospects-route-telegram: ${changed ? "applied" : "already ok"}`);

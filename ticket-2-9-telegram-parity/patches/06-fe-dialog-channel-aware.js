@@ -1,52 +1,22 @@
 #!/usr/bin/env node
-// ──────────────────────────────────────────────────────────────────────────
-// Patch 05: FE — make AddManualContactDialog channel-aware for Telegram.
-//
-// Five edits to artifacts/dashboard/src/components/followup/
-// AddManualContactDialog.tsx, all keyed on small anchored slices so each
-// can land independently and the script reports which step failed if
-// the file has drifted.
-//
-//   A. Add HANDLE_RE and CHANNEL_NAME constants next to the existing
-//      PHONE_RE constant.
-//   B. Widen the phoneLooksValid calculation: WhatsApp still requires
-//      E.164, Telegram accepts either E.164 or a @handle.
-//   C. Channel-aware DialogDescription ("WhatsApp" → "{CHANNEL_NAME[channel]}").
-//   D. Channel-aware identifier field (Label, placeholder, hint).
-//   E. Error handler also surfaces 409 duplicate_telegram_handle.
-//
-// The form-state field keeps its existing name `phone` — internally
-// it's the identifier for either channel. The BE accepts either an
-// E.164 phone or a @handle in the `phone` request field when channel
-// is "telegram" and stores it in the right column accordingly.
-//
-// Idempotent — keyed on the HANDLE_RE constant introduced in Step A.
-// ──────────────────────────────────────────────────────────────────────────
-
+// FE: make AddManualContactDialog channel-aware. Rescue-safe stepwise patch.
 const fs = require("fs");
 const path = require("path");
 
-const REPO_ROOT = process.cwd();
-const FILE = path.join(
-  REPO_ROOT,
-  "artifacts/dashboard/src/components/followup/AddManualContactDialog.tsx",
-);
-
-const MARKER = "const HANDLE_RE";
-
+const FILE = path.join(process.cwd(), "artifacts/dashboard/src/components/followup/AddManualContactDialog.tsx");
 let src = fs.readFileSync(FILE, "utf8");
+let changed = false;
 
-if (src.includes(MARKER)) {
-  console.log("  05-fe-dialog-channel-aware: already applied, skipping");
-  process.exit(0);
+function fail(label) {
+  console.error(`  06-fe-dialog-channel-aware: anchor ${label} not found`);
+  process.exit(1);
 }
 
-// ── Step A: add HANDLE_RE and CHANNEL_NAME next to PHONE_RE ─────────────
-{
+// A. Constants.
+if (!src.includes("const HANDLE_RE")) {
   const before = `// BE validates with this same regex (PHONE_RE in routes/prospects.ts).
 // Mirrored here for client-side hint-only validation; the BE is authoritative.
 const PHONE_RE = /^\\+[1-9]\\d{6,14}$/;`;
-
   const after = `// BE validates with this same regex (PHONE_RE in routes/prospects.ts).
 // Mirrored here for client-side hint-only validation; the BE is authoritative.
 const PHONE_RE = /^\\+[1-9]\\d{6,14}$/;
@@ -59,56 +29,53 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
 };`;
-
-  if (!src.includes(before)) {
-    console.error("  05-fe-dialog-channel-aware: anchor A not found");
-    console.error("    expected the PHONE_RE declaration block");
-    process.exit(1);
-  }
+  if (!src.includes(before)) fail("A");
   src = src.replace(before, after);
+  changed = true;
+} else if (!src.includes("const CHANNEL_NAME")) {
+  const afterHandle = `const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;`;
+  const insertion = `${afterHandle}
+
+const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};`;
+  if (!src.includes(afterHandle)) fail("A2");
+  src = src.replace(afterHandle, insertion);
+  changed = true;
 }
 
-// ── Step B: widen phoneLooksValid for Telegram ──────────────────────────
-{
+// B. Validation.
+if (!src.includes('channel === "whatsapp"\n      ? PHONE_RE.test(phoneTrimmed)')) {
   const before = `  const phoneTrimmed = form.phone.trim();
   const phoneLooksValid = PHONE_RE.test(phoneTrimmed);`;
-
   const after = `  const phoneTrimmed = form.phone.trim();
   const phoneLooksValid =
     channel === "whatsapp"
       ? PHONE_RE.test(phoneTrimmed)
       : PHONE_RE.test(phoneTrimmed) || HANDLE_RE.test(phoneTrimmed);`;
-
-  if (!src.includes(before)) {
-    console.error("  05-fe-dialog-channel-aware: anchor B not found");
-    console.error("    expected the phoneLooksValid declaration");
-    process.exit(1);
-  }
+  if (!src.includes(before)) fail("B");
   src = src.replace(before, after);
+  changed = true;
 }
 
-// ── Step C: channel-aware DialogDescription ─────────────────────────────
-{
+// C. Description.
+if (!src.includes("{CHANNEL_NAME[channel]}")) {
   const before = `          <DialogDescription>
             Send follow-ups to someone already in your WhatsApp. We figure
             out the right pitch from the company and product type.
           </DialogDescription>`;
-
   const after = `          <DialogDescription>
             Send follow-ups to someone already in your {CHANNEL_NAME[channel]}.
             We figure out the right pitch from the company and product type.
           </DialogDescription>`;
-
-  if (!src.includes(before)) {
-    console.error("  05-fe-dialog-channel-aware: anchor C not found");
-    console.error("    expected the WhatsApp-specific DialogDescription");
-    process.exit(1);
-  }
+  if (!src.includes(before)) fail("C");
   src = src.replace(before, after);
+  changed = true;
 }
 
-// ── Step D: channel-aware identifier field (label + placeholder + hint) ─
-{
+// D. Identifier field.
+if (!src.includes("Phone or Telegram handle")) {
   const before = `          <div className="space-y-1.5">
             <Label htmlFor="manual-phone">Phone (with country code)</Label>
             <Input
@@ -124,7 +91,6 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
               </p>
             )}
           </div>`;
-
   const after = `          <div className="space-y-1.5">
             <Label htmlFor="manual-phone">
               {channel === "whatsapp"
@@ -146,21 +112,17 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
               <p className="text-xs text-muted-foreground">
                 {channel === "whatsapp"
                   ? "Start with + and country code. Example: +972501234567."
-                  : "Use international phone (+972...) or Telegram handle (@yaronk, 5-32 chars)."}
+                  : "Use international phone (+972...) or Telegram handle (@yaronk, 5-32 chars). Phone links depend on Telegram privacy settings; @handle is more reliable."}
               </p>
             )}
           </div>`;
-
-  if (!src.includes(before)) {
-    console.error("  05-fe-dialog-channel-aware: anchor D not found");
-    console.error("    expected the phone field block");
-    process.exit(1);
-  }
+  if (!src.includes(before)) fail("D");
   src = src.replace(before, after);
+  changed = true;
 }
 
-// ── Step E: error handler covers duplicate_telegram_handle ──────────────
-{
+// E. Error handler.
+if (!src.includes("duplicate_telegram_handle")) {
   const before = `          const apiCode = err instanceof ApiError ? err.code : undefined;
           const description =
             apiCode === "duplicate_phone"
@@ -168,7 +130,6 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
               : err instanceof ApiError
                 ? \`\${err.status} \${apiCode ?? err.message}\`
                 : (err as Error).message;`;
-
   const after = `          const apiCode = err instanceof ApiError ? err.code : undefined;
           const description =
             apiCode === "duplicate_phone"
@@ -178,14 +139,10 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
                 : err instanceof ApiError
                   ? \`\${err.status} \${apiCode ?? err.message}\`
                   : (err as Error).message;`;
-
-  if (!src.includes(before)) {
-    console.error("  05-fe-dialog-channel-aware: anchor E not found");
-    console.error("    expected the existing onError description ladder");
-    process.exit(1);
-  }
+  if (!src.includes(before)) fail("E");
   src = src.replace(before, after);
+  changed = true;
 }
 
 fs.writeFileSync(FILE, src);
-console.log("  05-fe-dialog-channel-aware: applied");
+console.log(`  06-fe-dialog-channel-aware: ${changed ? "applied" : "already ok"}`);

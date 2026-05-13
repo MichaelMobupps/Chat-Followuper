@@ -1024,7 +1024,7 @@ router.post(
 // 5-10s LLM wait on the form) and avoids new wiring against
 // classification code paths that have drifted since the 2.2 work.
 
-const MANUAL_INGEST_CHANNELS = ["whatsapp"] as const;
+const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
 
 const TICKERS = ["web", "mobile"] as const;
 type Ticker = (typeof TICKERS)[number];
@@ -1034,14 +1034,20 @@ type Ticker = (typeof TICKERS)[number];
 // company is constrained to 200 (matches existing company column max).
 // prePlatformContext is constrained to 5000 (one paragraph of pasted
 // conversation; matches contextNotes max).
+// Telegram handle: 5-32 chars, alphanumeric + underscore, optional
+// leading "@" which the handler strips before storage. Per Telegram's
+// public username rules.
+const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+
 const manualIngestBodySchema = z
   .object({
     channel: z.enum(MANUAL_INGEST_CHANNELS),
     firstName: z.string().trim().min(1).max(100),
-    phone: z
-      .string()
-      .trim()
-      .regex(PHONE_RE, "Phone must be E.164 format, e.g. '+919900000111'"),
+    // The "phone" field carries the identifier. For WhatsApp it must be
+    // E.164. For Telegram it can be either E.164 or a @handle. Format
+    // validation happens per-channel in the handler so we can route to
+    // the right storage column and return channel-appropriate errors.
+    phone: z.string().trim().min(1).max(64),
     company: z.string().trim().min(1).max(200),
     ticker: z.enum(TICKERS),
     prePlatformContext: z.string().trim().max(5000).nullable().optional(),
@@ -1093,24 +1099,86 @@ router.post(
       throw err;
     }
 
-    // Country derivation is best-effort. detectCountry may return null
-    // for prefixes outside the known allow-list; in that case country
-    // is left null and the language defaults apply downstream. We do
-    // NOT reject on unknown country here — the existing wa.me send
-    // path surfaces geo issues at click time via geoGate, matching the
-    // Apollo flow's behavior.
-    const country = detectCountry(body.phone);
+    // Per-channel identifier validation. The Zod schema confirmed the
+    // raw string is present and bounded; we now check format and decide
+    // which storage column it belongs in.
+    //
+    // WhatsApp: phone column only (E.164 required).
+    // Telegram + E.164 input: phone column (channel just affects deep-link shape downstream).
+    // Telegram + @handle input: telegram_handle column.
+    let phoneToStore: string | null = null;
+    let handleToStore: string | null = null;
+    let country: string | null = null;
+    const identifier = body.phone;
+
+    if (body.channel === "whatsapp") {
+      if (!PHONE_RE.test(identifier)) {
+        res.status(400).json({
+          error: "invalid_body",
+          detail: "Phone must be E.164 format, e.g. '+919900000111'.",
+          path: ["phone"],
+        });
+        return;
+      }
+      phoneToStore = identifier;
+      country = detectCountry(identifier) ?? null;
+    } else {
+      // channel === "telegram"
+      if (PHONE_RE.test(identifier)) {
+        phoneToStore = identifier;
+        country = detectCountry(identifier) ?? null;
+      } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
+        handleToStore = identifier.startsWith("@")
+          ? identifier.slice(1)
+          : identifier;
+      } else {
+        res.status(400).json({
+          error: "invalid_body",
+          detail:
+            "For Telegram, use an international phone (e.g. '+972547734033') or a handle (e.g. '@yaronk', 5-32 chars).",
+          path: ["phone"],
+        });
+        return;
+      }
+    }
+
+    // Handle-path dedupe — explicit pre-check because there is no
+    // unique index on prospects.telegram_handle yet. Race window is
+    // small (single SDR adding the same handle twice in parallel) and
+    // an index can land in a follow-on schema ticket if real volume
+    // demands it.
+    if (handleToStore !== null) {
+      const existingByHandle = await db
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, user.id),
+            eq(prospectsTable.telegramHandle, handleToStore),
+          ),
+        )
+        .limit(1);
+      if (existingByHandle.length > 0) {
+        res.status(409).json({
+          error: "duplicate_telegram_handle",
+          detail:
+            "A prospect with this Telegram handle already exists for this user.",
+        });
+        return;
+      }
+    }
 
     const inserted = await db
       .insert(prospectsTable)
       .values({
         userId: user.id,
-        phone: body.phone,
+        phone: phoneToStore,
+        telegramHandle: handleToStore,
         sourceMode: "manual",
         prospectName: body.firstName,
         company: body.company,
         vertical: tickerToCoarseVertical(body.ticker),
-        country: country ?? null,
+        country,
         prePlatformContext: body.prePlatformContext ?? null,
       })
       .onConflictDoNothing({
@@ -1119,6 +1187,9 @@ router.post(
       .returning();
 
     if (inserted.length === 0) {
+      // Only reachable on the phone-path conflict (telegram_handle has
+      // no unique index, and the handle-path dedupe above already
+      // returned 409 if a match existed).
       res.status(409).json({
         error: "duplicate_phone",
         detail: "A prospect with this phone already exists for this user.",
@@ -1138,6 +1209,7 @@ router.post(
         metadata: {
           channel: body.channel,
           ticker: body.ticker,
+          identifierKind: handleToStore !== null ? "telegram_handle" : "phone",
           hasPrePlatformContext: !!body.prePlatformContext,
           country: country ?? null,
         },

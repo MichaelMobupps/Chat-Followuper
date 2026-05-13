@@ -1,39 +1,13 @@
 #!/usr/bin/env node
-// ──────────────────────────────────────────────────────────────────────────
-// Patch 02: BE — teach services/channels/telegram.ts to build deep links
-// from either a Telegram @handle (existing) or an E.164 phone (new).
-//
-// Telegram supports phone-based deep links of the form
-//     https://t.me/+972547734033
-// (the leading "+" is required, unlike wa.me which strips it). So when
-// the prospect record has a phone instead of a handle, we build that
-// form directly. The path's "+" is a valid RFC 3986 sub-delim and does
-// not need percent-encoding.
-//
-// The route layer that calls generateLink will start passing a phone
-// when telegram_handle is null but phone is non-null, post this patch.
-// (That route change rides separately when the channel send-next path
-// becomes telegram-aware end-to-end. This patch is the minimum so the
-// adapter handles both inputs cleanly.)
-//
-// Idempotent — keyed on a unique marker inside the new code.
-// ──────────────────────────────────────────────────────────────────────────
-
+// BE: make Telegram generateLink accept @handle/bare handle and E.164 phone.
 const fs = require("fs");
 const path = require("path");
 
-const REPO_ROOT = process.cwd();
-const FILE = path.join(
-  REPO_ROOT,
-  "artifacts/api-server/src/services/channels/telegram.ts",
-);
-
-const MARKER = "phone-based deep link";
-
+const FILE = path.join(process.cwd(), "artifacts/api-server/src/services/channels/telegram.ts");
 let src = fs.readFileSync(FILE, "utf8");
 
-if (src.includes(MARKER)) {
-  console.log("  02-be-telegram-generatelink-phone: already applied, skipping");
+if (src.includes("Phone-based deep link") || src.includes('identifier.startsWith("+")')) {
+  console.log("  02-be-telegram-generatelink-phone: already ok");
   process.exit(0);
 }
 
@@ -55,13 +29,8 @@ const after = `/**
  *   - @handle (or bare handle without "@"): builds the standard
  *     https://t.me/<normalized>?text=... form.
  *   - E.164 phone starting with "+": builds the phone-based deep link
- *     https://t.me/+<digits>?text=... — the leading "+" is required by
- *     Telegram's client deep-link routing. (Contrast with wa.me which
- *     strips the "+" and accepts only digits.) The "+" is a valid
- *     RFC 3986 sub-delim in a path segment and does not need encoding.
- *
- * The handler at the route layer decides which shape is being passed
- * (typically phone if prospects.phone is set, otherwise telegram_handle).
+ *     https://t.me/+<digits>?text=... . Telegram only resolves this path
+ *     when the recipient's privacy settings allow phone-number discovery.
  */
 export function generateLink(identifier: string, body: string): string {
   const encoded = encodeURIComponent(body);
@@ -76,12 +45,10 @@ export function generateLink(identifier: string, body: string): string {
 }`;
 
 if (!src.includes(before)) {
-  console.error("  02-be-telegram-generatelink-phone: anchor not found");
-  console.error("    expected the original generateLink declaration block");
+  console.error("  02-be-telegram-generatelink-phone: original generateLink block not found");
   process.exit(1);
 }
 
 src = src.replace(before, after);
-
 fs.writeFileSync(FILE, src);
 console.log("  02-be-telegram-generatelink-phone: applied");

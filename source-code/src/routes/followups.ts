@@ -473,11 +473,10 @@ router.post(
       }
       return;
     }
-    if (!prospect.telegramHandle && body.channel === "telegram") {
-      // Telegram needs the @handle to build the t.me link. There is
-      // no async reveal flow for handles today; absence is always a
-      // hard "no handle" case, unlike the WhatsApp phone-reveal nuance.
-      res.status(409).json({ error: "no_telegram_handle" });
+    if (body.channel === "telegram" && !prospect.telegramHandle && !prospect.phone) {
+      // Telegram can deep-link by @handle or by E.164 phone. If neither
+      // identifier is stored, there is no link to open.
+      res.status(409).json({ error: "no_telegram_identifier" });
       return;
     }
 
@@ -544,8 +543,13 @@ router.post(
       // available), no async reveal step. sentAt stays null; the
       // click event flows through send-intent / clickedAt when that
       // route is channel-parameterized in a later ticket.
+      const telegramIdentifier = prospect.telegramHandle ?? prospect.phone;
+      if (!telegramIdentifier) {
+        res.status(409).json({ error: "no_telegram_identifier" });
+        return;
+      }
       const url = generateTelegramLink(
-        prospect.telegramHandle!,
+        telegramIdentifier,
         next.generatedMessage,
       );
       res.status(200).json({
