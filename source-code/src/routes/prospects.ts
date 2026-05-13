@@ -31,6 +31,7 @@ import {
   isNull,
   ne,
   or,
+  sql,
 } from "drizzle-orm";
 import { z, ZodError } from "zod/v4";
 import {
@@ -1283,28 +1284,46 @@ router.patch(
       throw err;
     }
 
-    // Read-modify-write on the JSON array. Last-write-wins semantics —
-    // concurrent toggles on the same channel are non-issues since the
-    // operation is idempotent (enable-then-enable === enable).
-    const existing = await db
-      .select({ channels: usersTable.manualIngestChannels })
-      .from(usersTable)
-      .where(eq(usersTable.id, user.id))
-      .limit(1);
+    // Atomic JSONB update — eliminates the cross-channel race that lost
+    // concurrent toggles under the prior read-modify-write shape (F2).
+    //
+    // Enable path: CASE-gated jsonb concatenation. If the channel is
+    // already in the array, the row is left unchanged (idempotent).
+    // Otherwise the channel is appended atomically within this UPDATE,
+    // before any other statement can interleave.
+    //
+    // Disable path: explode the array via jsonb_array_elements_text,
+    // filter out the target value, re-aggregate. COALESCE handles the
+    // empty-result case (jsonb_agg returns NULL when no rows pass the
+    // filter). Idempotent when the value is absent. Chosen over the
+    // simpler `channels - $1::text` because element-by-value removal
+    // via that operator only works on Postgres 14+; this pattern is
+    // universal back to Postgres 9.5.
+    //
+    // Both shapes execute as one UPDATE statement, so there is no read-
+    // then-write window to interleave on. Concurrent toggles on different
+    // channels both land; same-channel races resolve to whichever
+    // request committed last, which is the correct semantics.
+    const nextChannelsExpr = body.enabled
+      ? sql<string[]>`CASE
+          WHEN ${usersTable.manualIngestChannels} @> jsonb_build_array(${body.channel}::text)
+          THEN ${usersTable.manualIngestChannels}
+          ELSE ${usersTable.manualIngestChannels} || jsonb_build_array(${body.channel}::text)
+        END`
+      : sql<string[]>`COALESCE(
+          (SELECT jsonb_agg(value)
+           FROM jsonb_array_elements_text(${usersTable.manualIngestChannels}) AS value
+           WHERE value <> ${body.channel}::text),
+          '[]'::jsonb
+        )`;
 
-    const current = existing[0]?.channels ?? [];
-    const currentSet = new Set<string>(current);
-    if (body.enabled) {
-      currentSet.add(body.channel);
-    } else {
-      currentSet.delete(body.channel);
-    }
-    const next = Array.from(currentSet);
-
-    await db
+    const updated = await db
       .update(usersTable)
-      .set({ manualIngestChannels: next })
-      .where(eq(usersTable.id, user.id));
+      .set({ manualIngestChannels: nextChannelsExpr })
+      .where(eq(usersTable.id, user.id))
+      .returning({ channels: usersTable.manualIngestChannels });
+
+    const next: string[] = updated[0]?.channels ?? [];
 
     try {
       await db.insert(actionLogsTable).values({
