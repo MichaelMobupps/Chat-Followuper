@@ -166,8 +166,7 @@ export type ProspectStatus =
   | "draft"
   | "phone-pending"
   | "phone-blocked"
-  | "phone-no-match"
-  | "phone-expired";
+  | "phone-no-match";
 
 export type ListChannel = "whatsapp" | "telegram" | "teams";
 

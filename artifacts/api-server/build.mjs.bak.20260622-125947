@@ -18,7 +18,6 @@ async function buildAll() {
     entryPoints: [
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/scripts/sweepReveals.ts"),
-      path.resolve(artifactDir, "src/scripts/sendFollowupDigests.ts"),
     ],
     platform: "node",
     bundle: true,

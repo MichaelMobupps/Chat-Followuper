@@ -75,7 +75,6 @@ const PROSPECT_STATUSES = [
   "phone-pending",
   "phone-blocked",
   "phone-no-match",
-  "phone-expired",
 ] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
@@ -107,18 +106,12 @@ function statusSqlFilter(status: ProspectStatus) {
         isNull(prospectsTable.firstMessageSentAt),
         eq(prospectsTable.phoneRevealStatus, "no_match"),
       );
-    case "phone-expired":
-      return and(
-        isNull(prospectsTable.firstMessageSentAt),
-        eq(prospectsTable.phoneRevealStatus, "expired"),
-      );
     case "phone-pending":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
         isNull(prospectsTable.phone),
         ne(prospectsTable.phoneRevealStatus, "blocked"),
         ne(prospectsTable.phoneRevealStatus, "no_match"),
-        ne(prospectsTable.phoneRevealStatus, "expired"),
       );
     case "ready":
       return and(
@@ -144,7 +137,6 @@ function computeProspectStatus(p: {
   if (p.firstMessageSentAt) return "sent";
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
-  if (p.phoneRevealStatus === "expired") return "phone-expired";
   if (!p.phone) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";

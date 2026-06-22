@@ -446,7 +446,6 @@ function computeStatus(p: Prospect): ProspectStatus {
   if (p.firstMessageSentAt) return "sent";
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
-  if (p.phoneRevealStatus === "expired") return "phone-expired";
   if (!p.phone) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
@@ -669,11 +668,6 @@ function StatusBadge({ status }: { status: ProspectStatus }) {
     },
     "phone-no-match": {
       label: "No phone",
-      icon: XCircle,
-      cls: "border-destructive text-destructive",
-    },
-    "phone-expired": {
-      label: "Unreachable",
       icon: XCircle,
       cls: "border-destructive text-destructive",
     },

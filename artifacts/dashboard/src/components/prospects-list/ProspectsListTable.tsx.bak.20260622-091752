@@ -243,11 +243,6 @@ function StatusBadge({ status }: { status: ProspectStatus }) {
       icon: XCircle,
       cls: "border-destructive text-destructive",
     },
-    "phone-expired": {
-      label: "Unreachable",
-      icon: XCircle,
-      cls: "border-destructive text-destructive",
-    },
   };
   const c = config[status];
   const Icon = c.icon;

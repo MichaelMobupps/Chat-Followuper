@@ -17,6 +17,7 @@ const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
   { value: "sent", label: "Sent" },
   { value: "phone-blocked", label: "Phone blocked" },
   { value: "phone-no-match", label: "No phone" },
+  { value: "phone-expired", label: "Unreachable" },
 ];
 
 const CHANNEL_OPTIONS: { value: ListChannel; label: string }[] = [
