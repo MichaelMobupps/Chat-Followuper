@@ -363,3 +363,25 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
 - **APO5** [Med] FLAGGED — CallBudget precision (services reporting real per-call counts
   + in-loop budget checks) is a larger discovery-orchestrator refactor; deferred, not a
   quick residual.
+
+### Batch B.19 — DB Med residuals (typecheck PASS)
+- **DB6** [Med] FIXED (comment) — verified `0006_extend_stage_timing_with_doctrine_variant.sql`
+  only `ALTER COLUMN stage_timing SET DEFAULT ...` (new rows) with **no UPDATE**, so
+  pre-0006 users' `stage_timing` jsonb lacks `doctrineVariant`. The schema comment in
+  `lib/db/src/schema/users.ts` falsely claimed 0006 backfilled existing rows; corrected
+  to state the truth — the field is safe only because the type is optional and reads fall
+  back to `defaultVariantForStage`. Chose the comment fix over a JSON-mutating backfill
+  migration: the field is non-crashing with a robust default, and rewriting every user's
+  sequence-config JSON carries more risk than value. (A backfill remains an option if a
+  future feature needs the field materialized.)
+- **DB7** [Med] FLAGGED (cross-cutting, do as its own verified change) — daily_usage.date
+  is bucketed **UTC** (`toISOString().slice(0,10)`) at ~6 sites (`generateMessage`,
+  `apollo` reveal ×2, async `requestPhoneReveal`, `manualContactPrepare`) and read by the
+  daily LLM spend cap (`llmSpendCap`) while digests/quiet-hours run in the user's
+  `digestTimezone` — so caps reset ~02:00–03:00 local and a local day straddles two rows.
+  It is internally CONSISTENT today (all-UTC). Converting to user-tz must move **every**
+  writer AND reader atomically to a shared `usageBucketDate(userTimezone)` (each write
+  site needs the per-user tz), and daily_usage.date also keys the FUP3 digest atomic
+  claim — a partial conversion silently corrupts spend/cap accounting. Too high-stakes to
+  bundle; left as a documented residual with this exact plan. Not a crash — a reset-timing
+  nuance.
