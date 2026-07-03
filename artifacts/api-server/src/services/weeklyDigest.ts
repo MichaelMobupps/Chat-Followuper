@@ -98,27 +98,11 @@ function renderWeeklyEmail(
 </div>`;
 }
 
-async function alreadySentThisWeek(
-  userId: string,
-  weekKey: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: actionLogsTable.id })
-    .from(actionLogsTable)
-    .where(
-      and(
-        eq(actionLogsTable.userId, userId),
-        eq(actionLogsTable.actionType, ACTION_TYPES.weeklyDigestSent),
-        sql`${actionLogsTable.metadata}->>'weekKey' = ${weekKey}`,
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
-}
-
 /**
- * Friday-only weekly stats email per rep. Idempotent per user per week
- * via action_logs metadata.weekKey.
+ * Friday-only weekly stats email per rep. Idempotent per user per week via an
+ * ATOMIC claim on the action_logs partial unique index (user_id, weekKey) — the
+ * marker is inserted BEFORE sending, so two concurrent runners (in-process
+ * scheduler + standalone cron) can't both send: the loser's insert conflicts.
  */
 export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
   const result: WeeklyDigestResult = {
@@ -155,12 +139,29 @@ export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
       // Per-user, timezone-stable dedup key (FUP4).
       const weekKey = weekKeyForTimezone(user.digestTimezone);
 
-      if (await alreadySentThisWeek(user.id, weekKey)) {
+      // Atomic cross-process claim BEFORE sending (replaces the check-then-send
+      // TOCTOU): insert the weekly marker; the partial unique index on
+      // (user_id, weekKey) lets exactly one runner win. A conflicting insert
+      // returns no row → another runner already claimed this week → skip.
+      const claim = await db
+        .insert(actionLogsTable)
+        .values({
+          userId: user.id,
+          actionType: ACTION_TYPES.weeklyDigestSent,
+          actionStatus: "success",
+          metadata: { weekKey },
+        })
+        .onConflictDoNothing()
+        .returning({ id: actionLogsTable.id });
+
+      if (claim.length === 0) {
         result.usersSkipped += 1;
         continue;
       }
+      const claimId = claim[0]!.id;
 
-      const statsRows = await db
+      try {
+        const statsRows = await db
         .select({
           messagesGenerated: sql<string>`COALESCE(SUM(${dailyUsageTable.messagesGenerated}), 0)`,
           messagesSent: sql<string>`COALESCE(SUM(${dailyUsageTable.messagesSent}), 0)`,
@@ -190,14 +191,22 @@ export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
         renderWeeklyEmail(user.name, stats, label),
       );
 
-      await db.insert(actionLogsTable).values({
-        userId: user.id,
-        actionType: ACTION_TYPES.weeklyDigestSent,
-        actionStatus: "success",
-        metadata: { weekKey, ...stats },
-      });
+        // Enrich the claim marker with the stats now that the send succeeded.
+        await db
+          .update(actionLogsTable)
+          .set({ metadata: { weekKey, ...stats } })
+          .where(eq(actionLogsTable.id, claimId));
 
-      result.usersEmailed += 1;
+        result.usersEmailed += 1;
+      } catch (sendErr) {
+        // Send/stats failed after we claimed the week — release the claim so a
+        // later run retries this user (delete is best-effort).
+        await db
+          .delete(actionLogsTable)
+          .where(eq(actionLogsTable.id, claimId))
+          .catch(() => {});
+        throw sendErr;
+      }
     } catch (err) {
       result.usersFailed += 1;
       console.error(`[weekly-digest] failed for user ${user.id}`, err);

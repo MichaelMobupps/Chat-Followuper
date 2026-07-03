@@ -7,7 +7,9 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -44,6 +46,16 @@ export const actionLogsTable = pgTable(
     // delete seq-scan + lock this table.
     index("action_logs_prospect_id_idx").on(table.prospectId),
     index("action_logs_followup_id_idx").on(table.followupId),
+    // FUP-weekly: partial unique index that makes the weekly digest send an
+    // atomic cross-process claim. One (user, weekKey) marker can exist, so two
+    // concurrent runners (in-process scheduler + standalone cron) can't both
+    // send — the loser's insert conflicts and is skipped. Scoped to the
+    // weekly-digest action type + non-null weekKey so it never touches other logs.
+    uniqueIndex("action_logs_weekly_digest_week_uq")
+      .on(table.userId, sql`(${table.metadata} ->> 'weekKey')`)
+      .where(
+        sql`${table.actionType} = 'digest.weekly_sent' AND (${table.metadata} ->> 'weekKey') IS NOT NULL`,
+      ),
   ],
 );
 
