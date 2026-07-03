@@ -171,6 +171,26 @@ consolidate → triage → auto-fix serially with typecheck health probe after e
 
 ---
 
-## Checkpoint / next action
+## Fixes applied (all typecheck-green; commits on `audit/godlike-fixes`)
 
-Auditors running. Next: consolidate returned findings into the ledger, triage, begin auto-fix.
+f1ff6b0 — API1 IDOR scoping, LLM2 pricing, CH1 telegram encoding, CH3 dispatch
+d3149e2 — LLM4 org-plausibility bug, API6 CSV injection, CH7 null-phone, FUP1 hour-gate, FUP6 SMTP guard
+0d71600 — API2 error handler, BUILD1 gitignore secrets, BUILD4 .bak removal, BUILD5 zip untrack, BUILD6 workspace glob
+
+## GATED / DEFERRED (not auto-applied — reason each)
+
+- **LLM5** [High, URGENT] `claude-sonnet-4-20250514` (llmValidator) is **retired since 2026-06-15** → 404 today; org-validation silently returns null. `claude-opus-4-1-20250805` (opusRescue) retires 2026-08-05. Migration is behavior-changing across shared LLM plumbing (swap → `claude-sonnet-5` / `claude-opus-4-8`, REMOVE `temperature` (400 on new models), set `thinking:{type:"disabled"}` on the validator, bump `web_search_20250305`→`web_search_20260209`) and cannot be runtime-verified here. Cost accounting already de-risked (pricing.ts now includes both legacy IDs). **Recommend fixing next with a live test.**
+- **LLM1** [Critical] Prompt injection — needs prompt-hardening (fence-escape untrusted prospect text + anti-injection directive). Prompt-behavioral change; do with an eval pass.
+- **LLM3** [High] No per-user daily spend cap — add env-gated pre-check in generateMessage + callers.
+- **APO1/API3** [High] Apollo reveal cap display-only — enforce in the reveal transaction.
+- **APO2** [High] AbortSignal not threaded into findOrg/collectContacts — broad mechanical change; reference impl in dead `subsidiaryExpander.ts`.
+- **DB1** [High] test/live DB behind migrations — add vitest globalSetup + apply 0008-0010 (mutates dev DB).
+- **DB2** [High] plaintext secrets (refresh/bot tokens, magic-link token) — needs KMS/app-key + data migration + auth-code changes.
+- **DB3/DB4/DB5** — snapshot-chain rebuild; FK covering-index migration; channel-aware partial-unique dedupe migration (all need new migrations + DB apply).
+- **FUP2/FUP3/FUP4** [High] scheduler double-send / atomic claim / weekly-Friday tz — correctness-sensitive; needs the atomic-claim refactor + tz test.
+- **Frontend FE1/FE2/FE5/FE10/FE11/FE12/FE15 + a11y/lows** — surgical, low-risk but numerous; batch with a UI pass.
+- **BUILD2** replit.md rewrite; **BUILD3** source-code mirror re-sync; **attached_assets** untrack (109 files) — doc/mirror hygiene.
+
+## Confidence
+
+Godlike convergence NOT claimed (per the rubric's no-false-convergence rule): a full multi-package codebase cannot reach 3-clean-round convergence in one session, and several high-severity items are gated pending live verification / DB access / product decisions. **Confidence in the applied fixes: high** (each verified against source + typecheck-green, low blast radius). Residual risk concentrated in the GATED list above. Resume point = this file + branch commits.
