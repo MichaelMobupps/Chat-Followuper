@@ -126,11 +126,18 @@ export default function ProspectDetailPage() {
       if (!current) throw new Error("Prospect not loaded");
       const label =
         outcome === "worked" ? "[Outcome: worked]" : "[Outcome: no response]";
-      const prefix = `${label} `;
       const existing = current.contextNotes ?? "";
-      const next = existing.trim()
-        ? `${prefix}${existing.trim()}`
-        : prefix.trim();
+      // FE6: strip any prior leading outcome marker(s) before prepending the new
+      // one, so re-clicking or switching outcomes REPLACES rather than
+      // accumulates. The old code prepended unconditionally, producing
+      // contradictory "[Outcome: no response] [Outcome: worked] ..." chains that
+      // also polluted the message-generation context.
+      const withoutPriorOutcome = existing
+        .replace(/^(?:\s*\[Outcome:[^\]]*\]\s*)+/, "")
+        .trim();
+      const next = withoutPriorOutcome
+        ? `${label} ${withoutPriorOutcome}`
+        : label;
       return updateProspect(id!, { contextNotes: next });
     },
     onSuccess: () => {

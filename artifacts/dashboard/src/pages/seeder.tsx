@@ -223,7 +223,12 @@ export default function SeederPage() {
   }
 
   function handleResearchCancel() {
-    research.cancel();
+    // FE14: only ASK here — don't tear down the stream. Previously this called
+    // research.cancel() and then opened the dialog, so choosing "Keep working"
+    // left stage="research" with a dead (idle) stream and nothing to resume
+    // into — a blank dead-end. Leaving the stream running means "Keep working"
+    // resumes seamlessly (no re-incurred cost); "Delete draft" (handleAbandon)
+    // is the single path that resets/stops the stream.
     setAbandonOpen(true);
   }
 

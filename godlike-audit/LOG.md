@@ -385,3 +385,29 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   claim — a partial conversion silently corrupts spend/cap accounting. Too high-stakes to
   bundle; left as a documented residual with this exact plan. Not a crash — a reset-timing
   nuance.
+
+### Batch B.20 — Frontend Med residuals, part 1 (dashboard typecheck PASS)
+- **FE3** [Med] FIXED — `pages/today.tsx`: the "All" tab computed `isError` as
+  `waQuery.isError && tgQuery.isError`, hiding a single-channel failure (SDR reads an
+  empty WhatsApp column as "nobody due"). Added `partialErrorChannel` (exactly one
+  channel errored) and an amber `role="alert"` banner with Retry that renders above the
+  queue WITHOUT blanking the channel that loaded. `isError` stays the both-failed hard state.
+- **FE4** [Med] FIXED — `pages/today.tsx handleBulkOpen`: was reporting the pre-loop
+  count as if all sends succeeded and swallowing per-send failures. Now tracks real
+  `openedCount`/`blockedCount`/`failedCount`, captures the `window.open` handle to detect
+  browser pop-up blocking (the root cause of the "sync open" note — each open runs after
+  an async per-send mutation, outside the click gesture, so tabs 2..N get blocked), and
+  reports honest counts. Only enters the "did you send these?" confirm flow when
+  `openedCount > 0` (was recording sends for chats that never opened), and surfaces
+  pop-up-blocked with actionable guidance.
+- **FE6** [Med] FIXED — `pages/prospect-detail.tsx outcomeMutation`: prepended
+  `[Outcome: …]` unconditionally, so re-clicking or switching outcomes accumulated
+  contradictory `"[Outcome: no response] [Outcome: worked] …"` chains that also polluted
+  message-gen context. Now strips any prior leading outcome marker(s)
+  (`/^(?:\s*\[Outcome:[^\]]*\]\s*)+/`) before prepending — idempotent and switch-safe.
+- **FE14** [Med] FIXED — `pages/seeder.tsx handleResearchCancel`: no longer calls
+  `research.cancel()` — it only opens the confirm dialog. Killing the stream before the
+  user confirmed left `stage="research"` with a dead idle stream on "Keep working" (blank
+  dead-end). The stream now keeps running so "Keep working" resumes seamlessly (no
+  re-incurred cost); `handleAbandon` remains the single teardown path (`research.reset()`
+  + delete + back to form).

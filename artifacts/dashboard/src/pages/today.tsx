@@ -171,6 +171,18 @@ export default function TodayPage() {
       : (activeQuery?.isError ?? false);
   const error =
     channel === "all" ? waQuery.error ?? tgQuery.error : activeQuery?.error;
+  // FE3: on the "All" tab a single-channel failure must not be hidden. isError
+  // is a hard fail (BOTH failed); this flags the case where exactly one channel
+  // errored so we can warn without blanking the channel that loaded — otherwise
+  // an SDR reads an empty WhatsApp column as "nobody due" when it actually failed.
+  const partialErrorChannel: "WhatsApp" | "Telegram" | null =
+    channel === "all" && !(waQuery.isError && tgQuery.isError)
+      ? waQuery.isError
+        ? "WhatsApp"
+        : tgQuery.isError
+          ? "Telegram"
+          : null
+      : null;
 
   function refetch() {
     if (channel === "all" || channel === "whatsapp") void waQuery.refetch();
@@ -293,6 +305,15 @@ export default function TodayPage() {
     bulkAbortRef.current = false;
     setBulkOpening(true);
 
+    // FE4: track REAL outcomes instead of reporting the pre-loop count as if
+    // every send succeeded. Each open depends on an async per-send mutation, so
+    // window.open runs outside the original click gesture — browsers block all
+    // but the first tab. Detect that (window.open returns null) and report it
+    // honestly rather than claiming N chats opened.
+    let openedCount = 0;
+    let blockedCount = 0;
+    let failedCount = 0;
+
     for (let i = 0; i < openable.length; i++) {
       if (bulkAbortRef.current) break;
       const { item, channel: ch, next } = openable[i];
@@ -305,19 +326,31 @@ export default function TodayPage() {
           { prospectId: item.prospect.id, channel: ch },
           {
             onSuccess: (data) => {
-              window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
-              if (message) {
-                const lint = lintMessageLength(message);
-                if (lint.overLimit) {
-                  toast({
-                    title: `${name}: long message`,
-                    description: lint.warning ?? undefined,
-                  });
+              const win = window.open(
+                data.deepLinkUrl,
+                "_blank",
+                "noopener,noreferrer",
+              );
+              if (win) {
+                openedCount++;
+                if (message) {
+                  const lint = lintMessageLength(message);
+                  if (lint.overLimit) {
+                    toast({
+                      title: `${name}: long message`,
+                      description: lint.warning ?? undefined,
+                    });
+                  }
                 }
+              } else {
+                blockedCount++;
               }
               resolve();
             },
-            onError: () => resolve(),
+            onError: () => {
+              failedCount++;
+              resolve();
+            },
           },
         );
       });
@@ -329,13 +362,33 @@ export default function TodayPage() {
 
     setBulkOpening(false);
     setPendingSend(null);
-    setSendConfirmBulk(true);
-    setSendConfirmOpen(true);
     refetch();
-    toast({
-      title: "Bulk open complete",
-      description: `Opened ${openable.length} chat${openable.length === 1 ? "" : "s"}. Press Send in each app.`,
-    });
+
+    // Only enter the "did you send these?" confirm flow for chats that actually
+    // opened — confirming blocked/failed ones would record sends the SDR never made.
+    if (openedCount > 0) {
+      setSendConfirmBulk(true);
+      setSendConfirmOpen(true);
+    }
+
+    if (blockedCount > 0) {
+      toast({
+        title: "Some tabs were blocked",
+        description: `Opened ${openedCount} of ${openable.length}; your browser blocked ${blockedCount}. Allow pop-ups for this site, then retry.`,
+        variant: "destructive",
+      });
+    } else if (failedCount > 0) {
+      toast({
+        title: "Bulk open finished with errors",
+        description: `Opened ${openedCount} of ${openable.length}. ${failedCount} failed — retry those.`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Bulk open complete",
+        description: `Opened ${openedCount} chat${openedCount === 1 ? "" : "s"}. Press Send in each app.`,
+      });
+    }
   }
 
   useEffect(() => {
@@ -443,6 +496,21 @@ export default function TodayPage() {
           </TabsList>
         </Tabs>
       </header>
+
+      {partialErrorChannel ? (
+        <Card className="border-amber-500/40">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3 text-xs text-amber-600 dark:text-amber-400">
+            <span className="flex items-center gap-2" role="alert">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Couldn't load {partialErrorChannel} follow-ups — showing the ones
+              that loaded.
+            </span>
+            <Button variant="outline" size="sm" onClick={refetch}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {isLoading ? (
         <div className="space-y-3">
