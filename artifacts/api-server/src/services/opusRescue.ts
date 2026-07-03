@@ -14,8 +14,9 @@
  * The orchestrator iterates them, calling findOrg with each in turn.
  *
  * Web search:
- *   - When `useWebSearch: true`, the call uses Anthropic's `web_search_20250305`
- *     server-side tool. Opus can search the web to ground its reasoning in
+ *   - When `useWebSearch: true`, the call uses Anthropic's `web_search_20260209`
+ *     server-side tool (dynamic filtering; supported on Opus 4.8). Opus can
+ *     search the web to ground its reasoning in
  *     fresh data — critical for tiny/regional companies absent from training.
  *   - When false, Opus answers from world knowledge only (cheaper, faster,
  *     occasionally less accurate).
@@ -30,13 +31,17 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  modelRejectsSamplingParams,
   type ResolveCompanyUsage,
 } from "./companyResolver";
 import { sanitizeStr } from "./apolloProspector";
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-const OPUS_MODEL = "claude-opus-4-1-20250805";
+// Migrated from `claude-opus-4-1-20250805` (deprecated, retires 2026-08-05) to
+// the current Opus. Opus 4.8 rejects `temperature` (dropped below) and defaults
+// to thinking-off when the param is omitted, matching the prior no-thinking call.
+const OPUS_MODEL = "claude-opus-4-8";
 const OPUS_MAX_TOKENS_NO_SEARCH = 800;
 const OPUS_MAX_TOKENS_WEB_SEARCH = 2000;
 const OPUS_TEMPERATURE = 0.1;
@@ -341,14 +346,16 @@ export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
   // the partner-tool variant in older typings. The wire format is the
   // documented Anthropic tools API shape.
   const webSearchTool = {
-    type: "web_search_20250305",
+    type: "web_search_20260209",
     name: "web_search",
   };
 
   const resp = await client.messages.create({
     model,
     max_tokens: maxTokens,
-    temperature,
+    // Opus 4.7/4.8 (and Sonnet 5 / Fable 5) reject non-default sampling params
+    // with a 400 — omit `temperature` for them and steer via prompting instead.
+    ...(modelRejectsSamplingParams(model) ? {} : { temperature }),
     system,
     messages: [{ role: "user", content: userContent }],
     ...(enableWebSearch

@@ -169,6 +169,15 @@ consolidate → triage → auto-fix serially with typecheck health probe after e
 
 *(each applied fix recorded here: finding id, files, health-probe result)*
 
+### Batch B.1 — LLM5 model migration (typecheck PASS + LIVE-VERIFIED)
+- **LLM5** [High, was URGENT] FIXED + live-tested. Retired/deprecated model IDs migrated:
+  - `llmValidator.ts` `VALIDATOR_MODEL`: `claude-sonnet-4-20250514` (retired 2026-06-15 → 404) → **`claude-sonnet-5`**.
+  - `opusRescue.ts` `OPUS_MODEL`: `claude-opus-4-1-20250805` (deprecated, retires 2026-08-05) → **`claude-opus-4-8`**; web_search tool `web_search_20250305` → **`web_search_20260209`** (dynamic filtering, supported on Opus 4.8).
+  - **Shared caller fix** (`companyResolver.ts`): added exported `modelRejectsSamplingParams()` + `modelDefaultsAdaptiveThinking()`. `defaultLLMCaller` now omits `temperature` for Opus 4.7/4.8/Sonnet 5/Fable 5 (they 400 on non-default sampling) and sends `thinking:{type:"disabled"}` for Sonnet 5 (adaptive is on-by-omission and would exhaust the validator's 250-tok budget → truncated JSON). `opusRescue`'s own caller reuses the exported predicate to drop `temperature` on Opus 4.8. `resolveCompany` (still Sonnet 4.6) is unaffected — 4.6 keeps `temperature`.
+  - Pricing already covered (LLM2 added sonnet-5 $3/$15 + opus-4-8 $5/$25); legacy IDs left in table for historical accounting.
+  - **Live smoke test (real API, throwaway script, removed):** Validator→sonnet-5 returned valid JSON, matched "Block, Inc." high-conf, 70 out-tok (thinking-off held budget); OpusRescue→opus-4-8 no-search returned 5 strategies; OpusRescue→opus-4-8 + web_search_20260209 returned 5 strategies, `searched=true`. No 400/404 on any path.
+  - Removed from GATED list.
+
 ---
 
 ## Fixes applied (all typecheck-green; commits on `audit/godlike-fixes`)
@@ -179,7 +188,6 @@ d3149e2 — LLM4 org-plausibility bug, API6 CSV injection, CH7 null-phone, FUP1 
 
 ## GATED / DEFERRED (not auto-applied — reason each)
 
-- **LLM5** [High, URGENT] `claude-sonnet-4-20250514` (llmValidator) is **retired since 2026-06-15** → 404 today; org-validation silently returns null. `claude-opus-4-1-20250805` (opusRescue) retires 2026-08-05. Migration is behavior-changing across shared LLM plumbing (swap → `claude-sonnet-5` / `claude-opus-4-8`, REMOVE `temperature` (400 on new models), set `thinking:{type:"disabled"}` on the validator, bump `web_search_20250305`→`web_search_20260209`) and cannot be runtime-verified here. Cost accounting already de-risked (pricing.ts now includes both legacy IDs). **Recommend fixing next with a live test.**
 - **LLM1** [Critical] Prompt injection — needs prompt-hardening (fence-escape untrusted prospect text + anti-injection directive). Prompt-behavioral change; do with an eval pass.
 - **LLM3** [High] No per-user daily spend cap — add env-gated pre-check in generateMessage + callers.
 - **APO1/API3** [High] Apollo reveal cap display-only — enforce in the reveal transaction.

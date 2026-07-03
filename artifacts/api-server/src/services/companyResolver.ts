@@ -416,6 +416,27 @@ function getDefaultClient(): Anthropic {
   return _defaultClient;
 }
 
+/**
+ * Opus 4.7/4.8, Sonnet 5, and Fable 5 reject non-default sampling params
+ * (`temperature`/`top_p`/`top_k`) with an HTTP 400. Callers targeting those
+ * models must omit `temperature` entirely and steer via prompting instead.
+ * Older families (Sonnet 4.6/4.5, Opus 4.6/earlier, Haiku 4.5) still accept it.
+ */
+export function modelRejectsSamplingParams(model: string): boolean {
+  return /claude-(opus-4-[78]|sonnet-5|fable-5)/.test(model);
+}
+
+/**
+ * Sonnet 5 (and Fable 5) enable adaptive thinking when the `thinking` param is
+ * omitted. Our short, deterministic JSON-extraction calls run on tiny token
+ * budgets that a thinking pass would exhaust (truncating the JSON), so disable
+ * thinking explicitly for those models. Opus 4.7/4.8 default to thinking-off on
+ * omission, so they don't need this.
+ */
+function modelDefaultsAdaptiveThinking(model: string): boolean {
+  return /claude-(sonnet-5|fable-5)/.test(model);
+}
+
 /** Default LLM caller: real Anthropic SDK. */
 export const defaultLLMCaller: LLMCaller = async ({
   system,
@@ -428,7 +449,12 @@ export const defaultLLMCaller: LLMCaller = async ({
   const resp = await client.messages.create({
     model,
     max_tokens: maxTokens,
-    temperature,
+    // New-model families 400 on non-default sampling params — omit for them.
+    ...(modelRejectsSamplingParams(model) ? {} : { temperature }),
+    // Keep these extraction calls non-thinking (small budget, deterministic output).
+    ...(modelDefaultsAdaptiveThinking(model)
+      ? { thinking: { type: "disabled" as const } }
+      : {}),
     system,
     messages: [{ role: "user", content: userContent }],
   });
