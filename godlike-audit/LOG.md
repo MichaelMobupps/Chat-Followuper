@@ -161,6 +161,12 @@ consolidate → triage → auto-fix serially with typecheck health probe after e
 
 ## Fix log
 
+### Batch A.1 (typecheck PASS)
+- **API1** [High] FIXED: scoped `recordSendIntent` followups update by owner via `EXISTS(prospects WHERE id=followups.prospect_id AND user_id=userId)` in `channels/whatsapp.ts` + `channels/telegram.ts`. Closes IDOR.
+- **LLM2** [High] FIXED: `lib/pricing.ts` corrected opus-4-7 $15/$75→$5/$25 (verified vs Claude API ref), haiku-4-5 $0.8/$4→$1/$5; added opus-4-8/sonnet-5 + legacy snapshot entries; unknown model now `console.warn`s instead of silent $0.
+- **CH1** [High] FIXED: `channels/telegram.ts generateLink` now `encodeURIComponent`s the handle path segment + normalizes phone to `+digits`. Neutralizes URL injection / dropped-body.
+- **CH3** [Med] FIXED: `routes/whatsappLink.ts` send-intent dispatch now explicit whatsapp/telegram; teams/slack → 501 instead of mislogged as whatsapp.
+
 *(each applied fix recorded here: finding id, files, health-probe result)*
 
 ---

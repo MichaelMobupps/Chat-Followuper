@@ -176,8 +176,14 @@ router.post(
       };
       if (channel === "telegram") {
         await recordTelegramSendIntent(input);
-      } else {
+      } else if (channel === "whatsapp") {
         await recordWhatsappSendIntent(input);
+      } else {
+        // teams/slack are advertised by isChannelCode but have no send-intent
+        // recorder yet. Reject explicitly instead of silently recording the
+        // send as WhatsApp (which corrupted per-channel analytics).
+        res.status(501).json({ error: "channel_not_implemented", channel });
+        return;
       }
       res.status(200).json({ ok: true, channel });
     } catch (err) {

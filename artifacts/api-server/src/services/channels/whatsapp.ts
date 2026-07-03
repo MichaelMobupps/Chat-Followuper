@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import {
   db,
   prospectsTable,
@@ -84,6 +84,11 @@ export async function recordSendIntent(
       if (updated.length === 0) return;
       firstSendRecorded = true;
     } else {
+      // Scope the update to a follow-up the caller actually owns. followups has
+      // no userId column, so ownership is enforced via the owning prospect. The
+      // followupId arrives from the request body (routes/whatsappLink.ts:175);
+      // without this EXISTS clause any authenticated user could stamp clickedAt
+      // (and write usage/action_logs) on another tenant's follow-up (IDOR).
       const updated = await tx
         .update(followupsTable)
         .set({ clickedAt: new Date() })
@@ -91,6 +96,17 @@ export async function recordSendIntent(
           and(
             eq(followupsTable.id, followupId),
             isNull(followupsTable.clickedAt),
+            exists(
+              tx
+                .select({ ok: sql`1` })
+                .from(prospectsTable)
+                .where(
+                  and(
+                    eq(prospectsTable.id, followupsTable.prospectId),
+                    eq(prospectsTable.userId, userId),
+                  ),
+                ),
+            ),
           ),
         )
         .returning({ id: followupsTable.id });
