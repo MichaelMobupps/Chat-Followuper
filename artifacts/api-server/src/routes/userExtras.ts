@@ -1,14 +1,18 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z, ZodError } from "zod/v4";
 import {
   db,
   usersTable,
-  dailyUsageTable,
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import {
+  apolloMonthlyRevealCap,
+  monthBoundsUtc,
+  monthlyApolloRevealsUsed,
+} from "../lib/apolloRevealCap";
 import { getFeatureFlags } from "../lib/featureFlags";
 import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { isPushoverAppConfigured } from "../services/pushover";
@@ -30,23 +34,6 @@ const preferencesPatchSchema = z
   .refine((v) => Object.keys(v).length > 0, {
     message: "at least one field must be provided",
   });
-
-function apolloMonthlyRevealCap(): number {
-  const raw = Number(process.env.APOLLO_MONTHLY_REVEAL_CAP ?? 100);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 100;
-}
-
-function monthBoundsUtc(): { start: string; end: string } {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
-  );
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
-}
 
 function preferencesResponse(row: {
   preferredChannel: string;
@@ -249,23 +236,9 @@ router.get(
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     const user = req.user!;
-    const { start, end } = monthBoundsUtc();
+    const { start } = monthBoundsUtc();
     const cap = apolloMonthlyRevealCap();
-
-    const usageRows = await db
-      .select({
-        total: sql<string>`COALESCE(SUM(${dailyUsageTable.apolloRevealsUsed}), 0)`,
-      })
-      .from(dailyUsageTable)
-      .where(
-        and(
-          eq(dailyUsageTable.userId, user.id),
-          gte(dailyUsageTable.date, start),
-          lte(dailyUsageTable.date, end),
-        ),
-      );
-
-    const used = Number(usageRows[0]?.total ?? 0);
+    const used = await monthlyApolloRevealsUsed(user.id);
 
     res.status(200).json({
       month: start.slice(0, 7),

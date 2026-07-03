@@ -193,7 +193,11 @@ d3149e2 — LLM4 org-plausibility bug, API6 CSV injection, CH7 null-phone, FUP1 
 
 - **LLM1** [Critical] Prompt injection — needs prompt-hardening (fence-escape untrusted prospect text + anti-injection directive). Prompt-behavioral change; do with an eval pass.
 - **LLM3** [High] No per-user daily spend cap — add env-gated pre-check in generateMessage + callers.
-- **APO1/API3** [High] Apollo reveal cap display-only — enforce in the reveal transaction.
+### Batch B.3 — APO1/API3 Apollo reveal cap enforcement (typecheck PASS)
+- **APO1/API3** [High] FIXED. New `lib/apolloRevealCap.ts` centralizes the cap (`apolloMonthlyRevealCap()`, default 100 / env `APOLLO_MONTHLY_REVEAL_CAP`), `monthBoundsUtc()`, `monthlyApolloRevealsUsed(userId)`, and `assertUnderApolloRevealCap(userId)` throwing `ApolloRevealCapExceededError`. Pre-check wired BEFORE the credit spend in both reveal routes: `/apollo/reveal` (before `revealContact`) and `/apollo/request-phone-reveal` (before the async Apollo POST). Central mapping in `app.ts` → **429 `apollo_reveal_cap_exceeded`** `{used, cap}`. `routes/userExtras.ts` `/users/me/apollo-usage` refactored to consume the same shared helpers (removes the duplicated cap+month math → reporting and enforcement can't drift; pruned now-dead drizzle/dailyUsage imports). Env documented in `.env.example`. Note: the always-on default of 100 makes the *already-advertised* cap real (not a new limit). Search-credit routes (`/apollo/search-org`,`/search-people`) remain unlimited — different credit dimension with no counter; left as a smaller residual (API3 remainder) needing its own counter+limiter.
+
+### (was gated)
+- ~~**APO1/API3** enforce in the reveal transaction~~ — DONE above (B.3).
 - **APO2** [High] AbortSignal not threaded into findOrg/collectContacts — broad mechanical change; reference impl in dead `subsidiaryExpander.ts`.
 - **DB1** [High] test/live DB behind migrations — add vitest globalSetup + apply 0008-0010 (mutates dev DB).
 - **DB2** [High] plaintext secrets (refresh/bot tokens, magic-link token) — needs KMS/app-key + data migration + auth-code changes.

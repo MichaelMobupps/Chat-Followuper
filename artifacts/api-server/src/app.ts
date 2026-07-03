@@ -8,6 +8,7 @@ import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
 import { DailyLlmCapExceededError } from "./lib/llmSpendCap";
+import { ApolloRevealCapExceededError } from "./lib/apolloRevealCap";
 
 const app: Express = express();
 
@@ -68,6 +69,15 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
       error: "daily_cap_exceeded",
       spentUsd: err.spentUsd,
       capUsd: err.capUsd,
+    });
+    return;
+  }
+  // Monthly Apollo reveal cap (APO1/API3).
+  if (err instanceof ApolloRevealCapExceededError) {
+    res.status(429).json({
+      error: "apollo_reveal_cap_exceeded",
+      used: err.used,
+      cap: err.cap,
     });
     return;
   }
