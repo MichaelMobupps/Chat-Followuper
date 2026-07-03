@@ -281,3 +281,26 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   retry) double-charge. Success action-log moved outside the tx as best-effort
   `.catch()` (audit metadata must not roll back committed spend), mirroring the
   failure-path log.
+
+### Batch B.16 — Channels Med/Low residuals (typecheck PASS)
+- **CH2** [Med] FIXED — invalid-phone *format* no longer reports as `geo_blocked`.
+  New `InvalidPhoneError` in `services/channels/whatsapp.ts`; `generateLink` throws
+  it (not `GeoGateBlockedError`) on E.164 failure (the geo gate is disabled, so an
+  `isAllowedPhone` miss is always a format problem). Terminal handler (`app.ts`)
+  maps it → **422 `invalid_phone`**; the two user-facing deep-link routes
+  (`whatsappLink.ts`, `followups.ts`) also branch on it explicitly. `GeoGateBlockedError`
+  kept for the apollo reveal path (`services/apollo.ts:706`, = APO3) and future geo.
+  `detectCountry` import in whatsapp.ts pruned (now unused). `testChannelLink` pre-
+  validates with PHONE_RE so it never hits the throw; `manualContactPrepare`'s catch
+  is a passthrough → flows to the terminal handler.
+- **CH4** [Med] FIXED — new `services/channels/errors.ts` `ChannelNotImplementedError`
+  (own module to avoid a cycle through `channels/index.ts`); Teams/Slack stubs throw
+  it instead of an untyped `Error`; terminal handler maps → **501 `channel_not_implemented`**
+  `{channel}`. (send-intent route already returned 501 for teams/slack via CH3; this
+  covers the latent `getChannelAdapter` path too.)
+- **CH6** [Low] FIXED — `lib/verticalClassifier.ts` Pass-1 now tokenizes labels+subject
+  on non-alphanumeric runs and matches whole tokens (`gaming`/`cps`/`fintech` exact,
+  `retarget` prefix) instead of raw `.includes()`, so short codes no longer false-fire
+  inside longer words. `gaming_ua`-style labels still split and match.
+- **CH5** [Low] FLAGGED (product decision) — Telegram `t.me/<user>?text=` prefill for
+  non-bot handles is a behavioral question; needs product confirmation, not a code fix.

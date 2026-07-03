@@ -7,7 +7,7 @@ import {
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
-import { isAllowedPhone, detectCountry } from "../../lib/geoGate";
+import { isAllowedPhone } from "../../lib/geoGate";
 import { scheduleFollowupsAfterFirstSend } from "../followupScheduler";
 import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
 
@@ -28,13 +28,27 @@ export class GeoGateBlockedError extends Error {
 }
 
 /**
+ * Thrown by generateLink when the phone fails E.164 validation. With the geo
+ * gate disabled (isAllowedCountry always true), an isAllowedPhone failure is a
+ * FORMAT problem, not a geography one — so callers surface it as 422
+ * `invalid_phone` rather than the misleading `geo_blocked`. Routes map this via
+ * the terminal error handler; the deep-link routes also branch on it directly.
+ */
+export class InvalidPhoneError extends Error {
+  constructor(phone: string) {
+    super(`Phone is not valid E.164 format: ${phone}`);
+    this.name = "InvalidPhoneError";
+  }
+}
+
+/**
  * Build a https://wa.me/<digits>?text=<urlencoded-body> deep link for the
  * given phone and message body. Strips non-digits from the phone before
- * embedding. Throws GeoGateBlockedError only for invalid E.164 format.
+ * embedding. Throws InvalidPhoneError for a phone that fails E.164 validation.
  */
 export function generateLink(phone: string, body: string): string {
   if (!isAllowedPhone(phone)) {
-    throw new GeoGateBlockedError(detectCountry(phone));
+    throw new InvalidPhoneError(phone);
   }
   const digits = phone.replace(/[^0-9]/g, "");
   const encoded = encodeURIComponent(body);

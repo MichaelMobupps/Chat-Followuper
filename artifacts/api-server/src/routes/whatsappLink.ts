@@ -6,6 +6,7 @@ import {
   generateLink,
   recordSendIntent as recordWhatsappSendIntent,
   GeoGateBlockedError,
+  InvalidPhoneError,
 } from "../services/channels/whatsapp";
 import {
   generateLink as generateTelegramLink,
@@ -56,6 +57,10 @@ router.get(
       const url = generateLink(prospect.phone, prospect.firstMessageBody);
       res.status(200).json({ url, body: prospect.firstMessageBody });
     } catch (err) {
+      if (err instanceof InvalidPhoneError) {
+        res.status(422).json({ error: "invalid_phone" });
+        return;
+      }
       if (err instanceof GeoGateBlockedError) {
         res.status(422).json({ error: "geo_blocked", country: err.country });
         return;
