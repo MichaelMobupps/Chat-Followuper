@@ -219,61 +219,74 @@ router.post(
 
     const costUsd = generated.costEstimate.usd;
 
-    // ── Persist firstMessageBody on prospect ──
-    await db
-      .update(prospectsTable)
-      .set({
-        firstMessageBody: generated.message,
-        firstMessageChannel: channel,
-      })
-      .where(
-        and(
-          eq(prospectsTable.id, prospectId),
-          eq(prospectsTable.userId, user.id),
-        ),
-      );
-
-    // ── Upsert daily_usage spend + counter ──
-    // Composite PK is (user_id, date). On conflict, sum into the existing
-    // row. cast on numeric column is implicit when the value is a numeric
-    // literal in the SQL fragment.
+    // ── Persist message + spend atomically (LLM8) ──
+    // The prospect body write and the spend/counter increment MUST commit
+    // together: a 500 between them would either charge the user without saving
+    // the message, or (on a client retry) double-charge for the same draft.
+    // A transaction makes it all-or-nothing.
     const today = todayUtc();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(prospectsTable)
+        .set({
+          firstMessageBody: generated.message,
+          firstMessageChannel: channel,
+        })
+        .where(
+          and(
+            eq(prospectsTable.id, prospectId),
+            eq(prospectsTable.userId, user.id),
+          ),
+        );
+
+      // Composite PK is (user_id, date). On conflict, sum into the existing
+      // row. cast on numeric column is implicit when the value is a numeric
+      // literal in the SQL fragment.
+      await tx
+        .insert(dailyUsageTable)
+        .values({
+          userId: user.id,
+          date: today,
+          messagesGenerated: 1,
+          anthropicSpendUsd: costUsd.toFixed(4),
+        })
+        .onConflictDoUpdate({
+          target: [dailyUsageTable.userId, dailyUsageTable.date],
+          set: {
+            messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
+            // Explicit cast keeps the bound parameter typed as numeric across
+            // drivers (postgres-js binds JS string as text by default, pg
+            // binds number as float8; both can fail on `numeric + text` or
+            // `numeric + double precision` without a cast).
+            anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${costUsd.toFixed(4)} AS numeric)`,
+          },
+        });
+    });
+
+    // ── Action log: success (best-effort, outside the tx) ──
+    // Audit metadata only — a log-write failure must not roll back the message
+    // + spend that already committed, and must not fail the request. Mirrors
+    // the failure-path action log below.
     await db
-      .insert(dailyUsageTable)
+      .insert(actionLogsTable)
       .values({
         userId: user.id,
-        date: today,
-        messagesGenerated: 1,
-        anthropicSpendUsd: costUsd.toFixed(4),
-      })
-      .onConflictDoUpdate({
-        target: [dailyUsageTable.userId, dailyUsageTable.date],
-        set: {
-          messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-          // Explicit cast keeps the bound parameter typed as numeric across
-          // drivers (postgres-js binds JS string as text by default, pg
-          // binds number as float8; both can fail on `numeric + text` or
-          // `numeric + double precision` without a cast).
-          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${costUsd.toFixed(4)} AS numeric)`,
+        prospectId,
+        actionType: ACTION_TYPES.seederMessageGenerated,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          channel,
+          costUsd,
+          iterations: generated.modelMetadata.iterations,
+          finalOverallScore: generated.modelMetadata.finalOverallScore,
+          inputTokens: generated.costEstimate.inputTokens,
+          outputTokens: generated.costEstimate.outputTokens,
         },
+      })
+      .catch((logErr) => {
+        logger.warn({ err: logErr }, "generate-message: failed to write success action log");
       });
-
-    // ── Action log: success ──
-    await db.insert(actionLogsTable).values({
-      userId: user.id,
-      prospectId,
-      actionType: ACTION_TYPES.seederMessageGenerated,
-      actionStatus: "success",
-      durationMs: Date.now() - start,
-      metadata: {
-        channel,
-        costUsd,
-        iterations: generated.modelMetadata.iterations,
-        finalOverallScore: generated.modelMetadata.finalOverallScore,
-        inputTokens: generated.costEstimate.inputTokens,
-        outputTokens: generated.costEstimate.outputTokens,
-      },
-    });
 
     res.status(200).json({
       subject: generated.subject,

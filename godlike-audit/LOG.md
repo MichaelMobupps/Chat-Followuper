@@ -252,3 +252,32 @@ Every item from the original GATED/DEFERRED list is now resolved or precisely ch
 5. **Un-triaged Med/Low findings BELOW the gated line** (never in the gated set): LLM6 (grounding substring), LLM7 (retry jitter), LLM8 (generateMessage non-atomic persist), CH2/CH4/CH5/CH6, API4/API5/API7/API8, APO3/APO4/APO5/APO6/APO7, DB6/DB7, FE3/FE4/FE6–FE9/FE13/FE14, and a11y polish. Each is recorded in the findings ledger above; none are High/Critical.
 
 Resume point = this file + branch commits (`git log audit/godlike-fixes`).
+
+---
+
+## Session 3 — clearing the Med/Low pile (residual #5)
+
+Working through the un-triaged Med/Low findings below the gated line. Same
+methodology: fix → full-workspace `pnpm run typecheck` → commit per subsystem
+batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
+
+### Batch B.15 — LLM Med residuals (typecheck PASS)
+- **LLM6** [Med] FIXED — was NOT actually fixed (the comment block had been
+  rewritten to describe token membership, but the code still used
+  `groundText.includes()`). `services/messageGenerator.ts detectUngroundedClaims`
+  now builds a `Set` of grounded numeric tokens (`\d+(?:\.\d+)?`) and checks
+  **exact token membership** for percentages / large numbers / bounded claims.
+  Closes the false-negative where a fabricated `200` passed because the brief
+  said `2000` (`"2000".includes("200")` was true).
+- **LLM7** [Med] FIXED — `services/anthropicRetry.ts`: (1) unknown non-APIError
+  with no network signature now defaults **non-retryable** (was retryable → burnt
+  the whole backoff budget on unfixable bugs); (2) **±20% jitter** on the backoff
+  (Retry-After hints jittered upward-only so we never undercut the server's ask
+  → no thundering herd); (3) sleep **clamped to remaining budget** so we never
+  sleep past the cap only to fail the budget check next iteration.
+- **LLM8** [Med] FIXED — `routes/generateMessage.ts`: the prospect-body write and
+  the `daily_usage` spend/counter increment are now in a single `db.transaction`
+  (all-or-nothing) so a 500 between them can't charge-without-persist or (on
+  retry) double-charge. Success action-log moved outside the tx as best-effort
+  `.catch()` (audit metadata must not roll back committed spend), mirroring the
+  failure-path log.
