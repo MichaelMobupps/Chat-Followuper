@@ -9,6 +9,7 @@ import {
   index,
   jsonb,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -130,6 +131,22 @@ export const prospectsTable = pgTable(
     // DB4: covering index for the campaign_id FK so deleting a campaign doesn't
     // sequential-scan + lock the whole prospects table.
     index("prospects_campaign_id_idx").on(table.campaignId),
+    // DB5: the (user_id, phone) unique index doesn't dedup non-phone identities
+    // (NULLs are distinct), so Telegram/Teams/Slack + reveal-pending prospects
+    // (phone=null) could be created — and messaged — repeatedly. Partial unique
+    // indexes per identity dedup them per user without constraining null rows.
+    uniqueIndex("prospects_user_telegram_unique")
+      .on(table.userId, table.telegramHandle)
+      .where(sql`${table.telegramHandle} IS NOT NULL`),
+    uniqueIndex("prospects_user_teams_unique")
+      .on(table.userId, table.teamsEmail)
+      .where(sql`${table.teamsEmail} IS NOT NULL`),
+    uniqueIndex("prospects_user_slack_unique")
+      .on(table.userId, table.slackUserId)
+      .where(sql`${table.slackUserId} IS NOT NULL`),
+    uniqueIndex("prospects_user_apollo_person_unique")
+      .on(table.userId, table.apolloPersonId)
+      .where(sql`${table.apolloPersonId} IS NOT NULL`),
   ],
 );
 
