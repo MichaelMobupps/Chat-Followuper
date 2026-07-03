@@ -11,15 +11,16 @@
  * The cap is OFF by default: set `LLM_DAILY_SPEND_CAP_USD` to a positive number
  * to enable it. Unset / non-numeric / <= 0 → disabled (assert is a no-op).
  *
- * The daily bucket is UTC (`YYYY-MM-DD`), matching the writers in the three call
- * sites (`todayUtc()` there uses `toISOString().slice(0,10)`). This keeps the
- * read aligned with the write. (Audit DB7 separately notes the UTC-vs-local
- * bucket concern for all daily_usage accounting; changing the bucket basis is
- * out of scope here — this helper deliberately matches the existing writers.)
+ * The daily bucket is the user's LOCAL day (DB7): `usageBucketDate(digestTimezone)`,
+ * matching the writers in the three call sites (generateMessage /
+ * manualContactPrepare / followupMessageService), which now derive the bucket
+ * the same way. This keeps read aligned with write AND resets the cap at the
+ * user's midnight instead of UTC midnight (~02:00–03:00 local).
  */
 
 import { and, eq } from "drizzle-orm";
-import { db, dailyUsageTable } from "@workspace/db";
+import { db, dailyUsageTable, usersTable } from "@workspace/db";
+import { usageBucketDate } from "./usageBucket";
 
 /**
  * Thrown when today's spend already meets or exceeds the configured cap.
@@ -47,19 +48,26 @@ export function dailyLlmSpendCapUsd(): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
+/** The user's local-day bucket date (DB7). Falls back to UTC if no user/tz. */
+async function userBucketDate(userId: string): Promise<string> {
+  const rows = await db
+    .select({ tz: usersTable.digestTimezone })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  return usageBucketDate(rows[0]?.tz);
 }
 
-/** Today's (UTC) recorded Anthropic spend for a user, in USD. 0 if no row. */
+/** Today's (user-local-day) recorded Anthropic spend for a user, in USD. 0 if no row. */
 export async function todaysLlmSpendUsd(userId: string): Promise<number> {
+  const bucket = await userBucketDate(userId);
   const rows = await db
     .select({ spend: dailyUsageTable.anthropicSpendUsd })
     .from(dailyUsageTable)
     .where(
       and(
         eq(dailyUsageTable.userId, userId),
-        eq(dailyUsageTable.date, todayUtc()),
+        eq(dailyUsageTable.date, bucket),
       ),
     )
     .limit(1);

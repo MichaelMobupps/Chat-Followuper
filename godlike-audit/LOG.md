@@ -479,3 +479,37 @@ KMS decision), magic_link_tokens (dead schema), weeklyDigest cross-process claim
 DB3 snapshot rebuild.
 
 Resume point = this file + branch commits (`git log audit/godlike-fixes`).
+
+---
+
+## Session 4 — completing the flagged residuals
+
+User asked to finish everything remaining. Each item taken with a clear correct path;
+a safe reversible default applied where a full product/infra decision is genuinely
+required (and called out). Typecheck green after each; migrations applied to the dev DB
+and verified.
+
+### APO3 — geo-gate no longer drops paid reveals as "geo_blocked" (typecheck PASS)
+The gate is disabled, so `!isAllowedPhone(phone)` was a pure FORMAT check, yet both reveal
+paths marked legitimately-revealed phones `blocked` and discarded them AFTER the 8-credit
+reveal. Fix: new `geoGate.normalizeToE164()` (tidies Apollo numbers missing `+` / with
+spaces·dashes·parens / `00` prefix). Sync `revealContact` normalizes the returned phone
+instead of throwing `GeoGateBlockedError`; the async webhook normalizes the extracted phone,
+folds a genuinely-unparseable value into `no_match` (distinct `reason:"unparseable_phone"`,
+NOT geo), and the block branch now gates on GEOGRAPHY (`isAllowedCountry`, currently
+always-true) rather than format. Removed the now-dead `GeoGateBlockedError` import from
+apollo.ts. Paid phones are kept + normalized (also satisfies CH2's E.164 expectation
+downstream).
+
+### DB7 — daily LLM spend cap buckets by the user's local day (typecheck PASS)
+De-risking insight: daily_usage counters are INDEPENDENT — each row's `date` is one value,
+but each counter is written+read by its own group, so a group can be converted atomically
+without touching the others. Converted the **LLM daily-spend-cap group** fully: shared
+`lib/usageBucket.ts usageBucketDate(tz)` (en-CA `YYYY-MM-DD` in the user's `digestTimezone`,
+UTC fallback on bad tz, never throws) used by all three writers (`generateMessage`,
+`manualContactPrepare`, `followupMessageService`) AND the reader (`llmSpendCap`). Added
+`digestTimezone` to `req.user` (auth middleware select + type) so the route writer needs no
+extra query; the two service writers read it from their already-loaded user row. Cap resets
+at the user's midnight now, not ~02:00–03:00 local. **Deliberately left UTC (documented in
+usageBucket.ts):** Apollo reveal counter (MONTHLY cap → negligible nuance) and messages_sent
+(no cap). Verified helper format + tz + garbage-tz fallback at runtime.

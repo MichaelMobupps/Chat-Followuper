@@ -20,11 +20,9 @@ import type { ConversationRow, PreviousFollowup } from "./messagePrompts";
 import type { ProspectBrief } from "./prospectResearch";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
+import { usageBucketDate } from "../lib/usageBucket";
 import { logger } from "../lib/logger";
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function buildConversation(
   prospect: {
@@ -88,6 +86,7 @@ export async function generateAndPersistFollowupMessage(params: {
       followup: followupsTable,
       prospect: prospectsTable,
       stageTiming: usersTable.stageTiming,
+      digestTimezone: usersTable.digestTimezone,
     })
     .from(followupsTable)
     .innerJoin(
@@ -202,7 +201,8 @@ export async function generateAndPersistFollowupMessage(params: {
     .set({ generatedMessage: generated.message })
     .where(eq(followupsTable.id, followupId));
 
-  const today = todayUtc();
+  // DB7: user's local-day bucket so LLM spend lands in the same row the cap reads.
+  const today = usageBucketDate(row.digestTimezone);
   await db
     .insert(dailyUsageTable)
     .values({

@@ -50,6 +50,7 @@ import {
 } from "../services/messageGenerator";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
+import { usageBucketDate } from "../lib/usageBucket";
 import type { ProspectBrief } from "../services/prospectResearch";
 import { logger } from "../lib/logger";
 
@@ -58,11 +59,6 @@ const router: IRouter = Router();
 // ─────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────
-
-function todayUtc(): string {
-  // YYYY-MM-DD in UTC. Drizzle's `date` column accepts this string form.
-  return new Date().toISOString().slice(0, 10);
-}
 
 function isResearchBrief(value: unknown): value is ProspectBrief {
   // Light shape check. The full ProspectBrief schema lives in
@@ -224,7 +220,9 @@ router.post(
     // together: a 500 between them would either charge the user without saving
     // the message, or (on a client retry) double-charge for the same draft.
     // A transaction makes it all-or-nothing.
-    const today = todayUtc();
+    // DB7: bucket by the user's local day so the LLM daily-spend cap resets at
+    // their midnight (matches the llmSpendCap reader's bucket).
+    const today = usageBucketDate(user.digestTimezone);
     await db.transaction(async (tx) => {
       await tx
         .update(prospectsTable)
