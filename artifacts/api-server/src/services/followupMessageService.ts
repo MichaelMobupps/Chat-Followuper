@@ -19,6 +19,7 @@ import {
 import type { ConversationRow, PreviousFollowup } from "./messagePrompts";
 import type { ProspectBrief } from "./prospectResearch";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
+import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import { logger } from "../lib/logger";
 
 function todayUtc(): string {
@@ -112,6 +113,11 @@ export async function generateAndPersistFollowupMessage(params: {
   if (followup.generatedMessage?.trim()) {
     return { message: followup.generatedMessage, costUsd: 0 };
   }
+
+  // Daily spend cap (LLM3): pre-check before generation (the cached-message
+  // path above spends nothing and is allowed through). Throws → 429 via the
+  // terminal error handler. No-op when the cap env is unset.
+  await assertUnderDailyLlmCap(userId);
 
   const rawChannel = followup.channel;
   if (!isChannelCode(rawChannel)) {

@@ -178,6 +178,9 @@ consolidate → triage → auto-fix serially with typecheck health probe after e
   - **Live smoke test (real API, throwaway script, removed):** Validator→sonnet-5 returned valid JSON, matched "Block, Inc." high-conf, 70 out-tok (thinking-off held budget); OpusRescue→opus-4-8 no-search returned 5 strategies; OpusRescue→opus-4-8 + web_search_20260209 returned 5 strategies, `searched=true`. No 400/404 on any path.
   - Removed from GATED list.
 
+### Batch B.2 — LLM3 per-user daily spend cap (typecheck PASS)
+- **LLM3** [High] FIXED. New `lib/llmSpendCap.ts`: `dailyLlmSpendCapUsd()` (env `LLM_DAILY_SPEND_CAP_USD`, null/disabled when unset/≤0), `todaysLlmSpendUsd(userId)` (reads UTC daily_usage row, matching the writers' bucket), `assertUnderDailyLlmCap(userId)` throwing `DailyLlmCapExceededError`. Pre-check wired into all three generation entry points BEFORE spend: `routes/generateMessage.ts` (before generate), `services/manualContactPrepare.ts` (after ownership, before research+generate — both billed), `services/followupMessageService.ts` (after cached-message short-circuit, before generate). Central mapping added to `app.ts` terminal handler → **429 `daily_cap_exceeded`** `{spentUsd, capUsd}` (Express 5 forwards async throws). Documented in `.env.example`. Cap OFF by default (no behavior change until env set). Gating decision table verified (unset/invalid/zero/negative→disabled; at/over cap→block; under/fresh→allow). Best-effort pre-check (not a transactional reservation) — noted inline; acceptable for a cost guardrail.
+
 ---
 
 ## Fixes applied (all typecheck-green; commits on `audit/godlike-fixes`)

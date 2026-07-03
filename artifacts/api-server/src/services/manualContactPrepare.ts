@@ -9,6 +9,7 @@ import {
   type Prospect,
 } from "@workspace/db";
 import { getLanguageForCountry } from "../lib/geoGate";
+import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import { researchProspect, type ProspectBrief } from "./prospectResearch";
 import { LoggingProgressEmitter } from "./progressEvents";
 import {
@@ -110,6 +111,11 @@ export async function prepareFirstMessage(params: {
   if (!prospect) {
     throw new Error("not_found");
   }
+
+  // Daily spend cap (LLM3): pre-check before any LLM work (this path runs both
+  // research and generation, each Anthropic-billed). Throws → 429 via the
+  // terminal error handler. No-op when the cap env is unset.
+  await assertUnderDailyLlmCap(userId);
 
   const channel = resolveChannel(prospect, params.channel);
 

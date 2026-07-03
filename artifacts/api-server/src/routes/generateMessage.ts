@@ -49,6 +49,7 @@ import {
   type ProspectInput,
 } from "../services/messageGenerator";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
+import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import type { ProspectBrief } from "../services/prospectResearch";
 import { logger } from "../lib/logger";
 
@@ -169,6 +170,11 @@ router.post(
     };
 
     const senderName = senderNameFor(req);
+
+    // ── Daily spend cap (LLM3) ──
+    // Pre-check BEFORE generation. Throws DailyLlmCapExceededError → mapped to
+    // 429 by the terminal error handler. No-op when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
 
     // ── Generate ──
     let generated;

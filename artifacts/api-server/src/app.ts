@@ -7,6 +7,7 @@ import apolloWebhookRouter from "./routes/apolloWebhook";
 import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
+import { DailyLlmCapExceededError } from "./lib/llmSpendCap";
 
 const app: Express = express();
 
@@ -55,11 +56,22 @@ app.use("/api", router);
 // error text to any caller. Log the full error server-side; return a generic
 // body. (Route handlers that already responded delegate back to Express.)
 const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
-  logger.error({ err }, "unhandled route error");
   if (res.headersSent) {
     next(err);
     return;
   }
+  // Per-user daily LLM spend cap (LLM3): a pre-generation guard throws this so
+  // every generation entry point surfaces it consistently as 429, without each
+  // route re-implementing the mapping.
+  if (err instanceof DailyLlmCapExceededError) {
+    res.status(429).json({
+      error: "daily_cap_exceeded",
+      spentUsd: err.spentUsd,
+      capUsd: err.capUsd,
+    });
+    return;
+  }
+  logger.error({ err }, "unhandled route error");
   res.status(500).json({ error: "internal" });
 };
 app.use(errorHandler);
