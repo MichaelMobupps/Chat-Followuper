@@ -177,6 +177,7 @@ export interface ListProspectsParams {
   page?: number;
   perPage?: number;
   status?: ProspectStatus;
+  sourceMode?: SourceMode;
   channel?: ListChannel;
   country?: string;
   search?: string;
@@ -192,6 +193,7 @@ export interface ProspectListItem {
   country: string | null;
   language: string | null;
   phone: string | null;
+  telegramHandle: string | null;
   phoneRevealStatus: string;
   /** Full message body. Null if generation hasn't run yet (e.g., for
    *  phone-pending prospects) or it failed. Used by the prospects-list
@@ -201,6 +203,7 @@ export interface ProspectListItem {
   firstMessageChannel: string | null;
   firstMessageSentAt: string | null;
   apolloPersonId: string | null;
+  sourceMode: SourceMode;
   createdAt: string;
   updatedAt: string;
   hasFirstMessage: boolean;
@@ -214,6 +217,29 @@ export interface ListProspectsResponse {
   perPage: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Timeline (prospect detail)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ProspectTimelineEvent {
+  id: string;
+  actionType: string;
+  actionStatus: string;
+  executedAt: string;
+  followupId: number | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ProspectTimelineResponse {
+  events: ProspectTimelineEvent[];
+}
+
+export function getProspectTimeline(
+  id: string,
+): Promise<ProspectTimelineResponse> {
+  return apiFetch<ProspectTimelineResponse>(`/api/prospects/${id}/timeline`);
+}
+
 export function listProspects(
   params: ListProspectsParams = {},
 ): Promise<ListProspectsResponse> {
@@ -221,6 +247,7 @@ export function listProspects(
   if (params.page !== undefined) search.set("page", String(params.page));
   if (params.perPage !== undefined) search.set("perPage", String(params.perPage));
   if (params.status) search.set("status", params.status);
+  if (params.sourceMode) search.set("sourceMode", params.sourceMode);
   if (params.channel) search.set("channel", params.channel);
   if (params.country) search.set("country", params.country);
   if (params.search) search.set("search", params.search);

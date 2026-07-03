@@ -18,12 +18,15 @@ import {
   patchManualIngestSettings,
   postManualIngest,
   postManualIngestBulk,
+  postPrepareFirstMessage,
   type ManualIngestBulkInput,
   type ManualIngestBulkResponse,
   type ManualIngestCreateInput,
   type ManualIngestProspect,
   type ManualIngestSettings,
   type ManualIngestToggleInput,
+  type PrepareFirstMessageInput,
+  type PrepareFirstMessageResult,
 } from "@/lib/api/manual-ingest";
 import { ApiError } from "@/lib/api";
 
@@ -62,11 +65,8 @@ export function useAddManualContact(): UseMutationResult<
   return useMutation<ManualIngestProspect, ApiError, ManualIngestCreateInput>({
     mutationFn: (input) => postManualIngest(input),
     onSuccess: () => {
-      // The new prospect will show up in the channel follow-up list on
-      // its next refresh once the BE's existing message-generation
-      // pipeline picks it up. Invalidate so the SDR sees it without
-      // hitting the manual refresh button.
       void qc.invalidateQueries({ queryKey: ["followups"] });
+      void qc.invalidateQueries({ queryKey: ["prospects-list"] });
     },
   });
 }
@@ -78,6 +78,26 @@ export function useAddManualContact(): UseMutationResult<
 // Empty-accepted responses (full rejection) leave caches alone so the UI
 // doesn't bounce.
 // ─────────────────────────────────────────────────────────────────────────
+
+export function usePrepareFirstMessage(): UseMutationResult<
+  PrepareFirstMessageResult,
+  ApiError,
+  { prospectId: string; input?: PrepareFirstMessageInput }
+> {
+  const qc = useQueryClient();
+  return useMutation<
+    PrepareFirstMessageResult,
+    ApiError,
+    { prospectId: string; input?: PrepareFirstMessageInput }
+  >({
+    mutationFn: ({ prospectId, input }) =>
+      postPrepareFirstMessage(prospectId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["prospects-list"] });
+      void qc.invalidateQueries({ queryKey: ["followups"] });
+    },
+  });
+}
 
 export function useAddManualContactsBulk(): UseMutationResult<
   ManualIngestBulkResponse,

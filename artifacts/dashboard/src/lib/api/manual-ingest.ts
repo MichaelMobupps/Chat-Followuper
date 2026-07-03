@@ -130,6 +130,32 @@ export interface ManualIngestBulkResponse {
   rejected: ManualIngestBulkRejectedRow[];
 }
 
+export interface PrepareFirstMessageInput {
+  channel?: ManualIngestChannel;
+}
+
+export interface PrepareFirstMessageResult {
+  status: "ready" | "research_complete" | "already_ready";
+  prospectId: string;
+  message: string | null;
+  deepLinkUrl: string | null;
+  researchCostUsd?: number;
+  generationCostUsd?: number;
+}
+
+export function postPrepareFirstMessage(
+  prospectId: string,
+  input: PrepareFirstMessageInput = {},
+): Promise<PrepareFirstMessageResult> {
+  return apiFetch<PrepareFirstMessageResult>(
+    `/api/prospects/${prospectId}/prepare-first-message`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 export function postManualIngestBulk(
   input: ManualIngestBulkInput,
 ): Promise<ManualIngestBulkResponse> {

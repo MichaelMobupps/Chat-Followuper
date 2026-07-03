@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   db,
   prospectsTable,
@@ -7,6 +7,8 @@ import {
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
+import { scheduleFollowupsAfterFirstSend } from "../followupScheduler";
+import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
 
 /**
  * Telegram channel adapter (Ticket 2.6-BE).
@@ -91,22 +93,35 @@ export async function recordSendIntent(
   const { prospectId, userId, followupId } = input;
   const today = new Date().toISOString().slice(0, 10);
 
+  let firstSendRecorded = false;
+
   await db.transaction(async (tx) => {
     if (followupId === null) {
-      await tx
+      const updated = await tx
         .update(prospectsTable)
         .set({ firstMessageSentAt: new Date() })
         .where(
           and(
             eq(prospectsTable.id, prospectId),
             eq(prospectsTable.userId, userId),
+            isNull(prospectsTable.firstMessageSentAt),
           ),
-        );
+        )
+        .returning({ id: prospectsTable.id });
+      if (updated.length === 0) return;
+      firstSendRecorded = true;
     } else {
-      await tx
+      const updated = await tx
         .update(followupsTable)
         .set({ clickedAt: new Date() })
-        .where(eq(followupsTable.id, followupId));
+        .where(
+          and(
+            eq(followupsTable.id, followupId),
+            isNull(followupsTable.clickedAt),
+          ),
+        )
+        .returning({ id: followupsTable.id });
+      if (updated.length === 0) return;
     }
 
     await tx
@@ -131,4 +146,22 @@ export async function recordSendIntent(
       actionStatus: "success",
     });
   });
+
+  if (followupId === null && firstSendRecorded) {
+    const prospectRows = await db
+      .select({ firstMessageChannel: prospectsTable.firstMessageChannel })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      )
+      .limit(1);
+    const rawChannel = prospectRows[0]?.firstMessageChannel ?? "telegram";
+    const channel: ChannelCode = isChannelCode(rawChannel)
+      ? rawChannel
+      : "telegram";
+    await scheduleFollowupsAfterFirstSend({ prospectId, userId, channel });
+  }
 }

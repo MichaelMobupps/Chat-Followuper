@@ -6,6 +6,7 @@ import { Layout } from "@/components/layout";
 import { AuthGate } from "@/components/auth-gate";
 import LoginPage from "@/pages/login";
 import TodayPage from "@/pages/today";
+import ContactsPage from "@/pages/contacts";
 import SeederPage from "@/pages/seeder";
 import CampaignsPage from "@/pages/campaigns";
 import CampaignDetailPage from "@/pages/campaign-detail";
@@ -18,6 +19,7 @@ import ProspectDetailPage from "@/pages/prospect-detail";
 import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
 import AccountsPage from "@/pages/accounts";
+import AdminOpsPage from "@/pages/admin-ops";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -28,6 +30,7 @@ function ProtectedRoutes() {
       <Layout>
         <Switch>
           <Route path="/" component={TodayPage} />
+          <Route path="/contacts" component={ContactsPage} />
           <Route path="/seeder" component={SeederPage} />
           <Route path="/campaigns" component={CampaignsPage} />
           <Route path="/campaigns/:id" component={CampaignDetailPage} />
@@ -40,6 +43,7 @@ function ProtectedRoutes() {
           <Route path="/followups" component={FollowupsPage} />
           <Route path="/activity" component={ActivityPage} />
           <Route path="/accounts" component={AccountsPage} />
+          <Route path="/admin/ops" component={AdminOpsPage} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

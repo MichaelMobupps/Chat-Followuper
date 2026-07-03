@@ -34,7 +34,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAddManualContact } from "@/hooks/use-manual-ingest";
+import {
+  useAddManualContact,
+  usePrepareFirstMessage,
+} from "@/hooks/use-manual-ingest";
 import {
   TICKERS,
   TICKER_LABELS,
@@ -42,6 +45,7 @@ import {
   type Ticker,
 } from "@/lib/api/manual-ingest";
 import { ApiError } from "@/lib/api";
+import { toastDuplicateContactError } from "@/lib/duplicateContactToast";
 import { cn } from "@/lib/utils";
 
 // BE validates with this same regex (PHONE_RE in routes/prospects.ts).
@@ -61,6 +65,8 @@ interface Props {
   channel: ManualIngestChannel;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When true (Contacts page), kick off research + message generation after ingest. */
+  prepareAfterAdd?: boolean;
 }
 
 interface FormState {
@@ -79,9 +85,15 @@ const EMPTY: FormState = {
   prePlatformContext: "",
 };
 
-export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
+export function AddManualContactDialog({
+  channel,
+  open,
+  onOpenChange,
+  prepareAfterAdd = false,
+}: Props) {
   const { toast } = useToast();
   const add = useAddManualContact();
+  const prepare = usePrepareFirstMessage();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [contextOpen, setContextOpen] = useState(false);
 
@@ -123,29 +135,51 @@ export function AddManualContactDialog({ channel, open, onOpenChange }: Props) {
       },
       {
         onSuccess: (prospect) => {
+          const name =
+            prospect.prospectName ?? form.firstName.trim();
+          const co = prospect.company ?? form.company.trim();
           toast({
-            title: "Added to follow-up queue",
-            description: `${prospect.prospectName ?? form.firstName.trim()} from ${prospect.company ?? form.company.trim()}.`,
+            title: "Contact added",
+            description: prepareAfterAdd
+              ? `${name} from ${co} — writing your first message…`
+              : `${name} from ${co}.`,
           });
           reset();
           onOpenChange(false);
+          if (prepareAfterAdd) {
+            prepare.mutate(
+              { prospectId: prospect.id, input: { channel } },
+              {
+                onSuccess: () => {
+                  toast({
+                    title: "Message ready",
+                    description: `${name} — click Generate & send when you're ready.`,
+                  });
+                },
+                onError: (err) => {
+                  toast({
+                    title: "Contact added; message prep failed",
+                    description:
+                      err instanceof ApiError
+                        ? err.code ?? err.message
+                        : String(err),
+                    variant: "destructive",
+                  });
+                },
+              },
+            );
+          }
         },
         onError: (err) => {
-          // 409 duplicate_phone is the common expected error class — surface
-          // a specific message. Everything else falls back to the API code
-          // or the raw message.
+          if (toastDuplicateContactError(err, toast)) return;
           const apiCode = err instanceof ApiError ? err.code : undefined;
-          const description =
-            apiCode === "duplicate_phone"
-              ? "A prospect with this phone already exists in your list."
-              : apiCode === "duplicate_telegram_handle"
-                ? "A prospect with this Telegram handle already exists in your list."
-                : err instanceof ApiError
-                  ? `${err.status} ${apiCode ?? err.message}`
-                  : (err as Error).message;
           toast({
             title: "Could not add contact",
-            description,
+            description:
+              err instanceof ApiError
+                ? `${err.status} ${apiCode ?? err.message}`
+                : (err as Error).message,
+            variant: "destructive",
           });
         },
       },

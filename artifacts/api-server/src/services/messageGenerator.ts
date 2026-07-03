@@ -97,6 +97,8 @@ export interface GenerateChatMessageOptions {
   /** Earlier follow-ups in the thread (for stage rotation / no-repeat). */
   previousFollowups?: PreviousFollowup[];
   researchBrief?: ProspectBrief;
+  /** Human-readable doctrine variant instruction from sequence config. */
+  doctrineVariantInstruction?: string;
 }
 
 export interface ProspectInput {
@@ -988,6 +990,7 @@ export async function generateChatMessage(
     conversation: opts.conversation,
     previous_followups: opts.previousFollowups,
     research_brief: opts.researchBrief,
+    doctrine_variant: opts.doctrineVariantInstruction,
   };
 
   // ── Self-heal: sanitize stored summary if it contains meta-language ──

@@ -214,6 +214,15 @@ export function patchFollowup(
   return req("PATCH", `/api/followups/${followupId}`, input);
 }
 
+export type SnoozePreset = "1d" | "3d" | "next_monday";
+
+export function snoozeFollowup(
+  followupId: number,
+  preset: SnoozePreset,
+): Promise<{ followup: Followup; scheduledAt: string }> {
+  return req("POST", `/api/followups/${followupId}/snooze`, { preset });
+}
+
 export function bulkArchiveFollowups(
   input: BulkArchiveInput,
 ): Promise<BulkArchiveResponse> {

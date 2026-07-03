@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { count, desc, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import {
   db,
   actionLogsTable,
   usersTable,
   dailyUsageTable,
+  ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth, requireAdmin } from "../middlewares/auth";
 import { isAdminEmail } from "../lib/admin";
@@ -152,6 +153,141 @@ router.get(
       },
       eventCap: EVENT_CAP,
     });
+  },
+);
+
+/**
+ * GET /api/admin/ops-dashboard
+ *
+ * Today's digest and Pushover notification counts for ops monitoring.
+ */
+router.get(
+  "/admin/ops-dashboard",
+  requireAuth,
+  requireAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    const today = new Date().toISOString().slice(0, 10);
+    const todayStart = new Date(`${today}T00:00:00.000Z`);
+
+    const [digestToday, pushoverToday, digestUsage, pushoverUsage] =
+      await Promise.all([
+        db
+          .select({ total: count() })
+          .from(actionLogsTable)
+          .where(
+            and(
+              eq(actionLogsTable.actionType, ACTION_TYPES.digestSent),
+              gte(actionLogsTable.executedAt, todayStart),
+            ),
+          ),
+        db
+          .select({ total: count() })
+          .from(actionLogsTable)
+          .where(
+            and(
+              eq(actionLogsTable.actionType, ACTION_TYPES.pushoverDigestSent),
+              gte(actionLogsTable.executedAt, todayStart),
+            ),
+          ),
+        db
+          .select({ total: count() })
+          .from(dailyUsageTable)
+          .where(
+            and(
+              eq(dailyUsageTable.date, today),
+              eq(dailyUsageTable.digestSent, true),
+            ),
+          ),
+        db
+          .select({ total: count() })
+          .from(dailyUsageTable)
+          .where(
+            and(
+              eq(dailyUsageTable.date, today),
+              eq(dailyUsageTable.pushoverSent, true),
+            ),
+          ),
+      ]);
+
+    res.json({
+      date: today,
+      digest: {
+        actionLogCount: Number(digestToday[0]?.total ?? 0),
+        dailyUsageCount: Number(digestUsage[0]?.total ?? 0),
+      },
+      pushover: {
+        actionLogCount: Number(pushoverToday[0]?.total ?? 0),
+        dailyUsageCount: Number(pushoverUsage[0]?.total ?? 0),
+      },
+    });
+  },
+);
+
+function csvEscape(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const s =
+    value instanceof Date
+      ? value.toISOString()
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * GET /api/admin/audit-export.csv
+ *
+ * Full action_logs export for compliance / manager review.
+ */
+router.get(
+  "/admin/audit-export.csv",
+  requireAuth,
+  requireAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    const rows = await db
+      .select({
+        id: actionLogsTable.id,
+        userId: actionLogsTable.userId,
+        prospectId: actionLogsTable.prospectId,
+        followupId: actionLogsTable.followupId,
+        actionType: actionLogsTable.actionType,
+        actionStatus: actionLogsTable.actionStatus,
+        durationMs: actionLogsTable.durationMs,
+        errorDetail: actionLogsTable.errorDetail,
+        metadata: actionLogsTable.metadata,
+        executedAt: actionLogsTable.executedAt,
+      })
+      .from(actionLogsTable)
+      .orderBy(desc(actionLogsTable.executedAt));
+
+    const header =
+      "id,userId,prospectId,followupId,actionType,actionStatus,durationMs,errorDetail,metadata,executedAt";
+    const lines = rows.map((r) =>
+      [
+        r.id,
+        r.userId,
+        r.prospectId,
+        r.followupId,
+        r.actionType,
+        r.actionStatus,
+        r.durationMs,
+        r.errorDetail,
+        r.metadata,
+        r.executedAt,
+      ]
+        .map(csvEscape)
+        .join(","),
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="audit-export.csv"',
+    );
+    res.status(200).send([header, ...lines].join("\n"));
   },
 );
 

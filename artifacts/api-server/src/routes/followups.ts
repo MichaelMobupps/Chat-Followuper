@@ -52,6 +52,7 @@ import {
   GeoGateBlockedError,
 } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
+import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 
 const router: IRouter = Router();
 
@@ -501,24 +502,34 @@ router.post(
       return;
     }
 
-    if (!next.generatedMessage || next.generatedMessage.trim().length === 0) {
-      // Auto-generation of the followup message body is part of a
-      // separate worker pipeline (followupGenerator) outside this
-      // ticket's scope. If the message hasn't been generated yet, the
-      // SDR can edit it inline or wait for the worker. Return a clear
-      // error so the FE can surface "message not ready" rather than
-      // attempt to open WhatsApp with an empty body.
-      res.status(409).json({
-        error: "message_not_generated",
-        followupId: next.id,
-        stage: next.stage,
-      });
-      return;
+    let messageBody = next.generatedMessage?.trim() ?? "";
+    if (!messageBody) {
+      const senderName =
+        user.name?.trim()?.split(/\s+/)[0] ??
+        user.email.split("@")[0] ??
+        "there";
+      try {
+        const generated = await generateAndPersistFollowupMessage({
+          followupId: next.id,
+          userId: user.id,
+          senderName,
+        });
+        messageBody = generated.message;
+      } catch (genErr) {
+        const code =
+          genErr instanceof Error ? genErr.message : "generation_failed";
+        res.status(409).json({
+          error: code,
+          followupId: next.id,
+          stage: next.stage,
+        });
+        return;
+      }
     }
 
     if (body.channel === "whatsapp") {
       try {
-        const url = generateLink(prospect.phone!, next.generatedMessage);
+        const url = generateLink(prospect.phone!, messageBody);
         // We do NOT mark sentAt here. The actual send completes when the
         // user clicks the link and either /prospects/:id/send-intent is
         // called or a future worker observes the clickedAt write. This
@@ -528,7 +539,7 @@ router.post(
           followupId: next.id,
           stage: next.stage,
           deepLinkUrl: url,
-          generatedMessage: next.generatedMessage,
+          generatedMessage: messageBody,
         });
       } catch (err) {
         if (err instanceof GeoGateBlockedError) {
@@ -548,15 +559,12 @@ router.post(
         res.status(409).json({ error: "no_telegram_identifier" });
         return;
       }
-      const url = generateTelegramLink(
-        telegramIdentifier,
-        next.generatedMessage,
-      );
+      const url = generateTelegramLink(telegramIdentifier, messageBody);
       res.status(200).json({
         followupId: next.id,
         stage: next.stage,
         deepLinkUrl: url,
-        generatedMessage: next.generatedMessage,
+        generatedMessage: messageBody,
       });
     } else {
       // Defensive — should be impossible given the SEND_IMPLEMENTED guard above.
@@ -746,6 +754,110 @@ router.post(
     }
 
     res.status(200).json({ archived: targetIds.length, ids: targetIds });
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/followups/:id/snooze
+// ─────────────────────────────────────────────────────────────────
+
+const SNOOZE_PRESETS = ["1d", "3d", "next_monday"] as const;
+type SnoozePreset = (typeof SNOOZE_PRESETS)[number];
+
+const snoozeBodySchema = z.object({
+  preset: z.enum(SNOOZE_PRESETS),
+});
+
+function computeSnoozedAt(preset: SnoozePreset, from: Date): Date {
+  const d = new Date(from);
+  if (preset === "1d") {
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+  if (preset === "3d") {
+    d.setDate(d.getDate() + 3);
+    return d;
+  }
+  // next_monday — upcoming Monday (if today is Monday, next week)
+  const day = d.getDay();
+  let daysUntil = (8 - day) % 7;
+  if (daysUntil === 0) daysUntil = 7;
+  d.setDate(d.getDate() + daysUntil);
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
+router.post(
+  "/followups/:id/snooze",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const followupIdRaw = String(req.params.id);
+    const followupId = Number.parseInt(followupIdRaw, 10);
+    if (!Number.isFinite(followupId) || followupId <= 0) {
+      res.status(400).json({ error: "invalid_followup_id" });
+      return;
+    }
+
+    let body: z.infer<typeof snoozeBodySchema>;
+    try {
+      body = snoozeBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        res.status(400).json({ error: "invalid_body", issues: err.issues });
+        return;
+      }
+      throw err;
+    }
+
+    const found = await db
+      .select({
+        followup: followupsTable,
+        prospectUserId: prospectsTable.userId,
+      })
+      .from(followupsTable)
+      .innerJoin(
+        prospectsTable,
+        eq(followupsTable.prospectId, prospectsTable.id),
+      )
+      .where(eq(followupsTable.id, followupId))
+      .limit(1);
+
+    const row = found[0];
+    if (!row || row.prospectUserId !== user.id) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (row.followup.sentAt) {
+      res.status(409).json({ error: "already_sent" });
+      return;
+    }
+
+    const previousAt = row.followup.scheduledAt;
+    const newScheduledAt = computeSnoozedAt(body.preset, previousAt);
+
+    const updated = await db
+      .update(followupsTable)
+      .set({ scheduledAt: newScheduledAt })
+      .where(eq(followupsTable.id, followupId))
+      .returning();
+
+    await db.insert(actionLogsTable).values({
+      userId: user.id,
+      prospectId: row.followup.prospectId,
+      followupId,
+      actionType: ACTION_TYPES.followupSnoozed,
+      actionStatus: "success",
+      metadata: {
+        preset: body.preset,
+        previousScheduledAt: previousAt.toISOString(),
+        newScheduledAt: newScheduledAt.toISOString(),
+        stage: row.followup.stage,
+      },
+    });
+
+    res.status(200).json({ followup: updated[0] });
   },
 );
 

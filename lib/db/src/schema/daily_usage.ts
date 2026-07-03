@@ -28,6 +28,8 @@ export const dailyUsageTable = pgTable(
       .notNull()
       .default("0"),
     digestSent: boolean("digest_sent").notNull().default(false),
+    /** Weekday midday Pushover batch (GMT+2), independent of email digest. */
+    pushoverSent: boolean("pushover_sent").notNull().default(false),
   },
   (table) => [
     primaryKey({

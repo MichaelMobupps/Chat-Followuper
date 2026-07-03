@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { CheckCircle2, Sparkles } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -41,6 +41,13 @@ import {
 import { useResearchStream } from "@/lib/sse";
 import type { Prospect, ProspectBrief } from "@/lib/api/prospects";
 import type { GenerateMessageResult, ResearchInput } from "@/lib/api/seeder";
+import { usePrepareFirstMessage } from "@/hooks/use-manual-ingest";
+import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
+import {
+  SendConfirmDialog,
+  type PendingSendConfirm,
+} from "@/components/SendConfirmDialog";
 
 type Stage =
   | { name: "form" }
@@ -64,6 +71,10 @@ export default function SeederPage() {
   const [stage, setStage] = useState<Stage>({ name: "form" });
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [apolloOpen, setApolloOpen] = useState(false);
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
+  const [pendingSend, setPendingSend] = useState<PendingSendConfirm | null>(
+    null,
+  );
 
   // Form pre-fill from Apollo discovery. When set, the form re-mounts
   // (via formKey) and uses these as defaults. Cleared on "Start over".
@@ -80,6 +91,8 @@ export default function SeederPage() {
   const deleteMutation = useDeleteProspect();
   const generateMutation = useGenerateMessage();
   const research = useResearchStream();
+  const prepareFirst = usePrepareFirstMessage();
+  const channelLink = useChannelLink();
 
   // Wire research-stream completion → transition to brief stage
   useEffect(() => {
@@ -291,6 +304,59 @@ export default function SeederPage() {
     setFormKey((k) => k + 1);
   }
 
+  async function handleOpenInChannel(prospect: Prospect) {
+    const channel =
+      prospect.firstMessageChannel === "telegram" ? "telegram" : "whatsapp";
+
+    try {
+      const result = await prepareFirst.mutateAsync({
+        prospectId: prospect.id,
+        input: { channel },
+      });
+
+      if (result.deepLinkUrl) {
+        window.open(result.deepLinkUrl, "_blank", "noopener,noreferrer");
+        setPendingSend({
+          prospectId: prospect.id,
+          followupId: null,
+          channel: channel as SendIntentChannel,
+        });
+        setSendConfirmOpen(true);
+        toast({
+          title: `Opening ${channel === "telegram" ? "Telegram" : "WhatsApp"}`,
+          description: "Review the message and press Send in the app.",
+        });
+        return;
+      }
+
+      channelLink.mutate(
+        { prospectId: prospect.id, channel },
+        {
+          onSuccess: (data) => {
+            window.open(data.url, "_blank", "noopener,noreferrer");
+            toast({
+              title: `Opening ${channel === "telegram" ? "Telegram" : "WhatsApp"}`,
+            });
+          },
+          onError: (err) => {
+            toast({
+              title: "Could not open chat",
+              description: err.message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({
+        title: "Could not prepare message",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   const isLanguageNonEnglish =
@@ -302,13 +368,20 @@ export default function SeederPage() {
     <section className="space-y-6">
       <header className="space-y-1">
         <h1
-          className="text-2xl font-semibold tracking-tight"
+          className="text-2xl font-semibold tracking-tight flex items-center gap-2"
           data-testid="page-title"
         >
-          Seeder
+          <Sparkles className="h-6 w-6 text-[#4FFFE3]" />
+          Apollo seeder
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Source new prospects and seed your outreach pipeline.
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Discover prospects via Apollo, run full LLM research, generate the
+          first message from doctrine, then send from Contacts or All prospects.
+          For people you already know, use{" "}
+          <a href="/contacts" className="text-[#4FFFE3] hover:underline">
+            Contacts
+          </a>{" "}
+          instead.
         </p>
       </header>
 
@@ -414,7 +487,29 @@ export default function SeederPage() {
                 prospect detail page when ready.
               </p>
             </div>
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 flex-wrap">
+              {(stage.prospect.firstMessageChannel === "whatsapp" ||
+                stage.prospect.firstMessageChannel === "telegram" ||
+                stage.prospect.phone ||
+                stage.prospect.telegramHandle) && (
+                <Button
+                  onClick={() => void handleOpenInChannel(stage.prospect)}
+                  disabled={
+                    prepareFirst.isPending || channelLink.isPending
+                  }
+                  data-testid="button-open-channel"
+                >
+                  {prepareFirst.isPending || channelLink.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                  )}
+                  Open in{" "}
+                  {stage.prospect.firstMessageChannel === "telegram"
+                    ? "Telegram"
+                    : "WhatsApp"}
+                </Button>
+              )}
               {stage.prospect.campaignId && (
                 <Link href={`/campaigns/${stage.prospect.campaignId}`}>
                   <Button variant="outline" data-testid="button-view-campaign">
@@ -444,6 +539,22 @@ export default function SeederPage() {
           />
         </DialogContent>
       </Dialog>
+
+      <SendConfirmDialog
+        open={sendConfirmOpen}
+        onOpenChange={(open) => {
+          setSendConfirmOpen(open);
+          if (!open) setPendingSend(null);
+        }}
+        pending={pendingSend}
+        onError={(message) =>
+          toast({
+            title: "Could not record send",
+            description: message,
+            variant: "destructive",
+          })
+        }
+      />
 
       <AlertDialog open={abandonOpen} onOpenChange={setAbandonOpen}>
         <AlertDialogContent>

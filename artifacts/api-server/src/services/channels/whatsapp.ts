@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   db,
   prospectsTable,
@@ -8,6 +8,8 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { isAllowedPhone, detectCountry } from "../../lib/geoGate";
+import { scheduleFollowupsAfterFirstSend } from "../followupScheduler";
+import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
 
 /**
  * Thrown by generateLink when the prospect's phone is in a country we
@@ -28,7 +30,7 @@ export class GeoGateBlockedError extends Error {
 /**
  * Build a https://wa.me/<digits>?text=<urlencoded-body> deep link for the
  * given phone and message body. Strips non-digits from the phone before
- * embedding. Throws GeoGateBlockedError when isAllowedPhone returns false.
+ * embedding. Throws GeoGateBlockedError only for invalid E.164 format.
  */
 export function generateLink(phone: string, body: string): string {
   if (!isAllowedPhone(phone)) {
@@ -64,22 +66,35 @@ export async function recordSendIntent(
   const { prospectId, userId, followupId } = input;
   const today = new Date().toISOString().slice(0, 10);
 
+  let firstSendRecorded = false;
+
   await db.transaction(async (tx) => {
     if (followupId === null) {
-      await tx
+      const updated = await tx
         .update(prospectsTable)
         .set({ firstMessageSentAt: new Date() })
         .where(
           and(
             eq(prospectsTable.id, prospectId),
             eq(prospectsTable.userId, userId),
+            isNull(prospectsTable.firstMessageSentAt),
           ),
-        );
+        )
+        .returning({ id: prospectsTable.id });
+      if (updated.length === 0) return;
+      firstSendRecorded = true;
     } else {
-      await tx
+      const updated = await tx
         .update(followupsTable)
         .set({ clickedAt: new Date() })
-        .where(eq(followupsTable.id, followupId));
+        .where(
+          and(
+            eq(followupsTable.id, followupId),
+            isNull(followupsTable.clickedAt),
+          ),
+        )
+        .returning({ id: followupsTable.id });
+      if (updated.length === 0) return;
     }
 
     await tx
@@ -104,4 +119,24 @@ export async function recordSendIntent(
       actionStatus: "success",
     });
   });
+
+  if (followupId === null && firstSendRecorded) {
+    const prospectRows = await db
+      .select({
+        firstMessageChannel: prospectsTable.firstMessageChannel,
+      })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      )
+      .limit(1);
+    const rawChannel = prospectRows[0]?.firstMessageChannel ?? "whatsapp";
+    const channel: ChannelCode = isChannelCode(rawChannel)
+      ? rawChannel
+      : "whatsapp";
+    await scheduleFollowupsAfterFirstSend({ prospectId, userId, channel });
+  }
 }

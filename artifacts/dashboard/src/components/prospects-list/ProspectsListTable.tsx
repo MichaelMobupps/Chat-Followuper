@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { useWhatsappLink } from "@/hooks/use-whatsapp";
+import { useChannelLink } from "@/hooks/use-whatsapp";
 import type {
   ProspectListItem,
   ProspectStatus,
@@ -261,50 +261,54 @@ function StatusBadge({ status }: { status: ProspectStatus }) {
 
 function ActionButton({ prospect }: { prospect: ProspectListItem }) {
   const { toast } = useToast();
-  const { mutate, isPending } = useWhatsappLink();
+  const { mutate, isPending } = useChannelLink();
+
+  const channel =
+    prospect.firstMessageChannel === "telegram" ? "telegram" : "whatsapp";
 
   if (
     prospect.status === "ready" &&
-    prospect.firstMessageChannel === "whatsapp"
+    (prospect.firstMessageChannel === "whatsapp" ||
+      prospect.firstMessageChannel === "telegram")
   ) {
+    const label = channel === "telegram" ? "Telegram" : "WhatsApp";
     return (
       <Button
         size="sm"
         disabled={isPending}
         onClick={() =>
-          mutate(prospect.id, {
-            onSuccess: (data) => {
-              const w = window.open(data.url, "_blank", "noopener,noreferrer");
-              if (!w) {
+          mutate(
+            { prospectId: prospect.id, channel },
+            {
+              onSuccess: (data) => {
+                const w = window.open(data.url, "_blank", "noopener,noreferrer");
+                if (!w) {
+                  toast({
+                    title: "Browser blocked the popup",
+                    description:
+                      "Allow popups for this site, or copy the link manually.",
+                    variant: "destructive",
+                  });
+                }
+              },
+              onError: (err) => {
                 toast({
-                  title: "Browser blocked the popup",
-                  description:
-                    "Allow popups for this site, or copy the link manually.",
+                  title: `Could not open ${label} link`,
+                  description: err.code ?? err.message,
                   variant: "destructive",
                 });
-              }
+              },
             },
-            onError: (err) => {
-              const msg = err.code ?? err.message;
-              toast({
-                title: "Could not open WhatsApp link",
-                description: msg,
-                variant: "destructive",
-              });
-            },
-          })
+          )
         }
         data-testid={`button-action-${prospect.id}`}
       >
         <ExternalLink className="h-3.5 w-3.5 mr-1" />
-        Open
+        Open {label}
       </Button>
     );
   }
 
-  // Other channels not yet wired — Telegram/Teams adapters are stubs.
-  // Show a disabled button for non-WhatsApp ready states; for non-ready
-  // states, show a status hint.
   if (prospect.status === "ready") {
     return (
       <Button size="sm" variant="outline" disabled>

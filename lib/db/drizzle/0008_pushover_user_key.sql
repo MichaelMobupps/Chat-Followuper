@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "pushover_user_key" text;

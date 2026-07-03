@@ -24,3 +24,85 @@ export const GetCurrentUserResponse = zod.object({
   email: zod.string().email(),
   name: zod.string().nullable(),
 });
+
+/**
+ * Runs prospect research (if needed), generates the stage-0 message via
+the doctrine pipeline, and returns a send-ready deep link.
+
+ * @summary Research and generate first message for a manual contact
+ */
+export const PrepareFirstMessageParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const PrepareFirstMessageBody = zod.object({
+  channel: zod.enum(["whatsapp", "telegram", "teams", "slack"]).optional(),
+});
+
+export const PrepareFirstMessageResponse = zod.object({
+  status: zod.enum(["ready", "research_complete", "already_ready"]),
+  prospectId: zod.string().uuid(),
+  message: zod.string().nullable(),
+  deepLinkUrl: zod.string().nullable(),
+  researchCostUsd: zod.number().optional(),
+  generationCostUsd: zod.number().optional(),
+});
+
+/**
+ * @summary Telegram deep link for a ready prospect
+ */
+export const GetTelegramLinkParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetTelegramLinkResponse = zod.object({
+  url: zod.string(),
+  body: zod.string(),
+});
+
+/**
+ * @summary Build a test WhatsApp or Telegram deep link
+ */
+export const PostTestChannelLinkBody = zod.object({
+  channel: zod.enum(["whatsapp", "telegram"]),
+  identifier: zod.string(),
+  message: zod.string().optional(),
+});
+
+export const PostTestChannelLinkResponse = zod.object({
+  channel: zod.enum(["whatsapp", "telegram"]),
+  deepLinkUrl: zod.string(),
+  message: zod.string(),
+  target: zod.string(),
+});
+
+/**
+ * @summary Read Pushover notification settings
+ */
+export const GetNotificationSettingsResponse = zod.object({
+  pushoverUserKey: zod.string().nullable(),
+  pushoverUserKeyMasked: zod.string().nullable(),
+  pushoverEnabled: zod.boolean(),
+  pushoverAppConfigured: zod.boolean(),
+});
+
+/**
+ * @summary Update Pushover user key
+ */
+export const PatchNotificationSettingsBody = zod.object({
+  pushoverUserKey: zod.string().nullish(),
+});
+
+export const PatchNotificationSettingsResponse = zod.object({
+  pushoverUserKey: zod.string().nullable(),
+  pushoverUserKeyMasked: zod.string().nullable(),
+  pushoverEnabled: zod.boolean(),
+  pushoverAppConfigured: zod.boolean(),
+});
+
+/**
+ * @summary Send a test Pushover notification
+ */
+export const PostTestPushoverResponse = zod.object({
+  ok: zod.boolean(),
+});

@@ -9,6 +9,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
+import { appPublicUrl } from "../lib/appPublicUrl";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -26,16 +27,24 @@ interface DueRow {
   userName: string | null;
   prospectName: string | null;
   company: string | null;
+  digestHourLocal: number;
+  digestTimezone: string;
 }
 
-function appBaseUrl(): string {
-  const u = process.env.APP_PUBLIC_URL;
-  if (!u) {
-    throw new Error(
-      "APP_PUBLIC_URL is not set; required to build follow-up open links.",
-    );
+/** True when the user's configured local digest hour has arrived. */
+function isDigestHourNow(digestHourLocal: number, digestTimezone: string): boolean {
+  if (process.env.DIGEST_SKIP_HOUR_CHECK === "true") return true;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: digestTimezone,
+      hour: "numeric",
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
+    return hour === digestHourLocal;
+  } catch {
+    return true;
   }
-  return u.replace(/\/+$/, "");
 }
 
 function escapeHtml(s: string): string {
@@ -50,7 +59,7 @@ function escapeHtml(s: string): string {
 }
 
 function renderEmail(name: string | null, rows: DueRow[]): string {
-  const base = appBaseUrl();
+  const base = appPublicUrl();
   const items = rows
     .map((r) => {
       const token = mintOpenToken(r.followupId, r.userId);
@@ -60,7 +69,7 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
       return `<tr>
   <td style="padding:8px 0;">${who}${co} &mdash; stage ${r.stage} (${escapeHtml(r.channel)})</td>
   <td style="padding:8px 0;text-align:right;">
-    <a href="${url}" style="background:#10b981;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;">Open chat</a>
+    <a href="${url}" style="background:#10b981;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">Follow up</a>
   </td>
 </tr>`;
     })
@@ -68,7 +77,7 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
   const n = rows.length;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
   <p>Hi ${escapeHtml(name ?? "there")},</p>
-  <p>You have ${n} follow-up${n === 1 ? "" : "s"} ready to send. Each link opens the chat with the message prefilled. Review it and press send.</p>
+  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message, you review it in WhatsApp/Telegram, and press send.</p>
   <table style="width:100%;border-collapse:collapse;">${items}</table>
   <p style="color:#6b7280;font-size:12px;margin-top:16px;">Sent by Chat Followuper. You send each message yourself.</p>
 </div>`;
@@ -94,6 +103,8 @@ export async function runFollowupDigests(): Promise<DigestResult> {
       userName: usersTable.name,
       prospectName: prospectsTable.prospectName,
       company: prospectsTable.company,
+      digestHourLocal: usersTable.digestHourLocal,
+      digestTimezone: usersTable.digestTimezone,
     })
     .from(followupsTable)
     .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
@@ -103,7 +114,6 @@ export async function runFollowupDigests(): Promise<DigestResult> {
         eq(followupsTable.status, "scheduled"),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
-        isNotNull(followupsTable.generatedMessage),
         eq(prospectsTable.followupPaused, false),
         eq(prospectsTable.replied, 0),
       ),
@@ -122,6 +132,11 @@ export async function runFollowupDigests(): Promise<DigestResult> {
 
   for (const [userId, list] of byUser) {
     try {
+      const sample = list[0]!;
+      if (!isDigestHourNow(sample.digestHourLocal, sample.digestTimezone)) {
+        continue;
+      }
+
       const already = await db
         .select({ digestSent: dailyUsageTable.digestSent })
         .from(dailyUsageTable)
@@ -135,6 +150,7 @@ export async function runFollowupDigests(): Promise<DigestResult> {
       if (already[0]?.digestSent) continue;
 
       const n = list.length;
+
       await sendMail(
         list[0].userEmail,
         `${n} follow-up${n === 1 ? "" : "s"} ready to send`,

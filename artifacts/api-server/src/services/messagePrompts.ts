@@ -111,6 +111,8 @@ export interface MessageContext {
   conversation?: ConversationRow[];
   previous_followups?: PreviousFollowup[];
   research_brief?: ProspectBrief;
+  /** SDR-configured rhetorical strategy for this follow-up stage. */
+  doctrine_variant?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -533,6 +535,10 @@ export function getFollowuperUserPrompt(ctx: MessageContext): string {
 
   const nativenessBlock = buildNativenessBlock(ctx.language);
 
+  const variantBlock = ctx.doctrine_variant?.trim()
+    ? `\nDOCTRINE VARIANT (required strategy for this message): ${ctx.doctrine_variant.trim()}\n`
+    : "";
+
   return `Write a Stage ${stageNum} follow-up ${ctx.channel} message for this prospect.
 
 LANGUAGE: ${langDisplay} (you MUST write the entire message in ${langDisplay})
@@ -543,7 +549,7 @@ PRODUCT WE OFFER: ${ctx.product}
 DAYS SINCE FIRST CONTACT: ${days}
 
 ${topicBlock}
-${conversationBlock}${previousBlock}${notesBlock}
+${conversationBlock}${previousBlock}${notesBlock}${variantBlock}
 
 SENDER NAME (used internally; do NOT sign off with this): ${ctx.sender_name}
 ${nativenessBlock ? `\n${nativenessBlock}\n` : ""}

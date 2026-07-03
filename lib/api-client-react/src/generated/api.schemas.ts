@@ -18,3 +18,89 @@ export interface AuthUser {
 export interface AuthError {
   error: string;
 }
+
+export interface ApiError {
+  error: string;
+  detail?: string;
+}
+
+export type PrepareFirstMessageRequestChannel =
+  (typeof PrepareFirstMessageRequestChannel)[keyof typeof PrepareFirstMessageRequestChannel];
+
+export const PrepareFirstMessageRequestChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  teams: "teams",
+  slack: "slack",
+} as const;
+
+export interface PrepareFirstMessageRequest {
+  channel?: PrepareFirstMessageRequestChannel;
+}
+
+export type PrepareFirstMessageResponseStatus =
+  (typeof PrepareFirstMessageResponseStatus)[keyof typeof PrepareFirstMessageResponseStatus];
+
+export const PrepareFirstMessageResponseStatus = {
+  ready: "ready",
+  research_complete: "research_complete",
+  already_ready: "already_ready",
+} as const;
+
+export interface PrepareFirstMessageResponse {
+  status: PrepareFirstMessageResponseStatus;
+  prospectId: string;
+  message: string | null;
+  deepLinkUrl: string | null;
+  researchCostUsd?: number;
+  generationCostUsd?: number;
+}
+
+export interface ChannelLinkResponse {
+  url: string;
+  body: string;
+}
+
+export type TestChannelLinkRequestChannel =
+  (typeof TestChannelLinkRequestChannel)[keyof typeof TestChannelLinkRequestChannel];
+
+export const TestChannelLinkRequestChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+} as const;
+
+export interface TestChannelLinkRequest {
+  channel: TestChannelLinkRequestChannel;
+  identifier: string;
+  message?: string;
+}
+
+export type TestChannelLinkResponseChannel =
+  (typeof TestChannelLinkResponseChannel)[keyof typeof TestChannelLinkResponseChannel];
+
+export const TestChannelLinkResponseChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+} as const;
+
+export interface TestChannelLinkResponse {
+  channel: TestChannelLinkResponseChannel;
+  deepLinkUrl: string;
+  message: string;
+  target: string;
+}
+
+export interface NotificationSettings {
+  pushoverUserKey: string | null;
+  pushoverUserKeyMasked: string | null;
+  pushoverEnabled: boolean;
+  pushoverAppConfigured: boolean;
+}
+
+export interface NotificationSettingsPatch {
+  pushoverUserKey?: string | null;
+}
+
+export type PostTestPushover200 = {
+  ok: boolean;
+};

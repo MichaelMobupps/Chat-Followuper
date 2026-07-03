@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
 import {
+  getChannelLink,
   getWhatsappLink,
   recordSendIntent,
   type WhatsappLinkResponse,
@@ -16,6 +17,16 @@ import {
 export function useWhatsappLink() {
   return useMutation<WhatsappLinkResponse, ApiError, string>({
     mutationFn: getWhatsappLink,
+  });
+}
+
+export function useChannelLink() {
+  return useMutation<
+    WhatsappLinkResponse,
+    ApiError,
+    { prospectId: string; channel: "whatsapp" | "telegram" }
+  >({
+    mutationFn: ({ prospectId, channel }) => getChannelLink(prospectId, channel),
   });
 }
 

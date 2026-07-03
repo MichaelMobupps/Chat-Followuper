@@ -10,8 +10,7 @@
  *    sendHourStart at the request level. The UI mirrors those rules
  *    with local validation before submit; the server is the source of
  *    truth for error reporting.
- *  - doctrineVariant per stage is selectable here but the LLM generator
- *    does not yet consume it (handoff §5.6). A small note conveys that.
+ *  - doctrineVariant per stage is passed into follow-up message generation.
  */
 import { useEffect, useState, type ChangeEvent } from "react";
 import {
@@ -462,6 +461,10 @@ function PanelBody({ onClose }: { onClose: () => void }) {
       {/* Digest */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">Daily digest</h3>
+        <p className="text-xs text-muted-foreground">
+          Email digest sends at this hour. Pushover phone reminders are separate:
+          weekdays at 12:00 midday GMT+2 — configure under Accounts.
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs" htmlFor="digest-hour">

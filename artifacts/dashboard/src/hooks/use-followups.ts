@@ -20,7 +20,9 @@ import {
   listFollowups,
   markProspectReplied,
   patchFollowup,
+  snoozeFollowup,
   sendNextFollowup,
+  type SnoozePreset,
   type ArchiveProspectResponse,
   type BulkArchiveInput,
   type BulkArchiveResponse,
@@ -76,6 +78,24 @@ export function useSendNextFollowup(): UseMutationResult<
   >({
     mutationFn: ({ prospectId, channel }) =>
       sendNextFollowup(prospectId, channel),
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+}
+
+export function useSnoozeFollowup(): UseMutationResult<
+  { followup: Followup; scheduledAt: string },
+  ApiError,
+  { followupId: number; preset: SnoozePreset }
+> {
+  const invalidate = useInvalidateFollowups();
+  return useMutation<
+    { followup: Followup; scheduledAt: string },
+    ApiError,
+    { followupId: number; preset: SnoozePreset }
+  >({
+    mutationFn: ({ followupId, preset }) => snoozeFollowup(followupId, preset),
     onSuccess: () => {
       void invalidate();
     },

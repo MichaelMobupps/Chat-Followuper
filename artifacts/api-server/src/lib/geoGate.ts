@@ -1,7 +1,11 @@
 /**
- * Geo gate. Restricts WhatsApp outreach to the allowed market list:
- * Brazil, LATAM, India, Southeast Asia. Ported verbatim from the old
- * WhatsApp Prospector codebase, with these adaptations:
+ * Geo utilities for phone → country detection and language hints.
+ *
+ * Geo blocking is disabled: all E.164 phones and all ISO country codes are
+ * allowed for WhatsApp and Telegram outreach. Prefix tables below are kept
+ * for country detection only.
+ *
+ * Originally ported from the old WhatsApp Prospector codebase, with these adaptations:
  *
  *   - The original imported ALLOWED_COUNTRIES, ALLOWED_PHONE_PREFIXES,
  *     isAllowedCountry, and isAllowedPhone from a shared/types module
@@ -140,13 +144,15 @@ const DIAGNOSTIC_PHONE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["+1", "US"],
 ];
 
-export function isAllowedCountry(countryCode: string): boolean {
-  return countryCode.toUpperCase() in ALLOWED_COUNTRIES;
+const E164_RE = /^\+[1-9]\d{6,14}$/;
+
+export function isAllowedCountry(_countryCode: string): boolean {
+  return true;
 }
 
 export function isAllowedPhone(phone: string): boolean {
   const cleaned = phone.replace(/[^0-9+]/g, "");
-  return ALLOWED_PHONE_PREFIXES.some(([prefix]) => cleaned.startsWith(prefix));
+  return E164_RE.test(cleaned);
 }
 
 export interface GeoCheckResult {
@@ -158,35 +164,27 @@ export interface GeoCheckResult {
 
 export function checkCountryAllowed(countryCode: string): GeoCheckResult {
   const upper = countryCode.toUpperCase();
-  if (isAllowedCountry(upper)) {
-    return {
-      allowed: true,
-      country: upper,
-      countryName: ALLOWED_COUNTRIES[upper],
-    };
-  }
   return {
-    allowed: false,
+    allowed: true,
     country: upper,
-    countryName: upper,
-    reason: `Country ${upper} is not in the WhatsApp-allowed market list. Allowed: Brazil, LATAM, India, Southeast Asia.`,
+    countryName: ALLOWED_COUNTRIES[upper] ?? upper,
   };
 }
 
 export function checkPhoneAllowed(phone: string): GeoCheckResult {
-  if (isAllowedPhone(phone)) {
-    const country = detectCountryFromPhone(phone);
+  if (!isAllowedPhone(phone)) {
     return {
-      allowed: true,
-      country: country.code,
-      countryName: country.name,
+      allowed: false,
+      country: "UNKNOWN",
+      countryName: "Unknown",
+      reason: "Phone must be E.164 format, e.g. +972501234567",
     };
   }
+  const country = detectCountryFromPhone(phone);
   return {
-    allowed: false,
-    country: "UNKNOWN",
-    countryName: "Unknown",
-    reason: `Phone ${phone.substring(0, 5)}*** does not match allowed country prefixes. WhatsApp outreach restricted to Brazil, LATAM, India, Southeast Asia.`,
+    allowed: true,
+    country: country.code,
+    countryName: country.name,
   };
 }
 
@@ -198,6 +196,14 @@ function detectCountryFromPhone(phone: string): { code: string; name: string } {
   for (const [prefix, code, name] of sorted) {
     if (cleaned.startsWith(prefix)) {
       return { code, name };
+    }
+  }
+  const diagSorted = [...DIAGNOSTIC_PHONE_PREFIXES].sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+  for (const [prefix, code] of diagSorted) {
+    if (cleaned.startsWith(prefix)) {
+      return { code, name: code };
     }
   }
   return { code: "UNKNOWN", name: "Unknown" };
