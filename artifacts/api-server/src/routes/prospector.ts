@@ -1144,6 +1144,8 @@ router.post(
     // the outer timeout fires. discoveryOrchestrator threads this signal
     // through every Apollo call.
     const ctrl = new AbortController();
+    // APO2: client disconnect also aborts in-flight Apollo calls
+    req.on("close", () => ctrl.abort());
 
     const discoveryInput: DiscoveryInput = {
       brand: body.brand ?? undefined,

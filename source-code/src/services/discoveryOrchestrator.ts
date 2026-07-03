@@ -434,7 +434,7 @@ async function applyOpusStrategies(
     // record one before the call; findOrg's internal calls will not register
     // here. The caller-level budget is best-effort, not fine-grained.
     const before = budget.count();
-    const result = await findOrg(stratResolved);
+    const result = await findOrg(stratResolved, signal);
     // Conservative budget bump (findOrg makes 1-10 Apollo calls internally).
     budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
     void before;
@@ -524,7 +524,7 @@ export async function discover(
   let resolved = resolveResult.resolved;
 
   // ── Step 2: strict findOrg (2.2-BE-B) ─────────────────────────────────
-  let findResult: FindOrgResult = await findOrg(resolved);
+  let findResult: FindOrgResult = await findOrg(resolved, input.signal);
   // Conservative budget bump (findOrg makes 1-25 Apollo calls).
   budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
   audit.strictAttempts = findResult.attempts;
@@ -660,7 +660,7 @@ export async function discover(
   }
 
   const targetContacts = Math.max(input.targetContacts ?? 6, 6);
-  const contactsResult = await collectContacts(org, resolved, { targetContacts });
+  const contactsResult = await collectContacts(org, resolved, { targetContacts }, input.signal);
   // Conservative budget bump (collectContacts makes 5-100+ Apollo calls).
   budget.bumpBy(COLLECT_CONTACTS_CALL_ESTIMATE);
 
@@ -769,7 +769,7 @@ export async function discover(
         const beforeCount = contactsResult.contacts.length;
         const subResult = await collectContacts(subOrg, resolved, {
           targetContacts: perSubTarget,
-        });
+        }, input.signal);
         budget.bumpBy(SUBSIDIARY_COLLECT_CALL_ESTIMATE);
         // Merge: add new contacts, dedup by email
         const existingEmails = new Set(

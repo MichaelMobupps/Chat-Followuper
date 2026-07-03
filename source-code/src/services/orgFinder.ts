@@ -294,13 +294,17 @@ function orgFromDict(o: Record<string, unknown>, domainOverride?: string): Apoll
 /** Strategy 1/2: enrich Apollo org by single domain. Falls back from
  *  /organizations/enrich to /mixed_companies/search if enrich returns nothing.
  *  Returns null if neither finds a domain-validated org. */
-export async function enrichOrgByDomain(domain: string): Promise<ApolloOrg | null> {
+export async function enrichOrgByDomain(
+  domain: string,
+  signal?: AbortSignal,
+): Promise<ApolloOrg | null> {
   const cleanDomain = sanitizeStr(domain);
   if (!cleanDomain) return null;
 
   let data = await apolloPost({
     path: "/organizations/enrich",
     body: { domain: cleanDomain },
+    signal,
   });
 
   let orgRaw: Record<string, unknown> | null = null;
@@ -315,6 +319,7 @@ export async function enrichOrgByDomain(domain: string): Promise<ApolloOrg | nul
         page: 1,
         per_page: 5,
       },
+      signal,
     });
     if (!data) return null;
     const orgs = (data.organizations as unknown[]) || (data.companies as unknown[]) || [];
@@ -357,6 +362,7 @@ export async function searchOrgByNameValidated(
   name: string,
   expectedDomain: string,
   altDomains: string[],
+  signal?: AbortSignal,
 ): Promise<ApolloOrg | null> {
   const cleanName = sanitizeStr(name);
   if (!cleanName) return null;
@@ -364,6 +370,7 @@ export async function searchOrgByNameValidated(
   const data = await apolloPost({
     path: "/mixed_companies/search",
     body: { q_organization_name: cleanName, page: 1, per_page: 10 },
+    signal,
   });
   if (!data) return null;
   const orgs =
@@ -464,8 +471,11 @@ export async function searchOrgByNameValidated(
 /** Search by name without domain validation. Used for parent company lookups
  *  where the parent legitimately has a different domain. Riskier than the
  *  validated variant — still does industry-divergence check. */
-async function searchOrgByNameNoDomain(name: string): Promise<ApolloOrg | null> {
-  return searchOrgByNameValidated(name, "", []);
+async function searchOrgByNameNoDomain(
+  name: string,
+  signal?: AbortSignal,
+): Promise<ApolloOrg | null> {
+  return searchOrgByNameValidated(name, "", [], signal);
 }
 
 // ─── _maybe_upgrade_to_parent ─────────────────────────────────────────────
@@ -475,6 +485,7 @@ async function maybeUpgradeToParent(
   parentCompany: string,
   corporateDomain: string,
   altDomains: string[],
+  signal?: AbortSignal,
 ): Promise<{ org: ApolloOrg; upgraded: boolean }> {
   const cleanParent = sanitizeStr(parentCompany);
   if (!cleanParent) return { org: childOrg, upgraded: false };
@@ -484,9 +495,10 @@ async function maybeUpgradeToParent(
     cleanedParentName,
     corporateDomain,
     altDomains,
+    signal,
   );
   if (!parentOrg) {
-    parentOrg = await searchOrgByNameNoDomain(cleanedParentName);
+    parentOrg = await searchOrgByNameNoDomain(cleanedParentName, signal);
   }
   if (!parentOrg || !parentOrg.id) return { org: childOrg, upgraded: false };
   if (parentOrg.id === childOrg.id) return { org: childOrg, upgraded: false };
@@ -508,6 +520,7 @@ async function maybeUpgradeToParent(
  */
 export async function findOrg(
   resolved: ResolvedCompany,
+  signal?: AbortSignal,
 ): Promise<FindOrgResult> {
   const attempts: FindOrgResult["attempts"] = [];
 
@@ -532,12 +545,15 @@ export async function findOrg(
     .map(sanitizeStr)
     .filter(Boolean);
 
+  // APO2: graceful abort before any Apollo call
+  if (signal?.aborted) return { org: null, strategy: "none", upgradedToParent: false, attempts };
+
   // ── Strategy 1: corporate domain enrich ─────────────────────────────────
   if (corporateDomain) {
-    const org = await enrichOrgByDomain(corporateDomain);
+    const org = await enrichOrgByDomain(corporateDomain, signal);
     if (org && org.id && org.estimatedNumEmployees > 0) {
       attempts.push({ strategy: "domain_enrich", input: corporateDomain, outcome: "found", detail: org.name });
-      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains);
+      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains, signal);
       return {
         org: upgraded.org,
         strategy: "domain_enrich",
@@ -555,7 +571,8 @@ export async function findOrg(
   // ── Strategy 2: alternative domains, with name-mismatch guard ───────────
   const cleanCompanyForGuard = stripStoreTagline(stripLegalSuffix(companyName)).toLowerCase().trim();
   for (const altDomain of altDomains) {
-    const org = await enrichOrgByDomain(altDomain);
+    if (signal?.aborted) break; // APO2: graceful abort in alt-domain loop
+    const org = await enrichOrgByDomain(altDomain, signal);
     if (!org || !org.id) {
       attempts.push({ strategy: "alt_domain_enrich", input: altDomain, outcome: "not_found" });
       continue;
@@ -569,7 +586,7 @@ export async function findOrg(
     if (cleanCompanyForGuard && cleanCompanyForGuard.length > 0) {
       if (orgNameLower.includes(cleanCompanyForGuard) && !hasMismatchSignal) {
         attempts.push({ strategy: "alt_domain_enrich", input: altDomain, outcome: "found", detail: org.name });
-        const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains);
+        const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains, signal);
         return {
           org: upgraded.org,
           strategy: "alt_domain_enrich",
@@ -581,7 +598,7 @@ export async function findOrg(
     } else {
       // No name to validate against — accept (matches Python behavior)
       attempts.push({ strategy: "alt_domain_enrich", input: altDomain, outcome: "found", detail: org.name });
-      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains);
+      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains, signal);
       return {
         org: upgraded.org,
         strategy: "alt_domain_enrich",
@@ -594,10 +611,10 @@ export async function findOrg(
   // ── Strategy 3: name search with domain validation ─────────────────────
   if (companyName) {
     const cleanName = stripLegalSuffix(companyName);
-    const org = await searchOrgByNameValidated(cleanName, corporateDomain, altDomains);
+    const org = await searchOrgByNameValidated(cleanName, corporateDomain, altDomains, signal);
     if (org) {
       attempts.push({ strategy: "name_validated", input: cleanName, outcome: "found", detail: org.name });
-      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains);
+      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains, signal);
       return {
         org: upgraded.org,
         strategy: "name_validated",
@@ -610,12 +627,13 @@ export async function findOrg(
 
   // ── Strategy 4: each search query ───────────────────────────────────────
   for (const query of searchQueries) {
+    if (signal?.aborted) break; // APO2: graceful abort in search-query loop
     if (!query || query === companyName) continue;
     const cleanQuery = stripLegalSuffix(query);
-    const org = await searchOrgByNameValidated(cleanQuery, corporateDomain, altDomains);
+    const org = await searchOrgByNameValidated(cleanQuery, corporateDomain, altDomains, signal);
     if (org) {
       attempts.push({ strategy: "query_validated", input: cleanQuery, outcome: "found", detail: org.name });
-      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains);
+      const upgraded = await maybeUpgradeToParent(org, parentCompany, corporateDomain, altDomains, signal);
       return {
         org: upgraded.org,
         strategy: "query_validated",
@@ -629,9 +647,9 @@ export async function findOrg(
   // ── Strategy 5: parent company direct (no domain validation) ────────────
   if (parentCompany && parentCompany !== companyName) {
     const cleanParent = stripLegalSuffix(parentCompany);
-    let org = await searchOrgByNameValidated(cleanParent, corporateDomain, altDomains);
+    let org = await searchOrgByNameValidated(cleanParent, corporateDomain, altDomains, signal);
     if (!org) {
-      org = await searchOrgByNameNoDomain(cleanParent);
+      org = await searchOrgByNameNoDomain(cleanParent, signal);
     }
     if (org) {
       attempts.push({ strategy: "parent_direct", input: cleanParent, outcome: "found", detail: org.name });

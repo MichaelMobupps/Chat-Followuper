@@ -343,6 +343,7 @@ interface ApolloPeopleSearchArgs {
 
 async function apolloPeopleSearch(
   args: ApolloPeopleSearchArgs,
+  signal?: AbortSignal,
 ): Promise<Array<Record<string, unknown>>> {
   const { org, titles, page, locations } = args;
 
@@ -368,6 +369,7 @@ async function apolloPeopleSearch(
   let data = await apolloPost({
     path: "/mixed_people/api_search",
     query,
+    signal,
   });
 
   // Fallback: JSON body form (some Apollo accounts/endpoints prefer it)
@@ -385,6 +387,7 @@ async function apolloPeopleSearch(
     data = await apolloPost({
       path: "/mixed_people/api_search",
       body,
+      signal,
     });
   }
 
@@ -401,6 +404,7 @@ async function enrichPerson(
   firstName: string,
   lastName: string,
   orgDomain: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown> | null> {
   // Strategy 1: bulk_match by ID
   let data = await apolloPost({
@@ -409,6 +413,7 @@ async function enrichPerson(
       details: [{ id: personId }],
       reveal_personal_emails: false,
     },
+    signal,
   });
   if (data) {
     const matches = data.matches;
@@ -422,6 +427,7 @@ async function enrichPerson(
   data = await apolloPost({
     path: "/people/match",
     body: { id: personId, reveal_personal_emails: false },
+    signal,
   });
   if (data) {
     const person = data.person;
@@ -441,6 +447,7 @@ async function enrichPerson(
         domain: orgDomain,
         reveal_personal_emails: false,
       },
+      signal,
     });
     if (data) {
       const person = data.person;
@@ -465,11 +472,13 @@ async function processPeople(
   acceptableEmailDomains: Set<string>,
   rejected: CollectContactsResult["rejected"],
   target: number,
+  signal?: AbortSignal,
 ): Promise<{ candidatesSeen: number; accepted: number }> {
   let candidatesSeen = 0;
   let accepted = 0;
 
   for (const person of people) {
+    if (signal?.aborted) break; // APO2: graceful abort in people loop
     if (collected.length >= target) break;
     candidatesSeen++;
 
@@ -488,7 +497,7 @@ async function processPeople(
 
     // Enrich if email is missing or locked
     if (!email || email.includes("email_not_unlocked")) {
-      const enriched = await enrichPerson(personId, firstName, lastName, orgDomain);
+      const enriched = await enrichPerson(personId, firstName, lastName, orgDomain, signal);
       if (enriched) {
         email = sanitizeStr(enriched.email).toLowerCase();
         firstName = sanitizeStr(enriched.first_name) || firstName;
@@ -555,10 +564,20 @@ export async function collectContacts(
   org: ApolloOrg,
   resolved: ResolvedCompany | null,
   opts: CollectContactsOptions = {},
+  signal?: AbortSignal,
 ): Promise<CollectContactsResult> {
   const target = Math.max(opts.targetContacts ?? 6, 6);
 
   if (!org.id && !org.domain) {
+    return {
+      contacts: [],
+      phasesRun: [],
+      rejected: { noEmail: 0, domainMismatch: 0, titleRejected: 0, duplicate: 0 },
+    };
+  }
+
+  // APO2: graceful abort before any Apollo call
+  if (signal?.aborted) {
     return {
       contacts: [],
       phasesRun: [],
@@ -605,7 +624,7 @@ export async function collectContacts(
         titles: tierTitles,
         page,
         locations,
-      });
+      }, signal);
       pagesRun = page;
       if (people.length === 0) break;
       const r = await processPeople(
@@ -617,6 +636,7 @@ export async function collectContacts(
         acceptableEmailDomains,
         rejected,
         target,
+        signal,
       );
       candSeen += r.candidatesSeen;
       acc += r.accepted;
@@ -631,7 +651,7 @@ export async function collectContacts(
     let acc = 0;
     for (let page = 1; page <= 2; page++) {
       if (collected.length >= target) break;
-      const people = await apolloPeopleSearch({ org, titles: null, page, locations });
+      const people = await apolloPeopleSearch({ org, titles: null, page, locations }, signal);
       pagesRun = page;
       if (people.length === 0) break;
       const r = await processPeople(
@@ -643,6 +663,7 @@ export async function collectContacts(
         acceptableEmailDomains,
         rejected,
         target,
+        signal,
       );
       candSeen += r.candidatesSeen;
       acc += r.accepted;
@@ -661,7 +682,7 @@ export async function collectContacts(
     let acc = 0;
     for (let page = 1; page <= 2; page++) {
       if (collected.length >= 2) break;
-      const people = await apolloPeopleSearch({ org, titles: null, page, locations });
+      const people = await apolloPeopleSearch({ org, titles: null, page, locations }, signal);
       pagesRun = page;
       if (people.length === 0) break;
       const r = await processPeople(
@@ -673,6 +694,7 @@ export async function collectContacts(
         acceptableEmailDomains,
         rejected,
         Math.max(2, target),
+        signal,
       );
       candSeen += r.candidatesSeen;
       acc += r.accepted;
