@@ -127,6 +127,9 @@ export const prospectsTable = pgTable(
     index("prospects_phone_reveal_correlation_idx").on(
       table.phoneRevealCorrelationId,
     ),
+    // DB4: covering index for the campaign_id FK so deleting a campaign doesn't
+    // sequential-scan + lock the whole prospects table.
+    index("prospects_campaign_id_idx").on(table.campaignId),
   ],
 );
 

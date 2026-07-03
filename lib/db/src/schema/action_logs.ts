@@ -39,6 +39,11 @@ export const actionLogsTable = pgTable(
   (table) => [
     index("action_logs_user_executed_idx").on(table.userId, table.executedAt),
     index("action_logs_type_idx").on(table.actionType),
+    // DB4: covering indexes for the prospect_id / followup_id FKs. action_logs
+    // is append-only and unbounded, so an unindexed FK makes every parent
+    // delete seq-scan + lock this table.
+    index("action_logs_prospect_id_idx").on(table.prospectId),
+    index("action_logs_followup_id_idx").on(table.followupId),
   ],
 );
 

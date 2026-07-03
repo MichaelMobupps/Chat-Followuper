@@ -78,6 +78,13 @@
       "when": 1778860000000,
       "tag": "0010_user_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778940000000,
+      "tag": "0011_fk_covering_indexes",
+      "breakpoints": true
     }
   ]
 }

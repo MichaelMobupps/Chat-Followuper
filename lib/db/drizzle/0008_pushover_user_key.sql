@@ -1,1 +1,1 @@
-ALTER TABLE "users" ADD COLUMN "pushover_user_key" text;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushover_user_key" text;

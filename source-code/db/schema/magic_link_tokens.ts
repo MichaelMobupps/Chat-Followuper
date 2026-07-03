@@ -28,7 +28,12 @@ export const magicLinkTokensTable = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("magic_link_tokens_token_idx").on(table.token)],
+  (table) => [
+    index("magic_link_tokens_token_idx").on(table.token),
+    // DB4: covering index for the user_id FK so deleting a user doesn't
+    // seq-scan + lock magic_link_tokens.
+    index("magic_link_tokens_user_id_idx").on(table.userId),
+  ],
 );
 
 export const insertMagicLinkTokenSchema = createInsertSchema(
