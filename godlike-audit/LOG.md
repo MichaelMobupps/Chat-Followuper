@@ -132,7 +132,30 @@ consolidate → triage → auto-fix serially with typecheck health probe after e
 - **FUP11** [Low] Invalid IANA tz string silently → `isDigestHourNow` returns true / quiet-hours falls to UTC; only validated as string.min(1).max(50). Fix: validate against `Intl.supportedValuesOf('timeZone')`. Conf: High.
 - Lows: unused imports (`isNotNull` followupDigest, `gte` pushoverNudges); `timingEngine.ts:58` minute=floor(rand*46) never 46-59; `pushoverDueNotifier.ts` dead stub; `followupDigest.ts:88-91` stale docstring.
 
-*(auditor findings appended below as they return)*
+### Auditor 7 — Dashboard frontend (returned)
+- Verified clean: AuthGate gates all non-/login routes (queries only mount when authenticated); **no XSS** (only dangerouslySetInnerHTML is dev-controlled chart CSS); admin page fails closed client-side.
+- **FE1** [High] Seeder research-complete effect fires save PATCH repeatedly: `updateMutation` in deps + `.mutate()` flips isPending → new identity → re-run while guard still true (stage flips only in async onSuccess) → many concurrent PATCH writes. `pages/seeder.tsx:98-121`. Fix: `useRef` latch or `if(isPending)return` or save in SSE result path. Conf: High.
+- **FE2** [High] Settings forms overwrite saved data on load failure: `getUserPreferences` no isError branch; on failed GET local state stays defaults, Save enabled → posts nulls → wipes prefs. Same in PushoverSettings. `UserPreferencesPanel.tsx:32-91,170`; `PushoverSettings.tsx:26-77,156`. Fix: isError UI + gate Save on `!prefs.data`. Conf: High.
+- **FE3** [Med] Today "All" tab: `isError = wa.isError && tg.isError` → single-channel failure hidden → SDR thinks channel empty. `today.tsx:168-173`. Fix: warn if either errors. Conf: High.
+- **FE4** [Med] Bulk "Open all" swallows per-send failures (`onError:()=>resolve()`), toasts pre-loop count regardless; `window.open` after await+timer → popup-blocked tabs 2..N. `today.tsx:303-339`. Fix: real counts + sync open. Conf: Med.
+- **FE5** [Med] SequenceConfig error state unreachable: `isLoading||!form` skeleton guard before `isError` block → permanent skeleton on load failure. `SequenceConfigPanel.tsx:151-170`. Fix: move isError above guard. Conf: High.
+- **FE6** [Med] Prospect outcome buttons prepend `[Outcome:…]` to contextNotes non-idempotently → accumulate/contradict + pollute message-gen context. `prospect-detail.tsx:119-147,388-405`. Fix: strip prior outcome / dedicated field. Conf: Med.
+- **FE7** [Med] Hand-written `lib/api/{notification-settings,test-channel,manual-ingest}.ts` duplicate generated api-client-react hooks (byte-identical now, will drift). Fix: adopt generated hooks, delete dupes. Conf: High/Med.
+- **FE8** [Med] No sign-out anywhere + signed-in identity never shown; generated `useLogout` unused. `components/layout.tsx`. Fix: sidebar account block + Sign out. Conf: High. (also QoL)
+- **FE9** [Med] Prospect list rows onClick-navigate but no role/tabIndex/onKeyDown → keyboard-inaccessible (WCAG 2.1.1). `ProspectsListTable.tsx:154-167`. Conf: High.
+- **FE10** [Med] Contacts opens confirm dialog even when `window.open` popup blocked (result ignored) → mis-recorded sends. `contacts.tsx:104-110` (prospect-detail/table do it right). Fix: check window ref. Conf: High.
+- **FE11** [Med] BulkPreviewGrid active toggle uses interpolated Tailwind `border-[${VAR}]` → JIT never compiles → selected product barely visible. `BulkPreviewGrid.tsx:345-349`. Fix: literal classes. Conf: High.
+- **FE12** [Med] Prospect search fires backend query every keystroke (no debounce). `ProspectsListFilters.tsx:81-88`. Fix: 300ms debounce (reset page 1). Conf: High.
+- **FE13** [Med] MessageReview local edits silently discarded on Done (send uses server body). `MessageReview.tsx:35-95`; `seeder.tsx:270-273`. Fix: persist or confirm-on-edit. Conf: Med.
+- **FE14** [Med] Research "Cancel" → Keep working leaves stream idle + stage still "research" → blank dead-end (only escape = Abandon paid draft). `seeder.tsx:216-219`. Conf: Med.
+- **FE15** [Med] CandidateGrid select-all counts non-selectable existing-prospect rows (selectable ignores existingProspectId) → header overcounts. `CandidateGrid.tsx:83-108`. Fix: exclude existingProspectId. Conf: High.
+- Lows: raw `<a>` in-app nav → full reload (today.tsx:409, seeder.tsx:380); SSE not closed on `result` (sse.ts:94-115); `calendarLink.ts:10-15` unguarded `new Date` → RangeError; ApolloPicker `?? ""` fallback never fires (use `||`); not-found.tsx hardcoded gray (dark-mode broken) + dev copy; `xlsx` CVE-2023-30533/CVE-2024-22363 (verify pinned version); many a11y label gaps; index-keyed editable lists; outcomeMutation doesn't invalidate prospects-list.
+
+### UX / ORGANIZATION observations (feed nice-to-haves)
+1. Placeholder pages leak scaffold copy ("Coming soon… Phase 1 scaffold", "Coming in ticket 2.6") — activity.tsx, followups.tsx, prospect/telegram.tsx. 2. Unify cache-refresh (manual refetch vs invalidation). 3. Standardize error-toast styling (destructive vs normal). 4. Centralize brand colors into theme tokens (hardcoded #4FFFE3/#00F5D4 inline, light/dark breaks). 5. Wire `messageLint.ts` char-limit into MessageReview (imported nowhere). 6. Per-item mutation pending state (global isPending disables all cards). 7. De-dup copy-pasted regex/displayName/back-link. 8. Layout sidebar footer = home for account/identity+sign-out. 9. Inline form validation feedback in bulk/URL flows. 10. Per-field copy buttons + keyboard-shortcut help overlay.
+
+---
+## ALL 8 AUDITORS COMPLETE. Consolidation + triage below.
 
 ---
 
