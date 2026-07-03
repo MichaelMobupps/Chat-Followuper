@@ -1,4 +1,4 @@
-import { and, eq, isNull, isNotNull, lte } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -143,23 +143,30 @@ export async function runFollowupDigests(): Promise<DigestResult> {
   let usersFailed = 0;
 
   for (const [userId, list] of byUser) {
+    let claimed = false;
     try {
       const sample = list[0]!;
       if (!isDigestHourNow(sample.digestHourLocal, sample.digestTimezone)) {
         continue;
       }
 
-      const already = await db
-        .select({ digestSent: dailyUsageTable.digestSent })
-        .from(dailyUsageTable)
-        .where(
-          and(
-            eq(dailyUsageTable.userId, userId),
-            eq(dailyUsageTable.date, today),
-          ),
-        )
-        .limit(1);
-      if (already[0]?.digestSent) continue;
+      // FUP3: atomically CLAIM today's digest slot BEFORE sending. The
+      // INSERT … ON CONFLICT DO UPDATE SET digest_sent=true WHERE
+      // digest_sent=false RETURNING lets exactly one runner win — the
+      // in-process scheduler OR the standalone cron script, even if they
+      // co-run. The loser gets an empty result and skips. This replaces the
+      // check-then-send-then-mark TOCTOU that let two processes both send.
+      const claim = await db
+        .insert(dailyUsageTable)
+        .values({ userId, date: today, digestSent: true })
+        .onConflictDoUpdate({
+          target: [dailyUsageTable.userId, dailyUsageTable.date],
+          set: { digestSent: true },
+          setWhere: sql`${dailyUsageTable.digestSent} = false`,
+        })
+        .returning({ userId: dailyUsageTable.userId });
+      if (claim.length === 0) continue; // already claimed/sent today
+      claimed = true;
 
       const n = list.length;
 
@@ -168,14 +175,6 @@ export async function runFollowupDigests(): Promise<DigestResult> {
         `${n} follow-up${n === 1 ? "" : "s"} ready to send`,
         renderEmail(list[0].userName, list),
       );
-
-      await db
-        .insert(dailyUsageTable)
-        .values({ userId, date: today, digestSent: true })
-        .onConflictDoUpdate({
-          target: [dailyUsageTable.userId, dailyUsageTable.date],
-          set: { digestSent: true },
-        });
 
       await db.insert(actionLogsTable).values({
         userId,
@@ -188,6 +187,22 @@ export async function runFollowupDigests(): Promise<DigestResult> {
       followupsListed += n;
     } catch (err) {
       usersFailed += 1;
+      // FUP3: if we claimed the slot but the send failed, RELEASE it so a later
+      // tick can retry (the hour-gate is `>=`, so a missed send re-fires the
+      // same day). Best-effort — a lost release just means one missed digest,
+      // never a duplicate.
+      if (claimed) {
+        await db
+          .update(dailyUsageTable)
+          .set({ digestSent: false })
+          .where(
+            and(
+              eq(dailyUsageTable.userId, userId),
+              eq(dailyUsageTable.date, today),
+            ),
+          )
+          .catch(() => {});
+      }
       console.error(`[followup-digest] failed for user ${userId}`, err);
     }
   }

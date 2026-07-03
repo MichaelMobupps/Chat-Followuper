@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -121,17 +121,20 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
         continue;
       }
 
-      const already = await db
-        .select({ pushoverSent: dailyUsageTable.pushoverSent })
-        .from(dailyUsageTable)
-        .where(
-          and(
-            eq(dailyUsageTable.userId, userId),
-            eq(dailyUsageTable.date, today),
-          ),
-        )
-        .limit(1);
-      if (already[0]?.pushoverSent) {
+      // FUP3: atomically CLAIM today's pushover slot BEFORE the send loop, so a
+      // co-running scheduler + cron can't both blast the quiet-hours-bypassing
+      // priority-1 batch. Exactly one runner's claim returns a row; the loser
+      // skips. Replaces the check-then-send-then-mark TOCTOU.
+      const claim = await db
+        .insert(dailyUsageTable)
+        .values({ userId, date: today, pushoverSent: true })
+        .onConflictDoUpdate({
+          target: [dailyUsageTable.userId, dailyUsageTable.date],
+          set: { pushoverSent: true },
+          setWhere: sql`${dailyUsageTable.pushoverSent} = false`,
+        })
+        .returning({ userId: dailyUsageTable.userId });
+      if (claim.length === 0) {
         usersSkipped += 1;
         continue;
       }
@@ -164,17 +167,21 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
 
       if (pushSent === 0) {
         usersFailed += 1;
+        // FUP3: nothing delivered — RELEASE the claim so a later tick retries.
+        await db
+          .update(dailyUsageTable)
+          .set({ pushoverSent: false })
+          .where(
+            and(
+              eq(dailyUsageTable.userId, userId),
+              eq(dailyUsageTable.date, today),
+            ),
+          )
+          .catch(() => {});
         continue;
       }
 
-      await db
-        .insert(dailyUsageTable)
-        .values({ userId, date: today, pushoverSent: true })
-        .onConflictDoUpdate({
-          target: [dailyUsageTable.userId, dailyUsageTable.date],
-          set: { pushoverSent: true },
-        });
-
+      // Claim above already set pushover_sent=true — no post-send marker needed.
       await db.insert(actionLogsTable).values({
         userId,
         actionType: ACTION_TYPES.pushoverDigestSent,
