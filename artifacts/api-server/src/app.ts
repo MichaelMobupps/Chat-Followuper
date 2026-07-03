@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type ErrorRequestHandler } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -48,5 +48,20 @@ app.use("/api", loadUser);
 
 app.get("/api/prospects/research/stream", researchStreamRoute);
 app.use("/api", router);
+
+// Terminal error handler — MUST be last. Without it, Express 5's default
+// handler serializes err.stack into the response body whenever NODE_ENV is not
+// "production", leaking internal paths / SQL fragments / possibly secret-bearing
+// error text to any caller. Log the full error server-side; return a generic
+// body. (Route handlers that already responded delegate back to Express.)
+const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  logger.error({ err }, "unhandled route error");
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  res.status(500).json({ error: "internal" });
+};
+app.use(errorHandler);
 
 export default app;

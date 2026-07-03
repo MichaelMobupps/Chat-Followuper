@@ -49,3 +49,20 @@ Thumbs.db
 .local/
 attached_assets/
 *-snapshot.tar.gz
+
+# Secrets — do NOT rely on the host-global excludes file; keep protection in-repo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+credentials.json
+
+# Editor/tooling backups (were being committed as *.bak.<timestamp>)
+*.bak
+*.bak.*
+*.bak-*
+
+# Snapshot archives
+*.zip
