@@ -8,6 +8,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { assertUnderApolloRevealCap } from "../lib/apolloRevealCap";
 import {
   searchOrg,
   searchPeople,
@@ -286,6 +287,11 @@ router.post(
       return;
     }
 
+    // Monthly reveal cap (APO1/API3): pre-check BEFORE spending an Apollo
+    // credit. Throws ApolloRevealCapExceededError → 429 via the terminal
+    // error handler.
+    await assertUnderApolloRevealCap(user.id);
+
     let revealed: ApolloRevealedContact;
     try {
       revealed = await revealContact(req.body.personId);
@@ -421,6 +427,11 @@ router.post(
       res.status(400).json({ error: "invalid_body" });
       return;
     }
+
+    // Monthly reveal cap (APO1/API3): pre-check BEFORE the async reveal POSTs
+    // to Apollo (a phone reveal burns ~8 credits). Throws → 429 via the
+    // terminal error handler.
+    await assertUnderApolloRevealCap(user.id);
 
     try {
       const result = await requestPhoneReveal(

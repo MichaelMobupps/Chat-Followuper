@@ -1,0 +1,289 @@
+import { and, eq, sql } from "drizzle-orm";
+import {
+  db,
+  prospectsTable,
+  usersTable,
+  dailyUsageTable,
+  actionLogsTable,
+  ACTION_TYPES,
+  type Prospect,
+} from "@workspace/db";
+import { getLanguageForCountry } from "../lib/geoGate";
+import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
+import { researchProspect, type ProspectBrief } from "./prospectResearch";
+import { LoggingProgressEmitter } from "./progressEvents";
+import {
+  generateChatMessage,
+  type ProspectInput,
+} from "./messageGenerator";
+import { generateLink } from "./channels/whatsapp";
+import { generateLink as generateTelegramLink } from "./channels/telegram";
+import { GeoGateBlockedError } from "./channels/whatsapp";
+import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
+import { logger } from "../lib/logger";
+import { appendMessageTemplate } from "../lib/messageTemplate";
+
+export type PrepareStatus =
+  | "ready"
+  | "research_complete"
+  | "already_ready";
+
+export interface PrepareFirstMessageResult {
+  status: PrepareStatus;
+  prospectId: string;
+  message: string | null;
+  deepLinkUrl: string | null;
+  researchCostUsd?: number;
+  generationCostUsd?: number;
+}
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function defaultSubVertical(vertical: string | null): string {
+  if (vertical === "web_cps") return "cps_web_classifieds_general";
+  return "utility_general_mobile";
+}
+
+function defaultProduct(vertical: string | null): string {
+  if (vertical === "web_cps") return "CPS / performance marketing";
+  return "mobile user acquisition";
+}
+
+function resolveChannel(prospect: Prospect, requested?: ChannelCode): ChannelCode {
+  if (requested) return requested;
+  const stored = prospect.firstMessageChannel;
+  if (stored && isChannelCode(stored)) return stored;
+  if (prospect.telegramHandle && !prospect.phone) return "telegram";
+  return "whatsapp";
+}
+
+function buildDeepLink(
+  channel: ChannelCode,
+  prospect: Prospect,
+  message: string,
+): string {
+  if (channel === "telegram") {
+    const id = prospect.telegramHandle ?? prospect.phone;
+    if (!id) throw new Error("no_telegram_identifier");
+    return generateTelegramLink(id, message);
+  }
+  if (!prospect.phone) throw new Error("no_phone");
+  return generateLink(prospect.phone, message);
+}
+
+/**
+ * Run research (if needed) and generate the stage-0 message for a manually
+ * ingested contact. Returns a deep link when the message is ready to send.
+ */
+export async function prepareFirstMessage(params: {
+  prospectId: string;
+  userId: string;
+  senderName: string;
+  channel?: ChannelCode;
+}): Promise<PrepareFirstMessageResult> {
+  const { prospectId, userId, senderName } = params;
+  const start = Date.now();
+
+  const [prospectRows, userRows] = await Promise.all([
+    db
+      .select()
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ messageTemplate: usersTable.messageTemplate })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1),
+  ]);
+
+  const rows = prospectRows;
+  const userMessageTemplate = userRows[0]?.messageTemplate;
+
+  const prospect = rows[0];
+  if (!prospect) {
+    throw new Error("not_found");
+  }
+
+  // Daily spend cap (LLM3): pre-check before any LLM work (this path runs both
+  // research and generation, each Anthropic-billed). Throws → 429 via the
+  // terminal error handler. No-op when the cap env is unset.
+  await assertUnderDailyLlmCap(userId);
+
+  const channel = resolveChannel(prospect, params.channel);
+
+  if (prospect.firstMessageBody?.trim()) {
+    let deepLinkUrl: string | null = null;
+    try {
+      deepLinkUrl = buildDeepLink(channel, prospect, prospect.firstMessageBody);
+    } catch {
+      deepLinkUrl = null;
+    }
+    return {
+      status: "already_ready",
+      prospectId,
+      message: prospect.firstMessageBody,
+      deepLinkUrl,
+    };
+  }
+
+  const country = prospect.country ?? "";
+  const language =
+    prospect.language ??
+    (country ? getLanguageForCountry(country) : "en");
+  const subVertical =
+    prospect.subVertical ?? defaultSubVertical(prospect.vertical);
+  const product = prospect.product ?? defaultProduct(prospect.vertical);
+
+  let researchCostUsd = 0;
+  let brief: ProspectBrief;
+
+  if (
+    prospect.researchBrief &&
+    typeof prospect.researchBrief === "object"
+  ) {
+    brief = prospect.researchBrief as ProspectBrief;
+  } else {
+    if (!prospect.company?.trim()) {
+      throw new Error("missing_company");
+    }
+
+    const researchResult = await researchProspect(
+      {
+        brand: prospect.company.trim(),
+        country,
+        language,
+        subVertical,
+        product,
+        sdrContextNotes:
+          prospect.prePlatformContext ??
+          prospect.contextNotes ??
+          undefined,
+      },
+      new LoggingProgressEmitter(),
+    );
+
+    brief = researchResult.brief;
+    researchCostUsd = researchResult.cost.usd;
+
+    await db
+      .update(prospectsTable)
+      .set({
+        researchBrief: brief,
+        language,
+        subVertical,
+        product,
+        country: country || prospect.country,
+      })
+      .where(eq(prospectsTable.id, prospectId));
+  }
+
+  const prospectInput: ProspectInput = {
+    prospectName: prospect.prospectName ?? "",
+    company: prospect.company ?? "",
+    vertical: prospect.vertical ?? "",
+    subVertical,
+    product,
+    country,
+    language,
+    contextNotes:
+      prospect.prePlatformContext ??
+      prospect.contextNotes ??
+      undefined,
+  };
+
+  const generated = await generateChatMessage({
+    prospect: prospectInput,
+    channel,
+    stage: 0,
+    senderName,
+    researchBrief: brief,
+  });
+
+  const generationCostUsd = generated.costEstimate.usd;
+  const finalMessage = appendMessageTemplate(
+    generated.message,
+    userMessageTemplate,
+  );
+  const today = todayUtc();
+
+  await db
+    .update(prospectsTable)
+    .set({
+      firstMessageBody: finalMessage,
+      firstMessageChannel: channel,
+      language,
+      subVertical,
+      product,
+    })
+    .where(
+      and(
+        eq(prospectsTable.id, prospectId),
+        eq(prospectsTable.userId, userId),
+      ),
+    );
+
+  await db
+    .insert(dailyUsageTable)
+    .values({
+      userId,
+      date: today,
+      messagesGenerated: 1,
+      anthropicSpendUsd: (
+        researchCostUsd + generationCostUsd
+      ).toFixed(4),
+    })
+    .onConflictDoUpdate({
+      target: [dailyUsageTable.userId, dailyUsageTable.date],
+      set: {
+        messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
+        anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
+      },
+    });
+
+  try {
+    await db.insert(actionLogsTable).values({
+      userId,
+      prospectId,
+      actionType: ACTION_TYPES.seederMessageGenerated,
+      actionStatus: "success",
+      durationMs: Date.now() - start,
+      metadata: {
+        channel,
+        costUsd: generationCostUsd,
+        researchCostUsd,
+        via: "manual_prepare",
+        iterations: generated.modelMetadata.iterations,
+        finalOverallScore: generated.modelMetadata.finalOverallScore,
+      },
+    });
+  } catch (err) {
+    logger.warn({ err }, "manual prepare: audit log failed");
+  }
+
+  let deepLinkUrl: string;
+  try {
+    deepLinkUrl = buildDeepLink(channel, prospect, finalMessage);
+  } catch (err) {
+    if (err instanceof GeoGateBlockedError) {
+      throw err;
+    }
+    throw err;
+  }
+
+  return {
+    status: "ready",
+    prospectId,
+    message: finalMessage,
+    deepLinkUrl,
+    researchCostUsd,
+    generationCostUsd,
+  };
+}

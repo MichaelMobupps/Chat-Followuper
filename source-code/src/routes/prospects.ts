@@ -75,16 +75,19 @@ const PROSPECT_STATUSES = [
   "phone-pending",
   "phone-blocked",
   "phone-no-match",
+  "phone-expired",
 ] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
 const LIST_CHANNELS = ["whatsapp", "telegram", "teams"] as const;
 const LIST_SORT_COLS = ["createdAt", "updatedAt", "prospectName"] as const;
+const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 
 const listProspectsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(25),
   status: z.enum(PROSPECT_STATUSES).optional(),
+  sourceMode: z.enum(SOURCE_MODES).optional(),
   channel: z.enum(LIST_CHANNELS).optional(),
   country: z.string().regex(/^[A-Z]{2}$/, "ISO 2-letter country code").optional(),
   search: z.string().trim().min(1).max(200).optional(),
@@ -106,12 +109,18 @@ function statusSqlFilter(status: ProspectStatus) {
         isNull(prospectsTable.firstMessageSentAt),
         eq(prospectsTable.phoneRevealStatus, "no_match"),
       );
+    case "phone-expired":
+      return and(
+        isNull(prospectsTable.firstMessageSentAt),
+        eq(prospectsTable.phoneRevealStatus, "expired"),
+      );
     case "phone-pending":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
         isNull(prospectsTable.phone),
         ne(prospectsTable.phoneRevealStatus, "blocked"),
         ne(prospectsTable.phoneRevealStatus, "no_match"),
+        ne(prospectsTable.phoneRevealStatus, "expired"),
       );
     case "ready":
       return and(
@@ -130,6 +139,7 @@ function statusSqlFilter(status: ProspectStatus) {
 
 function computeProspectStatus(p: {
   phone: string | null;
+  telegramHandle: string | null;
   phoneRevealStatus: string;
   firstMessageBody: string | null;
   firstMessageSentAt: Date | string | null;
@@ -137,7 +147,8 @@ function computeProspectStatus(p: {
   if (p.firstMessageSentAt) return "sent";
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
-  if (!p.phone) return "phone-pending";
+  if (p.phoneRevealStatus === "expired") return "phone-expired";
+  if (!p.phone && !p.telegramHandle) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
 }
@@ -163,6 +174,9 @@ router.get(
     if (query.status) {
       const sf = statusSqlFilter(query.status);
       if (sf) filters.push(sf);
+    }
+    if (query.sourceMode) {
+      filters.push(eq(prospectsTable.sourceMode, query.sourceMode));
     }
     if (query.channel) {
       filters.push(eq(prospectsTable.firstMessageChannel, query.channel));
@@ -200,11 +214,13 @@ router.get(
           country: prospectsTable.country,
           language: prospectsTable.language,
           phone: prospectsTable.phone,
+          telegramHandle: prospectsTable.telegramHandle,
           phoneRevealStatus: prospectsTable.phoneRevealStatus,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
           firstMessageSentAt: prospectsTable.firstMessageSentAt,
           apolloPersonId: prospectsTable.apolloPersonId,
+          sourceMode: prospectsTable.sourceMode,
           createdAt: prospectsTable.createdAt,
           updatedAt: prospectsTable.updatedAt,
         })
@@ -229,6 +245,7 @@ router.get(
       country: r.country,
       language: r.language,
       phone: r.phone,
+      telegramHandle: r.telegramHandle,
       phoneRevealStatus: r.phoneRevealStatus,
       firstMessageBody: r.firstMessageBody,
       firstMessageChannel: r.firstMessageChannel,
@@ -237,6 +254,7 @@ router.get(
           ? r.firstMessageSentAt.toISOString()
           : r.firstMessageSentAt,
       apolloPersonId: r.apolloPersonId,
+      sourceMode: r.sourceMode,
       createdAt:
         r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
       updatedAt:
@@ -265,8 +283,6 @@ router.get(
  * geo gate downstream.
  */
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
-
-const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 
 const ISO_LANG_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
 const ISO_COUNTRY_RE = /^[A-Z]{2}$/;
@@ -566,6 +582,55 @@ router.post(
     }
 
     res.status(201).json(prospect);
+  },
+);
+
+/**
+ * GET /api/prospects/:id/timeline — activity log for one prospect.
+ *
+ * Returns action_logs rows for this prospect, newest first.
+ */
+router.get(
+  "/prospects/:id/timeline",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+
+    if (!isUuidLike(prospectId)) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const prospect = await fetchOwnedProspect(prospectId, user.id);
+    if (!prospect) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const events = await db
+      .select({
+        id: actionLogsTable.id,
+        actionType: actionLogsTable.actionType,
+        actionStatus: actionLogsTable.actionStatus,
+        followupId: actionLogsTable.followupId,
+        metadata: actionLogsTable.metadata,
+        executedAt: actionLogsTable.executedAt,
+      })
+      .from(actionLogsTable)
+      .where(eq(actionLogsTable.prospectId, prospectId))
+      .orderBy(desc(actionLogsTable.executedAt));
+
+    res.status(200).json({
+      prospectId,
+      events: events.map((e) => ({
+        ...e,
+        executedAt:
+          e.executedAt instanceof Date
+            ? e.executedAt.toISOString()
+            : e.executedAt,
+      })),
+    });
   },
 );
 
@@ -1181,6 +1246,7 @@ router.post(
         vertical: tickerToCoarseVertical(body.ticker),
         country,
         prePlatformContext: body.prePlatformContext ?? null,
+        firstMessageChannel: body.channel,
       })
       .onConflictDoNothing({
         target: [prospectsTable.userId, prospectsTable.phone],
@@ -1529,6 +1595,7 @@ router.post(
             vertical: tickerToCoarseVertical(row.ticker),
             country,
             prePlatformContext: row.prePlatformContext ?? null,
+            firstMessageChannel: body.channel,
           })
           .onConflictDoNothing({
             target: [prospectsTable.userId, prospectsTable.phone],

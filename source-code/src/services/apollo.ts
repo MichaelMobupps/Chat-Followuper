@@ -1020,8 +1020,14 @@ export async function processPhoneRevealCallback(
       return { kind: "unknown_correlation" } as const;
     }
 
-    if (prospect.phoneRevealStatus !== "pending") {
-      // Apollo retried; we've already processed this delivery. No-op.
+    if (
+      prospect.phoneRevealStatus !== "pending" &&
+      prospect.phoneRevealStatus !== "expired"
+    ) {
+      // Already a hard terminal (arrived/blocked/no_match). Apollo retried a
+      // delivery we processed. No-op. "expired" is intentionally excluded so
+      // a late phone promotes the row to "arrived" below. The .for("update")
+      // row lock serializes this against the expiry sweep.
       return {
         kind: "duplicate" as const,
         prospectId: prospect.id,

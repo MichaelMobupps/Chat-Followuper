@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
+import { isAdminEmail } from "../lib/admin";
 import {
   SESSION_COOKIE_NAME,
   verifySession,
@@ -66,6 +67,27 @@ export function requireAuth(
 ): void {
   if (!req.user) {
     res.status(401).json({ error: "not_authenticated" });
+    return;
+  }
+  next();
+}
+
+/**
+ * Hard admin gate. Requires requireAuth earlier in the chain. Grants access
+ * only to emails in ADMIN_EMAILS; every other authenticated user gets 403
+ * and stays isolated to their own data.
+ */
+export function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ error: "not_authenticated" });
+    return;
+  }
+  if (!isAdminEmail(req.user.email)) {
+    res.status(403).json({ error: "forbidden_not_admin" });
     return;
   }
   next();

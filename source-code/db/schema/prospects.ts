@@ -96,6 +96,9 @@ export const prospectsTable = pgTable(
      *   - "blocked"  webhook delivered a phone, geo gate rejected; no
      *                phone is persisted in this case
      *   - "no_match" Apollo returned no phone for this person (terminal)
+     *   - "expired"  pending reveal aged past REVEAL_PENDING_MAX_AGE_HOURS
+     *                with no webhook; soft terminal (Ticket 1.5c). A late
+     *                webhook can still promote it to "arrived".
      *
      * phoneNumber is populated ONLY on the "arrived" path, after the geo
      * gate passes. On "blocked" the phone is intentionally discarded.

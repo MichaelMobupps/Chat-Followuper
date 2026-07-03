@@ -93,6 +93,31 @@ export const usersTable = pgTable("users", {
   requireApproval: boolean("require_approval").notNull().default(false),
   digestHourLocal: integer("digest_hour_local").notNull().default(9),
   digestTimezone: text("digest_timezone").notNull().default("Asia/Jerusalem"),
+  /**
+   * Pushover user key for mobile follow-up reminders (optional).
+   * Each rep installs the Pushover app and pastes their key from
+   * pushover.net/dashboard. Null means Pushover reminders are off.
+   */
+  pushoverUserKey: text("pushover_user_key"),
+  /**
+   * Default follow-up channel for new prospects and digest links.
+   * One of: whatsapp, telegram, teams, slack.
+   */
+  preferredChannel: text("preferred_channel").notNull().default("whatsapp"),
+  /**
+   * Local-hour window (in digestTimezone) when Pushover may be sent.
+   * Outside [start, end) is treated as quiet hours.
+   */
+  pushoverQuietHourStart: integer("pushover_quiet_hour_start")
+    .notNull()
+    .default(8),
+  pushoverQuietHourEnd: integer("pushover_quiet_hour_end")
+    .notNull()
+    .default(20),
+  /**
+   * Optional personal sign-off appended to every generated message.
+   */
+  messageTemplate: text("message_template"),
   microsoftRefreshToken: text("microsoft_refresh_token"),
   slackBotToken: text("slack_bot_token"),
   /**
