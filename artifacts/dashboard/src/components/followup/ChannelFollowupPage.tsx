@@ -166,10 +166,20 @@ export function ChannelFollowupPage({ channel }: Props) {
           // here; the send-intent endpoint (or a future click-observer
           // worker) does. Same model as the stage-0 wa.me flow.
           window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
-          toast({
-            title: `Opened in ${CHANNEL_LABEL[channel]}`,
-            description: `${prospectName} · stage ${data.stage}`,
-          });
+          // CH5: Telegram t.me/<handle>?text= often doesn't prefill the composer
+          // for plain user handles — copy the message so the SDR can paste it.
+          if (channel === "telegram" && data.generatedMessage) {
+            void navigator.clipboard.writeText(data.generatedMessage).catch(() => {});
+            toast({
+              title: "Opened Telegram — message copied",
+              description: `${prospectName}: Telegram may not prefill — paste it if the composer is empty.`,
+            });
+          } else {
+            toast({
+              title: `Opened in ${CHANNEL_LABEL[channel]}`,
+              description: `${prospectName} · stage ${data.stage}`,
+            });
+          }
         },
         onError: (err) => {
           const apiCode = err instanceof ApiError ? err.code : undefined;

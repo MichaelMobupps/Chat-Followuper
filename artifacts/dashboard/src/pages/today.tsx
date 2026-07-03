@@ -224,10 +224,21 @@ export default function TodayPage() {
               followupId,
               channel: sendChannel as SendIntentChannel,
             });
-            toast({
-              title: `Opening ${CHANNEL_LABEL[sendChannel]}`,
-              description: `${prospectName} · stage ${data.stage}`,
-            });
+            // CH5: t.me/<handle>?text= often doesn't prefill the composer for
+            // plain user handles (only bot deep links do), so the SDR can land
+            // on an empty chat. Copy the message so they can paste it.
+            if (sendChannel === "telegram" && message) {
+              void navigator.clipboard.writeText(message).catch(() => {});
+              toast({
+                title: "Opening Telegram — message copied",
+                description: `${prospectName}: Telegram may not prefill the text — paste it if the composer is empty.`,
+              });
+            } else {
+              toast({
+                title: `Opening ${CHANNEL_LABEL[sendChannel]}`,
+                description: `${prospectName} · stage ${data.stage}`,
+              });
+            }
             setSendConfirmOpen(true);
             refetch();
           },
