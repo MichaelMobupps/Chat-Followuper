@@ -80,8 +80,17 @@ export function CandidateGrid({ candidates, onBack, onConfirm }: Props) {
   // per reveal regardless, so revealing a "no" candidate is pure waste —
   // they're rendered for visibility (when hideNoPhone toggle is OFF) but
   // not selectable.
+  // FE15: selectable must exclude BOTH no-phone rows and rows that are already
+  // prospects (existingProspectId != null). Previously it ignored the latter, so
+  // "select all" checked already-imported rows and the header count overstated
+  // the real selection — those rows are dropped again in selectedCandidates.
   const selectable = useMemo(
-    () => filtered.filter((c) => c.person.directPhoneStatus !== "no"),
+    () =>
+      filtered.filter(
+        (c) =>
+          c.person.directPhoneStatus !== "no" &&
+          c.person.existingProspectId == null,
+      ),
     [filtered],
   );
 

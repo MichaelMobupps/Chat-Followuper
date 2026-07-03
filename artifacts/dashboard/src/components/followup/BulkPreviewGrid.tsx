@@ -49,7 +49,6 @@ const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
 const IGNITE_BORDER_ACTIVE = "#00F5D4";
 const IGNITE_BG_ACTIVE = "rgba(0,245,212,0.08)";
 const IGNITE_TEXT_ACTIVE = "#4FFFE3";
-const IGNITE_BORDER_HOVER = "rgba(0,245,212,0.35)";
 const IGNITE_GLOW_BUTTON =
   "0 0 0 1px rgba(0,245,212,.35), 0 0 18px rgba(0,245,212,.25)";
 
@@ -341,16 +340,24 @@ export function BulkPreviewGrid({
                       data-testid={`bulk-row-${idx}-ticker-${t}`}
                       className={cn(
                         "flex h-9 items-center justify-center rounded-md border text-xs font-medium transition-all",
+                        // FE11: the active brand colors are applied via inline
+                        // `style` below — Tailwind arbitrary values built by
+                        // runtime interpolation (`border-[${VAR}]`) are never
+                        // seen by the JIT scanner, so they don't compile and the
+                        // selected ticker was rendered with no highlight.
                         active
-                          ? `border-[${IGNITE_BORDER_ACTIVE}] bg-[${IGNITE_BG_ACTIVE}] text-[${IGNITE_TEXT_ACTIVE}]`
+                          ? ""
                           : "border-input bg-background text-foreground",
-                        !active &&
-                          !disabled &&
-                          `hover:border-[${IGNITE_BORDER_HOVER}]`,
+                        !active && !disabled && "hover:border-ring",
                       )}
                       style={
                         active
-                          ? { boxShadow: IGNITE_GLOW_BUTTON }
+                          ? {
+                              borderColor: IGNITE_BORDER_ACTIVE,
+                              backgroundColor: IGNITE_BG_ACTIVE,
+                              color: IGNITE_TEXT_ACTIVE,
+                              boxShadow: IGNITE_GLOW_BUTTON,
+                            }
                           : undefined
                       }
                     >

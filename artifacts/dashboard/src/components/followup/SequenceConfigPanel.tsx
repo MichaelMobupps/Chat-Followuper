@@ -148,16 +148,9 @@ function PanelBody({ onClose }: { onClose: () => void }) {
     }
   }, [query.data, form]);
 
-  if (query.isLoading || !form) {
-    return (
-      <div className="py-6 space-y-3">
-        <Skeleton className="h-6 w-40" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
-    );
-  }
-
+  // FE5: check the error branch BEFORE the loading/!form skeleton. On a failed
+  // load `form` stays null, so `!form` would otherwise render the skeleton
+  // forever and this error state was unreachable.
   if (query.isError) {
     return (
       <div className="py-6 text-sm text-destructive">
@@ -165,6 +158,16 @@ function PanelBody({ onClose }: { onClose: () => void }) {
         {query.error instanceof ApiError
           ? query.error.code ?? query.error.message
           : (query.error as Error).message}
+      </div>
+    );
+  }
+
+  if (query.isLoading || !form) {
+    return (
+      <div className="py-6 space-y-3">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       </div>
     );
   }

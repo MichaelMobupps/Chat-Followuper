@@ -101,7 +101,23 @@ export default function ContactsPage() {
       }
 
       setSendingId(prospect.id);
-      window.open(result.deepLinkUrl, "_blank", "noopener,noreferrer");
+      // FE10: a blocked popup makes window.open return null. Don't open the
+      // confirm dialog / record a pending send for a chat the user never saw —
+      // that mis-records the send (prospect-detail/table already guard this).
+      const chatWindow = window.open(
+        result.deepLinkUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      if (!chatWindow) {
+        setSendingId(null);
+        toast({
+          title: "Popup blocked",
+          description: "Allow popups for this site, then try again.",
+          variant: "destructive",
+        });
+        return;
+      }
       setPendingSend({
         prospectId: prospect.id,
         followupId: null,
