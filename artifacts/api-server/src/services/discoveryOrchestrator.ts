@@ -49,6 +49,7 @@ import {
 } from "./contactCollector";
 import {
   apolloPost,
+  apolloBudgetStore,
   sanitizeStr,
 } from "./apolloProspector";
 import {
@@ -223,12 +224,10 @@ class CallBudget {
   }
 }
 
-/** Conservative estimates of Apollo calls per service invocation (the
- *  orchestrator can't introspect inside findOrg / collectContacts; these
- *  feed budget approximation). */
-const FIND_ORG_CALL_ESTIMATE = 5;
-const COLLECT_CONTACTS_CALL_ESTIMATE = 20;
-const SUBSIDIARY_COLLECT_CALL_ESTIMATE = 10;
+// APO5: the per-service call estimates that used to feed a coarse post-hoc
+// budget bump are gone — findOrg / collectContacts now self-count every real
+// apolloPost via the ALS-scoped budget (apolloBudgetStore), so the cap is an
+// exact, hard per-call ceiling instead of an approximation that could overshoot.
 
 // ─── Smart cascade (LLM-validated relaxed name search) ────────────────────
 
@@ -299,7 +298,6 @@ async function findOrgSmart(
     const cleanName = stripLegalSuffix(searchName);
     if (!cleanName || cleanName.startsWith("http")) continue;
 
-    budget.bump();
     const data = await apolloPost({
       path: "/mixed_companies/search",
       body: {
@@ -429,15 +427,9 @@ async function applyOpusStrategies(
       reasoning: strat.reasoning,
     };
 
-    // We don't have a per-strategy budget counter inside findOrg, but each
-    // strategy makes ~5-10 Apollo calls. Quick budget bump approximation:
-    // record one before the call; findOrg's internal calls will not register
-    // here. The caller-level budget is best-effort, not fine-grained.
-    const before = budget.count();
+    // APO5: findOrg's internal apolloPost calls now self-count via the ALS
+    // budget, so no post-hoc estimate is needed — the budget reflects real calls.
     const result = await findOrg(stratResolved, signal);
-    // Conservative budget bump (findOrg makes 1-10 Apollo calls internally).
-    budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
-    void before;
 
     if (!result.org) continue;
 
@@ -493,6 +485,12 @@ export async function discover(
   opts: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
   const budget = new CallBudget(input.apolloCallBudget ?? DEFAULT_APOLLO_CALL_BUDGET);
+  // APO5: scope the budget to this discovery run so EVERY apolloPost — in
+  // findOrg/collectContacts and all their internals — self-counts and stops the
+  // instant the true limit is hit (a real ceiling, not a post-hoc estimate).
+  // enterWith (vs run) avoids re-indenting the whole body; the only reader of
+  // this store is the discovery apolloPost, so there's nothing to leak into.
+  apolloBudgetStore.enterWith(budget);
   const audit: DiscoveryAudit = {
     resolution: "no_org",
     strictAttempts: [],
@@ -525,8 +523,7 @@ export async function discover(
 
   // ── Step 2: strict findOrg (2.2-BE-B) ─────────────────────────────────
   let findResult: FindOrgResult = await findOrg(resolved, input.signal);
-  // Conservative budget bump (findOrg makes 1-25 Apollo calls).
-  budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
+  // APO5: findOrg's Apollo calls self-count via the ALS budget (no estimate).
   audit.strictAttempts = findResult.attempts;
   audit.strictStrategy = findResult.strategy;
   audit.upgradedToParent = findResult.upgradedToParent;
@@ -661,8 +658,7 @@ export async function discover(
 
   const targetContacts = Math.max(input.targetContacts ?? 6, 6);
   const contactsResult = await collectContacts(org, resolved, { targetContacts }, input.signal);
-  // Conservative budget bump (collectContacts makes 5-100+ Apollo calls).
-  budget.bumpBy(COLLECT_CONTACTS_CALL_ESTIMATE);
+  // APO5: collectContacts's Apollo calls self-count via the ALS budget (no estimate).
 
   // ── Step 6: Phase 3 subsidiary expansion ───────────────────────────────
   if (
@@ -713,7 +709,6 @@ export async function discover(
 
       for (const variant of Array.from(variants).filter(Boolean).slice(0, 3)) {
         if (input.signal?.aborted || budget.exhausted()) break;
-        budget.bump();
         const data = await apolloPost({
           path: "/mixed_companies/search",
           body: { q_organization_name: variant, page: 1, per_page: 10 },
@@ -770,7 +765,7 @@ export async function discover(
         const subResult = await collectContacts(subOrg, resolved, {
           targetContacts: perSubTarget,
         }, input.signal);
-        budget.bumpBy(SUBSIDIARY_COLLECT_CALL_ESTIMATE);
+        // APO5: subsidiary collectContacts calls self-count via the ALS budget.
         // Merge: add new contacts, dedup by email
         const existingEmails = new Set(
           contactsResult.contacts.map((c) => c.email.toLowerCase()),
