@@ -771,6 +771,9 @@ export async function requestPhoneReveal(
   const correlationId = generateCorrelationId();
   const today = new Date().toISOString().slice(0, 10);
   const start = Date.now();
+  // APO7: remember the pre-request status so a compensating rollback can
+  // restore it if Apollo rejects the request outright (see below).
+  let priorStatus = "idle";
 
   // Persist correlation + status BEFORE the Apollo call. If the Apollo
   // call later fails, the prospect's status stays 'pending' and the
@@ -809,6 +812,7 @@ export async function requestPhoneReveal(
         `Phone reveal already in state '${prospect.phoneRevealStatus}' for prospect ${prospectId}`,
       );
     }
+    priorStatus = prospect.phoneRevealStatus;
 
     await tx
       .update(prospectsTable)
@@ -872,11 +876,58 @@ export async function requestPhoneReveal(
 
   // Apollo's documented status for accepted-async is not consistent —
   // we accept 200, 202, and 204. Anything else is mapped to ApolloApiError.
-  await apolloFetch<unknown>(
-    "/people/match",
-    { method: "POST", body },
-    [200, 202, 204],
-  );
+  try {
+    await apolloFetch<unknown>(
+      "/people/match",
+      { method: "POST", body },
+      [200, 202, 204],
+    );
+  } catch (err) {
+    // APO7: the pending row + counter increment were committed BEFORE this call
+    // (so a matching webhook always finds a correlationId). If Apollo rejects
+    // the request with a definitive client error, no reveal happened and no
+    // credit was spent — so compensate: undo the increment and restore the
+    // prior status, letting the SDR retry and keeping the monthly cap honest.
+    // A 5xx / network / rate-limit error is left as-is (uncertain acceptance);
+    // the 72h reveal sweep reconciles a genuinely stuck pending.
+    const definitiveClientError =
+      (err instanceof ApolloApiError && err.status >= 400 && err.status < 500) ||
+      err instanceof ApolloAuthError;
+    if (definitiveClientError) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(prospectsTable)
+            .set({
+              phoneRevealStatus: priorStatus,
+              phoneRevealRequestedAt: null,
+              phoneRevealCorrelationId: null,
+            })
+            .where(
+              and(
+                eq(prospectsTable.id, prospectId),
+                eq(prospectsTable.phoneRevealStatus, "pending"),
+              ),
+            );
+          await tx
+            .update(dailyUsageTable)
+            .set({
+              apolloRevealsUsed: sql`GREATEST(${dailyUsageTable.apolloRevealsUsed} - 1, 0)`,
+            })
+            .where(
+              and(
+                eq(dailyUsageTable.userId, userId),
+                eq(dailyUsageTable.date, today),
+              ),
+            );
+        });
+      } catch {
+        // Rollback is best-effort; the 72h sweep still reconciles a stuck
+        // pending, and over-counting the cap by one is a safe bias.
+      }
+    }
+    throw err;
+  }
 
   return { status: "pending", correlationId };
 }

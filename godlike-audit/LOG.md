@@ -332,3 +332,34 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   `computeProspectStatus`'s identity logic: `phone-pending` also requires a null
   `telegramHandle`; `ready`/`draft` accept `phone OR telegramHandle`. Telegram-only
   prospects no longer get list badges that contradict the active filter.
+
+### Batch B.18 — Apollo Med/Low residuals (typecheck PASS)
+- **APO6** [Low] FIXED — `services/prospectResearch.ts researchProspect` takes an
+  optional trailing `signal?: AbortSignal` and passes it as the `messages.create`
+  request option; `routes/researchStream.ts` creates an `AbortController` and calls
+  `ctrl.abort()` in the existing client-disconnect handler. The Opus research call is
+  now cancelled on disconnect instead of running to completion and discarding a paid
+  result. Optional param → zero behavior change when omitted (mirrors APO2).
+- **APO7** [Low] FIXED — `services/apollo.ts requestPhoneReveal` (async path) commits
+  the `pending` status + `apolloRevealsUsed +1` BEFORE the Apollo POST (so a webhook
+  always finds a correlationId). Previously a POST 4xx left an over-count + a prospect
+  stuck `pending` until the 72h sweep. Now: on a **definitive client error**
+  (`ApolloApiError` 4xx or `ApolloAuthError` — no reveal, no credit) a compensating
+  transaction restores the captured prior status, clears the correlationId/requestedAt,
+  and decrements the counter (`GREATEST(...-1, 0)`), then rethrows. 5xx/network/rate-
+  limit left as-is (uncertain acceptance → sweep reconciles). Rollback is best-effort
+  (bare catch, matching the sync path's bookkeeping style). Sync `/apollo/reveal` path
+  was already correct (increments only after success / on geo-block).
+- **APO3** [Med] FLAGGED (product decision) — geo-gate leftover marks legit revealed
+  phones `blocked` AFTER the 8-credit reveal. The auditor's own fix ("normalize to
+  E.164 / store raw / distinguish unparseable from geo_blocked") is explicitly "needs
+  product call". Not guessed.
+- **APO4** [Med] FLAGGED — two sub-parts, both needing a decision: (a) reveal counter
+  "weight by credits" is a **product-semantics** question — the cap is named/defaulted
+  as *reveals* (100) and counts 1/reveal *consistently*; whether it should instead be a
+  *credit* budget is a product call, not a bug. (b) webhook replay-protection needs a
+  **timestamp Apollo may not send** (auditor hedged "if available") — can't be done
+  reliably without confirming the payload. Left as documented residuals.
+- **APO5** [Med] FLAGGED — CallBudget precision (services reporting real per-call counts
+  + in-loop budget checks) is a larger discovery-orchestrator refactor; deferred, not a
+  quick residual.

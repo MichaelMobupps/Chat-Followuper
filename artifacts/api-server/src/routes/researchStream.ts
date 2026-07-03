@@ -169,16 +169,20 @@ export async function researchStreamRoute(req: Request, res: Response): Promise<
     const emitter = new SseProgressEmitter(res);
 
     // ── Detect client disconnect ──
+    // APO6: abort the in-flight Opus research when the client goes away so we
+    // stop paying for a result nobody will receive.
+    const ctrl = new AbortController();
     let clientGone = false;
     req.on("close", () => {
       clientGone = true;
+      ctrl.abort();
       logger.info({ brand: input.brand }, "Research SSE client disconnected");
       emitter.close();
     });
 
     // ── Run research ──
     try {
-      const { brief, cost } = await researchProspect(input, emitter);
+      const { brief, cost } = await researchProspect(input, emitter, ctrl.signal);
       if (clientGone) return;
       res.write(`event: result\ndata: ${JSON.stringify({ brief, cost })}\n\n`);
       emitter.close();
