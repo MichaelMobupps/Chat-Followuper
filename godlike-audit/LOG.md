@@ -583,3 +583,63 @@ magic_link drop, DB3 snapshot, FE7 contract) — all typecheck-green, migrations
 dev DB and verified, db tests 3/3. **5 documented as genuinely blocked or infeasible-as-specified**
 with precise rationale + plans (APO5, APO4-replay, APO4-counter, DB2, CH5). No guesses on
 credit-spend, product-semantics, or KMS decisions.
+
+---
+
+## Session 5 — clearing the deferred items (user: "deal with all of it")
+
+User asked to resolve everything still open, with decisions delegated ("you decide" /
+"I trust your decision") plus explicit choices on DB2 (leave until feature) and CH5 (copy
+fallback), and confirmed an Apollo key is available. Typecheck green after each; the two
+migration/DB items already covered.
+
+### APO5 — discovery call-budget is now a REAL per-call ceiling (verified, no credits burned)
+The old flat post-hoc estimates let a step entering at limit-1 run a whole service (5–100+
+Apollo calls) before the "hard cap" registered. Fix: `apolloPost` self-counts against a
+per-request budget and returns `null` (no request, no key needed) once exhausted — callers
+already treat null as "no data" and stop. The budget is scoped via **AsyncLocalStorage**
+(`apolloBudgetStore`, orchestrator uses `enterWith`), so EVERY apolloPost in the run —
+orchestrator inline + all findOrg/collectContacts internals — self-counts with zero
+signature threading. Removed the flat `CALL_ESTIMATE` bumps/constants; `budget.count()` is
+now exact. Verified via a throwaway test (no credits): a pre-exhausted/at-limit budget
+blocks apolloPost with 0 calls, and ALS propagates through awaited helpers (what the cascade
+relies on). **NOTE:** `DEFAULT_APOLLO_CALL_BUDGET` was tuned against the old estimates — with
+exact counting the effective reach may shift; worth re-checking against real run counts.
+
+### APO4 — replay now app-level single-consume + counter semantics documented
+- **Replay** (was "infeasible — no Apollo timestamp"): solved app-side WITHOUT a timestamp.
+  The webhook now clears `phoneRevealCorrelationId` on every HARD terminal (arrived/no_match/
+  blocked), so a replayed delivery (HMAC or bearer) finds no correlation match and no-ops —
+  strict single-consume. The sweep leaves the token on the SOFT `expired` state, so legit late
+  arrivals still promote (and then burn the token). Closes both replay surfaces the auditor
+  flagged (expired→arrived re-promotion; bearer-fallback replay).
+- **Counter** (decided: reveal QUOTA): kept 1-per-reveal — correct `apollo_reveals_used`
+  column + reporting semantics; documented 1 reveal ≈ 8 credits + `APOLLO_CREDITS_PER_PHONE_REVEAL`
+  so operators can reason in credits without overloading the counter into a credit budget.
+
+### CH5 — Telegram plain-handle copy-message fallback (decided: add fallback)
+`t.me/<handle>?text=` often doesn't prefill the composer for plain user handles. On the two
+primary send paths (`today.tsx handleSend`, `ChannelFollowupPage`), opening Telegram now copies
+the message to the clipboard and toasts a paste-if-empty note. Additive, no downside.
+
+### DB2 — leave until the feature ships (decided)
+`microsoft_refresh_token`/`slack_bot_token` stay as-is: no secret is stored today (Teams/Slack
+OAuth unimplemented), so there's nothing to protect; encryption + a KMS/key decision belong with
+that feature. (The other DB2 arm, `magic_link_tokens`, was already dropped in Session 4.)
+
+### FE7 — spec fixed (Session 4); component rewire correctly NOT adopted
+Investigated the wrapper-rewire: the generated client's `ApiError` exposes `.status`/`.data`,
+NOT the `.code` the UI displays, and the app deliberately keeps its own `apiFetch` (with `.code`)
+for non-auth endpoints. So the hand-written wrappers are NOT true duplicates — adopting the
+generated client would silently degrade error messages. Kept the wrappers; the Session-4 spec fix
+(generated `NotificationSettings` type now masked-only) already removes the real drift/leak concern.
+
+## Session 5 — summary
+
+Everything deferred is now resolved. **APO5** (real per-call budget ceiling, ALS-scoped, verified),
+**APO4 replay** (app-level single-consume — solved without the Apollo timestamp that doesn't exist),
+**APO4 counter** (reveal-quota, documented), **CH5** (copy fallback), **DB2** (leave-until-feature per
+decision), **FE7** (spec fixed; rewire correctly declined on error-contract grounds). No open audit
+items remain that don't require net-new product features (Teams/Slack OAuth) or live Apollo re-tuning
+(the APO5 budget number). Green bar throughout; APO4 anti-replay + APO5 ceiling verified against the DB
+and in isolation.
