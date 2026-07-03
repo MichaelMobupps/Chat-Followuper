@@ -10,20 +10,17 @@ import type { GenerateMessageResult } from "@/lib/api/seeder";
 interface Props {
   result: GenerateMessageResult;
   onRegenerate: () => void | Promise<void>;
-  onDone: () => void;
+  /** Called with the (possibly edited) body; the caller persists it. */
+  onDone: (editedBody: string) => void | Promise<void>;
   isRegenerating?: boolean;
 }
 
 /**
- * Shows the generated subject + body. Body is editable locally so the
- * SDR can tweak phrasing before copying to send, but edits do NOT
- * persist back to the prospect — the server only sets first_message_body
- * via the generate-message route.
- *
- * To persist a different message: refine the brief and regenerate.
- *
- * Future ticket: extend PATCH to accept first_message_body for manual
- * edits. Out of scope for FE-B-1.
+ * Shows the generated subject + body. The body is editable so the SDR can
+ * tweak phrasing before sending. FE13: manual edits are now PERSISTED — on
+ * Done the caller PATCHes first_message_body (the prospects PATCH route accepts
+ * it), so the send flow (deep link uses the server's first_message_body)
+ * reflects exactly what the SDR sees here, instead of silently discarding edits.
  */
 export function MessageReview({
   result,
@@ -34,6 +31,7 @@ export function MessageReview({
   const { toast } = useToast();
   const [body, setBody] = useState(result.message);
   const [originalBody, setOriginalBody] = useState(result.message);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setBody(result.message);
@@ -41,6 +39,15 @@ export function MessageReview({
   }, [result.message]);
 
   const isEdited = body !== originalBody;
+
+  async function handleDone() {
+    try {
+      setIsSaving(true);
+      await onDone(body);
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   function handleCopy() {
     void navigator.clipboard.writeText(body).then(
@@ -81,8 +88,8 @@ export function MessageReview({
             <div className="flex items-center justify-between">
               <Label>Body</Label>
               {isEdited && (
-                <span className="text-xs text-amber-600">
-                  Local edits — not persisted. Use Copy, or refine the brief and regenerate.
+                <span className="text-xs text-muted-foreground">
+                  Edited — your changes will be saved when you click Done.
                 </span>
               )}
             </div>
@@ -127,10 +134,11 @@ export function MessageReview({
       <div className="flex justify-end">
         <Button
           type="button"
-          onClick={onDone}
-          disabled={isRegenerating}
+          onClick={handleDone}
+          disabled={isRegenerating || isSaving}
           data-testid="button-message-done"
         >
+          {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
           Done
         </Button>
       </div>

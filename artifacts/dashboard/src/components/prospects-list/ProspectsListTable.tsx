@@ -153,7 +153,12 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
   const [, navigate] = useLocation();
   return (
     <tr
-      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/30 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      // FE9: rows navigate on click but were keyboard-inaccessible (WCAG 2.1.1).
+      // Make the row a focusable button-like control with Enter/Space handling.
+      role="button"
+      tabIndex={0}
+      aria-label={`Open details for ${prospect.prospectName ?? "prospect"}`}
       onClick={(e) => {
         // Don't navigate when the click originated inside the action
         // button cell — that has its own handler (open WhatsApp link
@@ -162,6 +167,15 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
         const cell = (e.target as HTMLElement).closest("td[data-action]");
         if (cell) return;
         navigate(`/prospects/${prospect.id}`);
+      }}
+      onKeyDown={(e) => {
+        // Only act when the row itself is focused — let controls inside action
+        // cells (buttons/links) handle their own Enter/Space.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          navigate(`/prospects/${prospect.id}`);
+        }
       }}
       data-testid={`row-${prospect.id}`}
     >

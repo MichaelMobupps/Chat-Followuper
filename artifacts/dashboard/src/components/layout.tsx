@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLogout } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
@@ -10,9 +11,11 @@ import {
   Sparkles,
   Search,
   Shield,
+  LogOut,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { getAdminWhoami } from "@/lib/api/user-extras";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 type NavItem = {
   label: string;
@@ -44,12 +47,29 @@ function isActive(currentPath: string, href: string, label?: string): boolean {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const queryClient = useQueryClient();
+  const currentUser = useCurrentUser();
+  const logout = useLogout();
   const admin = useQuery({
     queryKey: ["admin-whoami"],
     queryFn: getAdminWhoami,
     staleTime: 5 * 60_000,
   });
+
+  // FE8: previously there was no way to sign out and the signed-in identity was
+  // never shown. Wire the generated logout mutation; clear the query cache and
+  // route to /login regardless of outcome (the intent is to leave — AuthGate
+  // re-verifies from there).
+  function handleSignOut() {
+    logout.mutate(undefined, {
+      onSettled: () => {
+        queryClient.clear();
+        navigate("/login", { replace: true });
+      },
+    });
+  }
+  const account = currentUser.status === "authenticated" ? currentUser.user : null;
 
   const secondaryNav = admin.data?.isAdmin
     ? [
@@ -120,8 +140,29 @@ export function Layout({ children }: { children: ReactNode }) {
             </ul>
           </div>
         </nav>
-        <div className="px-6 py-4 text-xs text-muted-foreground border-t border-sidebar-border">
-          Contacts first · Apollo seeder in More
+        <div className="border-t border-sidebar-border px-3 py-3 space-y-1">
+          {account ? (
+            <div className="px-3 py-1" data-testid="account-identity">
+              <div className="text-xs font-medium truncate">
+                {account.name ?? account.email}
+              </div>
+              {account.name ? (
+                <div className="text-[11px] text-muted-foreground truncate">
+                  {account.email}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={logout.isPending}
+            className="flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover-elevate transition-colors disabled:opacity-60"
+            data-testid="nav-sign-out"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>{logout.isPending ? "Signing out…" : "Sign out"}</span>
+          </button>
         </div>
       </aside>
       <main className="flex-1 min-w-0">

@@ -281,8 +281,28 @@ export default function SeederPage() {
     }
   }
 
-  function handleMessageDone() {
+  async function handleMessageDone(editedBody: string) {
     if (stage.name !== "message") return;
+    const trimmed = editedBody.trim();
+    // FE13: persist manual edits so the send flow uses what the SDR sees. The
+    // prospects PATCH route accepts firstMessageBody (edit-message-capability);
+    // only write when it actually changed from the generated body.
+    if (trimmed && trimmed !== stage.result.message.trim()) {
+      try {
+        await updateMutation.mutateAsync({
+          id: stage.prospect.id,
+          input: { firstMessageBody: trimmed },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        toast({
+          title: "Could not save your edits",
+          description: message,
+          variant: "destructive",
+        });
+        return; // stay on review so the SDR can retry or copy
+      }
+    }
     setStage({ name: "done", prospect: stage.prospect });
   }
 

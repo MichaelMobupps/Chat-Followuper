@@ -411,3 +411,30 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   dead-end). The stream now keeps running so "Keep working" resumes seamlessly (no
   re-incurred cost); `handleAbandon` remains the single teardown path (`research.reset()`
   + delete + back to form).
+
+### Batch B.21 — Frontend Med residuals, part 2 (dashboard typecheck PASS)
+- **FE8** [Med] FIXED — `components/layout.tsx`: added a sidebar footer account block
+  (name/email from `useCurrentUser` → generated `/api/auth/me`) and a **Sign out** button
+  wired to the generated `useLogout` mutation. `handleSignOut` clears the react-query cache
+  and routes to `/login` on settle (leave regardless of outcome; AuthGate re-verifies).
+  Previously there was no sign-out anywhere and the signed-in identity was never shown.
+- **FE9** [Med] FIXED — `components/prospects-list/ProspectsListTable.tsx ProspectRow`:
+  rows navigated on click but were keyboard-inaccessible (WCAG 2.1.1). Added
+  `role="button"`, `tabIndex={0}`, an `aria-label`, a focus-visible ring, and an
+  `onKeyDown` (Enter/Space → navigate) that ignores keys targeting controls inside action
+  cells (`e.target !== e.currentTarget`).
+- **FE13** [Med] FIXED (persist, not just confirm) — `components/seeder/MessageReview.tsx`
+  + `pages/seeder.tsx`: manual body edits were silently discarded on Done (the send flow
+  uses the server's `first_message_body`). The stale comment claimed PATCH couldn't accept
+  it, but the route DOES (`prospects.ts:317/737`, edit-message-capability). `onDone` now
+  passes the edited body; `handleMessageDone` PATCHes `firstMessageBody` when it changed
+  from the generated text (with a save spinner + error toast that keeps the SDR on the
+  review). Banner changed from "not persisted" to "saved when you click Done"; stale doc
+  corrected.
+- **FE7** [Med] FLAGGED (refactor, entangled with API7) — the hand-written
+  `lib/api/{notification-settings,test-channel,manual-ingest}.ts` duplicate generated
+  api-client-react hooks (a maintainability/drift item, not a correctness bug). Adopting
+  the *current* generated hooks would REINTRODUCE the raw `pushoverUserKey` field that
+  API7 just removed from `NotificationSettings` — so this must be done together with
+  regenerating the api-spec to reflect the masked-only contract (a codegen toolchain step,
+  out of scope for a code batch). Left as a documented residual with that dependency noted.
