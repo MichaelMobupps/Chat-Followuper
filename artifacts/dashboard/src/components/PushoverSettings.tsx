@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,9 @@ export function PushoverSettings() {
     queryFn: getNotificationSettings,
   });
 
-  useEffect(() => {
-    if (settings.data?.pushoverUserKey) {
-      setUserKey(settings.data.pushoverUserKey);
-    }
-  }, [settings.data?.pushoverUserKey]);
+  // API7: the raw key is never sent back, so the input starts (and stays) empty
+  // like a password field. A blank input means "leave the saved key unchanged";
+  // clearing is done via the explicit "Disable" button, not by saving blank.
 
   const save = useMutation({
     mutationFn: patchNotificationSettings,
@@ -66,9 +64,11 @@ export function PushoverSettings() {
   const keyValid = trimmed === "" || /^[A-Za-z0-9]{30}$/.test(trimmed);
 
   function handleSave() {
-    save.mutate({
-      pushoverUserKey: trimmed === "" ? null : trimmed,
-    });
+    // Never PATCH null from here: a blank field means "no change" (the raw key
+    // is no longer shown, so blank is the normal loaded state). Clearing goes
+    // through handleDisable. The Save button is disabled while blank anyway.
+    if (trimmed === "") return;
+    save.mutate({ pushoverUserKey: trimmed });
   }
 
   function handleDisable() {
@@ -171,6 +171,7 @@ export function PushoverSettings() {
             // the key field empty and Save would PATCH null over the saved key.
             disabled={
               !keyValid ||
+              trimmed === "" ||
               save.isPending ||
               settings.isLoading ||
               settings.isError ||

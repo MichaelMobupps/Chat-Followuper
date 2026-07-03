@@ -30,6 +30,20 @@ import type { Request, Response } from "express";
 import { researchProspect, type ResearchInput, ResearchFailedError } from "../services/prospectResearch";
 import { SseProgressEmitter } from "../services/progressEvents";
 import { logger } from "../lib/logger";
+import { assertUnderDailyLlmCap, DailyLlmCapExceededError } from "../lib/llmSpendCap";
+
+// API4: cap concurrent research streams per user. Each stream drives an
+// expensive Opus research run; without a limit a user (or a runaway client
+// re-opening EventSource) could fan out many in parallel. Process-local — good
+// enough for the single-instance deploy; a distributed deploy would move this
+// to a shared store. Generous enough to allow a retry/second tab.
+const MAX_CONCURRENT_STREAMS_PER_USER = 3;
+const activeStreamsByUser = new Map<string, number>();
+
+function sendJsonAndEnd(res: Response, status: number, body: unknown): void {
+  res.status(status).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
 
 interface QueryWithInput {
   input?: string;
@@ -94,56 +108,103 @@ export async function researchStreamRoute(req: Request, res: Response): Promise<
   // handler runs. Verify it actually did, in case middleware ordering is
   // ever changed and this endpoint accidentally becomes public.
   if (!req.session?.userId) {
-    res.status(401).setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ error: "Unauthenticated. Sign in with your @mobupps.com Google account." }));
+    sendJsonAndEnd(res, 401, {
+      error: "Unauthenticated. Sign in with your @mobupps.com Google account.",
+    });
     return;
   }
+  const userId = req.session.userId;
 
-  // ── Set SSE headers BEFORE any work ──
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  // Disable proxy buffering for nginx; Replit's autoscale uses its own
-  // proxy that respects this header to flush events immediately.
-  res.setHeader("X-Accel-Buffering", "no");
-  if (typeof res.flushHeaders === "function") res.flushHeaders();
-
-  // ── Parse and validate input ──
-  let input: ResearchInput;
+  // ── Daily LLM spend cap (API4, reuses LLM3) ──
+  // Research bills Opus; refuse BEFORE flushing SSE headers so we can still
+  // return a clean 429 JSON (once headers are sent we can only emit SSE events).
   try {
-    input = parseInputFromRequest(req);
+    await assertUnderDailyLlmCap(userId);
   } catch (err) {
-    res.write(`event: error\ndata: ${JSON.stringify({ message: (err as Error).message })}\n\n`);
-    res.write(`event: done\ndata: {}\n\n`);
-    res.end();
-    return;
+    if (err instanceof DailyLlmCapExceededError) {
+      sendJsonAndEnd(res, 429, {
+        error: "daily_cap_exceeded",
+        spentUsd: err.spentUsd,
+        capUsd: err.capUsd,
+      });
+      return;
+    }
+    throw err;
   }
 
-  const emitter = new SseProgressEmitter(res);
+  // ── Per-user concurrency limiter (API4) ──
+  const active = activeStreamsByUser.get(userId) ?? 0;
+  if (active >= MAX_CONCURRENT_STREAMS_PER_USER) {
+    sendJsonAndEnd(res, 429, {
+      error: "too_many_streams",
+      limit: MAX_CONCURRENT_STREAMS_PER_USER,
+    });
+    return;
+  }
+  activeStreamsByUser.set(userId, active + 1);
 
-  // ── Detect client disconnect ──
-  let clientGone = false;
-  req.on("close", () => {
-    clientGone = true;
-    logger.info({ brand: input.brand }, "Research SSE client disconnected");
-    emitter.close();
-  });
-
-  // ── Run research ──
   try {
-    const { brief, cost } = await researchProspect(input, emitter);
-    if (clientGone) return;
-    res.write(`event: result\ndata: ${JSON.stringify({ brief, cost })}\n\n`);
-    emitter.close();
-  } catch (err) {
-    if (clientGone) return;
-    const isResearchFailure = err instanceof ResearchFailedError;
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error(
-      { err: message, brand: input.brand, isResearchFailure },
-      "Research stream failed",
-    );
-    res.write(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
-    emitter.close();
+    // ── Set SSE headers BEFORE any work ──
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    // Disable proxy buffering for nginx; Replit's autoscale uses its own
+    // proxy that respects this header to flush events immediately.
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    // ── Parse and validate input ──
+    let input: ResearchInput;
+    try {
+      input = parseInputFromRequest(req);
+    } catch (err) {
+      // Validation messages are caller-authored ("brand is required") and safe
+      // to surface — they help the SDR fix the request.
+      res.write(`event: error\ndata: ${JSON.stringify({ message: (err as Error).message })}\n\n`);
+      res.write(`event: done\ndata: {}\n\n`);
+      res.end();
+      return;
+    }
+
+    const emitter = new SseProgressEmitter(res);
+
+    // ── Detect client disconnect ──
+    let clientGone = false;
+    req.on("close", () => {
+      clientGone = true;
+      logger.info({ brand: input.brand }, "Research SSE client disconnected");
+      emitter.close();
+    });
+
+    // ── Run research ──
+    try {
+      const { brief, cost } = await researchProspect(input, emitter);
+      if (clientGone) return;
+      res.write(`event: result\ndata: ${JSON.stringify({ brief, cost })}\n\n`);
+      emitter.close();
+    } catch (err) {
+      if (clientGone) return;
+      const isResearchFailure = err instanceof ResearchFailedError;
+      const detail = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { err: detail, brand: input.brand, isResearchFailure },
+        "Research stream failed",
+      );
+      // API4: never leak raw internal error text to the client. ResearchFailedError
+      // messages are curated/user-facing; anything else gets a generic message
+      // (full detail stays in the server log above).
+      const clientMessage = isResearchFailure
+        ? detail
+        : "Research failed. Please try again.";
+      res.write(`event: error\ndata: ${JSON.stringify({ message: clientMessage })}\n\n`);
+      emitter.close();
+    }
+  } finally {
+    // Release the per-user slot whether we ended early or ran research to
+    // completion (this runs when the handler returns — i.e. after the research
+    // promise settles or a disconnect short-circuits it).
+    const remaining = (activeStreamsByUser.get(userId) ?? 1) - 1;
+    if (remaining <= 0) activeStreamsByUser.delete(userId);
+    else activeStreamsByUser.set(userId, remaining);
   }
 }

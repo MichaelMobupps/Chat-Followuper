@@ -304,3 +304,31 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   inside longer words. `gaming_ua`-style labels still split and match.
 - **CH5** [Low] FLAGGED (product decision) — Telegram `t.me/<user>?text=` prefill for
   non-bot handles is a behavioral question; needs product confirmation, not a code fix.
+
+### Batch B.17 — API Med/Low residuals (typecheck PASS)
+- **API4** [Med] FIXED — `routes/researchStream.ts` (billed Opus SSE): (1) **daily
+  LLM spend cap** pre-check (`assertUnderDailyLlmCap`, reuses LLM3) BEFORE flushing
+  SSE headers so an over-cap request gets a clean **429 `daily_cap_exceeded`** JSON
+  (once headers flush we can only emit SSE); (2) **per-user concurrency limiter**
+  (process-local Map, max 3 concurrent streams/user → **429 `too_many_streams`**,
+  slot released in a `finally`); (3) **sanitized error event** — only curated
+  `ResearchFailedError` messages reach the client; anything else → generic
+  "Research failed. Please try again." with full detail kept in the server log.
+- **API5** [Med] FIXED (TTL part) — `lib/followupLinkToken.ts` default TTL **14d → 72h**
+  (env `FOLLOWUP_LINK_TTL_HOURS`). Safe because every digest send (email/pushover/
+  nudge) re-mints a fresh token, so an expiring link is superseded by the next digest;
+  72h spans a weekend if a daily digest is missed once. Cuts the `?t=` query-string
+  replay window ~4.7×. Single-use/invalidate-on-confirm nonce left as a documented
+  sub-residual (needs a per-followup nonce column + migration; must not break
+  legitimate re-opens).
+- **API7** [Low] FIXED (BE+FE) — `routes/notificationSettings.ts` GET+PATCH no longer
+  return the raw `pushoverUserKey`, only `pushoverUserKeyMasked`. FE coupling handled:
+  `lib/api/notification-settings.ts` type drops the raw field; `PushoverSettings.tsx`
+  removes the raw-key pre-fill effect (input now behaves like a password field — blank
+  = "no change") and closes the resulting footgun (blank input + Save would have PATCHed
+  null → wiped the key): Save is disabled while blank and `handleSave` no-ops on blank;
+  clearing stays on the explicit **Disable** button.
+- **API8** [Low] FIXED — `routes/prospects.ts statusSqlFilter` now mirrors
+  `computeProspectStatus`'s identity logic: `phone-pending` also requires a null
+  `telegramHandle`; `ready`/`draft` accept `phone OR telegramHandle`. Telegram-only
+  prospects no longer get list badges that contradict the active filter.

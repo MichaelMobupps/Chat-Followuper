@@ -1,7 +1,8 @@
 import { apiFetch } from "../api";
 
 export interface NotificationSettings {
-  pushoverUserKey: string | null;
+  // API7: the server returns only the masked form — the raw key is never sent
+  // back to the client. Enter a new key to change it, or "Disable" to clear.
   pushoverUserKeyMasked: string | null;
   pushoverEnabled: boolean;
   pushoverAppConfigured: boolean;
