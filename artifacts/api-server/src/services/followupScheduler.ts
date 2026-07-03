@@ -67,7 +67,7 @@ export async function scheduleFollowupsAfterFirstSend(params: {
     const window = getScheduleWindow(stage, timing);
     const scheduledAt = new Date(generateScheduledTime(window, now));
 
-    await db
+    const inserted = await db
       .insert(followupsTable)
       .values({
         prospectId,
@@ -76,11 +76,21 @@ export async function scheduleFollowupsAfterFirstSend(params: {
         status: "scheduled",
         scheduledAt,
       })
+      // FUP5: conflict target matches the (prospect, channel, stage) unique
+      // index so a second channel's sequence actually inserts.
       .onConflictDoNothing({
-        target: [followupsTable.prospectId, followupsTable.stage],
-      });
+        target: [
+          followupsTable.prospectId,
+          followupsTable.channel,
+          followupsTable.stage,
+        ],
+      })
+      .returning({ id: followupsTable.id });
 
-    scheduled += 1;
+    // FUP5: only count rows actually inserted — onConflictDoNothing returns an
+    // empty set on conflict, so the previous unconditional increment inflated
+    // the reported count.
+    if (inserted.length > 0) scheduled += 1;
   }
 
   try {
