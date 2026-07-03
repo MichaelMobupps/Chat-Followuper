@@ -7,8 +7,7 @@ import {
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
-import { isAllowedPhone, detectCountry } from "../lib/geoGate";
-import { GeoGateBlockedError } from "./channels/whatsapp";
+import { detectCountry, isAllowedCountry, normalizeToE164 } from "../lib/geoGate";
 
 /**
  * Apollo API client. Operations the seeder UI needs:
@@ -702,11 +701,11 @@ export async function revealContact(
     country: person.country ?? null,
   };
 
-  if (phone && !isAllowedPhone(phone)) {
-    throw new GeoGateBlockedError(detectCountry(phone));
-  }
-
-  return revealed;
+  // APO3: the geo gate is disabled, so a non-E.164 phone from Apollo is a
+  // formatting artifact — normalize and keep it rather than throwing a
+  // misleading geo_blocked and discarding a reveal the SDR already paid for.
+  // A genuinely unparseable value becomes null (treated as "no phone").
+  return { ...revealed, phone: phone ? normalizeToE164(phone) : null };
 }
 
 /**
@@ -1089,7 +1088,11 @@ export async function processPhoneRevealCallback(
     // No-match / not-found terminal: Apollo couldn't supply a phone for
     // this person. Mark terminal so the SDR doesn't keep waiting.
     const status = extractStatus(payload);
-    const phone = extractPhone(payload);
+    const rawPhone = extractPhone(payload);
+    // APO3: normalize up front. An unparseable value (rawPhone present but
+    // normalizeToE164 → null) is NOT a geo block — it folds into no_match below
+    // via `!phone`, instead of being dropped under a misleading 'blocked'.
+    const phone = rawPhone ? normalizeToE164(rawPhone) : null;
 
     if (
       !phone ||
@@ -1116,7 +1119,9 @@ export async function processPhoneRevealCallback(
         actionType: ACTION_TYPES.apolloPhoneRevealBlocked,
         actionStatus: "skipped",
         metadata: {
-          reason: "no_match",
+          // Distinguish "Apollo had no number" from "Apollo returned an
+          // unusable/garbled number" (APO3) — neither is a geo block.
+          reason: rawPhone && !phone ? "unparseable_phone" : "no_match",
           apolloStatus: status ?? null,
         },
       });
@@ -1128,8 +1133,15 @@ export async function processPhoneRevealCallback(
     // than a request-time check is that we don't have the phone until
     // Apollo delivers it. On block, the phone is dropped on the floor
     // — never persisted, not even briefly.
+    //
+    // APO3: this now gates on GEOGRAPHY (isAllowedCountry), NOT phone format.
+    // `phone` is already normalized E.164 by this point; the previous
+    // `!isAllowedPhone(phone)` check blocked legitimately-revealed numbers whose
+    // only sin was formatting, discarding a paid reveal under a 'blocked' status.
+    // isAllowedCountry currently always returns true (gate disabled) — this
+    // branch is the hook for real geography-based blocking if it's ever enabled.
     const country = detectCountry(phone);
-    if (!isAllowedPhone(phone)) {
+    if (country && !isAllowedCountry(country)) {
       await tx
         .update(prospectsTable)
         .set({

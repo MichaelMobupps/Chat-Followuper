@@ -155,6 +155,25 @@ export function isAllowedPhone(phone: string): boolean {
   return E164_RE.test(cleaned);
 }
 
+/**
+ * Normalize a raw phone string to E.164 ("+" + digits), or null if it can't
+ * plausibly be a phone number. The geo gate is disabled, so callers use this to
+ * KEEP a revealed phone (just tidy its format) rather than discard it: Apollo
+ * frequently returns numbers with spaces/dashes/parentheses, an "00"
+ * international prefix, or without the leading "+". (APO3.)
+ */
+export function normalizeToE164(raw: string): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  // International access prefix "00…" → "+…".
+  if (s.startsWith("00")) s = "+" + s.slice(2);
+  const digits = s.replace(/[^0-9]/g, "");
+  // E.164 permits 7–15 digits total; outside that it isn't a dialable number.
+  if (digits.length < 7 || digits.length > 15) return null;
+  const e164 = `+${digits}`;
+  return E164_RE.test(e164) ? e164 : null;
+}
+
 export interface GeoCheckResult {
   allowed: boolean;
   country: string;
