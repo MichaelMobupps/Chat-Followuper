@@ -1105,6 +1105,11 @@ export async function processPhoneRevealCallback(
         .set({
           phoneRevealStatus: "no_match",
           phoneRevealCompletedAt: new Date(),
+          // APO4 anti-replay: burn the correlation token on any HARD terminal so
+          // a replayed webhook delivery (HMAC or bearer) finds no match and
+          // no-ops. Safe because the token is read ONLY by this matcher, and the
+          // sweep leaves it intact on the SOFT 'expired' state for late arrivals.
+          phoneRevealCorrelationId: null,
         })
         .where(eq(prospectsTable.id, prospect.id));
 
@@ -1148,6 +1153,7 @@ export async function processPhoneRevealCallback(
           phoneRevealStatus: "blocked",
           phoneRevealCompletedAt: new Date(),
           phoneNumber: null,
+          phoneRevealCorrelationId: null, // APO4 anti-replay (see no_match above)
         })
         .where(eq(prospectsTable.id, prospect.id));
 
@@ -1188,6 +1194,10 @@ export async function processPhoneRevealCallback(
         phoneRevealCompletedAt: new Date(),
         phoneNumber: phone,
         phone: promotedPhone,
+        // APO4 anti-replay: burn the correlation token now that we've reached a
+        // hard terminal — including the legit expired→arrived late promotion, so
+        // that delivery can't be replayed to re-promote.
+        phoneRevealCorrelationId: null,
       })
       .where(eq(prospectsTable.id, prospect.id));
 
