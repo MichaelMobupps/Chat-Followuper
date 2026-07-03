@@ -40,6 +40,31 @@ function isFridayInTimezone(timezone: string): boolean {
   }
 }
 
+/**
+ * Timezone-stable dedup key for the weekly digest (FUP4).
+ *
+ * The digest fires on the local Friday, so the local Friday's calendar date
+ * (YYYY-MM-DD in the user's timezone) uniquely identifies the week and stays
+ * constant across the whole local Friday. A UTC-derived key
+ * (`${startUtc}_${endUtc}`) flips at UTC midnight — mid-Friday for any timezone
+ * east of UTC (e.g. 03:00 in Asia/Jerusalem) — so a user emailed early on their
+ * local Friday got a DIFFERENT key later that same local Friday and was emailed
+ * a second time. Keying on the local date eliminates that.
+ */
+function weekKeyForTimezone(timezone: string): string {
+  try {
+    // en-CA formats as "YYYY-MM-DD".
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 function weekBoundsUtc(): { start: string; end: string; label: string } {
   const now = new Date();
   const end = new Date(now);
@@ -106,8 +131,10 @@ export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
     return result;
   }
 
+  // start/end/label bound the stats window (last 7 days, UTC — approximate is
+  // fine for the summary). The dedup key is computed PER-USER in their timezone
+  // below (FUP4) so it can't flip mid-local-Friday.
   const { start, end, label } = weekBoundsUtc();
-  const weekKey = `${start}_${end}`;
 
   const users = await db
     .select({
@@ -124,6 +151,9 @@ export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
         result.usersSkipped += 1;
         continue;
       }
+
+      // Per-user, timezone-stable dedup key (FUP4).
+      const weekKey = weekKeyForTimezone(user.digestTimezone);
 
       if (await alreadySentThisWeek(user.id, weekKey)) {
         result.usersSkipped += 1;

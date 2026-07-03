@@ -17,14 +17,12 @@ import {
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { isPushoverAppConfigured, sendPushover } from "./pushover";
-import { sendOverdueEscalations } from "./pushoverNudges";
 
 export interface PushoverDigestResult {
   usersNotified: number;
   messagesSent: number;
   usersSkipped: number;
   usersFailed: number;
-  escalationsSent: number;
 }
 
 interface DueRow {
@@ -57,7 +55,6 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
     messagesSent: 0,
     usersSkipped: 0,
     usersFailed: 0,
-    escalationsSent: 0,
   };
 
   if (!isPushoverAppConfigured() || !isFeatureEnabled("pushover")) {
@@ -193,18 +190,13 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
     }
   }
 
-  let escalationsSent = 0;
-  try {
-    escalationsSent = await sendOverdueEscalations();
-  } catch (err) {
-    console.error("[pushover-digest] escalation helper failed", err);
-  }
-
+  // FUP2: overdue escalations are sent ONLY by runPushoverNudges (the two ran
+  // concurrently in the scheduler's Promise.all, double-buzzing every overdue
+  // followup with a quiet-hours-bypassing priority-1 push). Single owner now.
   return {
     usersNotified,
     messagesSent,
     usersSkipped,
     usersFailed,
-    escalationsSent,
   };
 }
