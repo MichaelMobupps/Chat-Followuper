@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { CheckCircle2, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,12 @@ export default function SeederPage() {
   const prepareFirst = usePrepareFirstMessage();
   const channelLink = useChannelLink();
 
+  // FE1: latch so the brief-save fires exactly ONCE per research completion.
+  // Without it, updateMutation's identity flips when .mutate() sets isPending,
+  // re-running this effect while the guard is still true (stage only flips to
+  // "brief" in the async onSuccess) → a storm of concurrent PATCH writes.
+  const briefSavedForRef = useRef<string | null>(null);
+
   // Wire research-stream completion → transition to brief stage
   useEffect(() => {
     if (
@@ -102,6 +108,8 @@ export default function SeederPage() {
     ) {
       const brief = research.state.brief;
       const prospect = stage.prospect;
+      if (briefSavedForRef.current === prospect.id) return; // already firing/fired
+      briefSavedForRef.current = prospect.id;
       updateMutation.mutate(
         { id: prospect.id, input: { researchBrief: brief } },
         {
@@ -109,6 +117,7 @@ export default function SeederPage() {
             setStage({ name: "brief", prospect: updated, brief });
           },
           onError: (err) => {
+            briefSavedForRef.current = null; // allow a retry on failure
             toast({
               title: "Could not save research brief",
               description: err.message,

@@ -165,9 +165,26 @@ export function UserPreferencesPanel() {
           </p>
         </div>
 
+        {prefs.isError ? (
+          <p className="text-xs text-destructive" role="alert">
+            Couldn't load your saved preferences. Saving is disabled so your
+            existing settings aren't overwritten.{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => void prefs.refetch()}
+            >
+              Retry
+            </button>
+          </p>
+        ) : null}
+
         <Button
           onClick={handleSave}
-          disabled={save.isPending || prefs.isLoading}
+          // FE2: never allow a save until preferences have actually loaded —
+          // otherwise a failed GET leaves the form at empty defaults and Save
+          // would PATCH nulls over the user's real settings.
+          disabled={save.isPending || prefs.isLoading || prefs.isError || !prefs.data}
           data-testid="pref-save"
         >
           {save.isPending ? (

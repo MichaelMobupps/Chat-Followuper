@@ -150,10 +150,32 @@ export function PushoverSettings() {
           ) : null}
         </div>
 
+        {settings.isError ? (
+          <p className="text-xs text-destructive" role="alert">
+            Couldn't load your Pushover settings. Saving is disabled so your
+            saved key isn't overwritten.{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => void settings.refetch()}
+            >
+              Retry
+            </button>
+          </p>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={handleSave}
-            disabled={!keyValid || save.isPending || settings.isLoading}
+            // FE2: block Save until settings have loaded — a failed GET leaves
+            // the key field empty and Save would PATCH null over the saved key.
+            disabled={
+              !keyValid ||
+              save.isPending ||
+              settings.isLoading ||
+              settings.isError ||
+              !settings.data
+            }
             data-testid="pushover-save"
           >
             {save.isPending ? (
