@@ -80,7 +80,6 @@ export const PostTestChannelLinkResponse = zod.object({
  * @summary Read Pushover notification settings
  */
 export const GetNotificationSettingsResponse = zod.object({
-  pushoverUserKey: zod.string().nullable(),
   pushoverUserKeyMasked: zod.string().nullable(),
   pushoverEnabled: zod.boolean(),
   pushoverAppConfigured: zod.boolean(),
@@ -94,7 +93,6 @@ export const PatchNotificationSettingsBody = zod.object({
 });
 
 export const PatchNotificationSettingsResponse = zod.object({
-  pushoverUserKey: zod.string().nullable(),
   pushoverUserKeyMasked: zod.string().nullable(),
   pushoverEnabled: zod.boolean(),
   pushoverAppConfigured: zod.boolean(),

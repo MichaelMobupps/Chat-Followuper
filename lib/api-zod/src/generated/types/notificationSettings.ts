@@ -7,7 +7,6 @@
  */
 
 export interface NotificationSettings {
-  pushoverUserKey: string | null;
   pushoverUserKeyMasked: string | null;
   pushoverEnabled: boolean;
   pushoverAppConfigured: boolean;

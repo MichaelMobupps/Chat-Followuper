@@ -334,9 +334,8 @@ components:
     NotificationSettings:
       type: object
       properties:
-        pushoverUserKey:
-          type: string
-          nullable: true
+        # API7: the raw pushoverUserKey is never returned — only the masked form.
+        # (It is still accepted in NotificationSettingsPatch to SET a new key.)
         pushoverUserKeyMasked:
           type: string
           nullable: true
@@ -345,7 +344,6 @@ components:
         pushoverAppConfigured:
           type: boolean
       required:
-        - pushoverUserKey
         - pushoverUserKeyMasked
         - pushoverEnabled
         - pushoverAppConfigured
