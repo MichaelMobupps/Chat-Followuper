@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
+import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -41,7 +42,11 @@ function isDigestHourNow(digestHourLocal: number, digestTimezone: string): boole
       hour12: false,
     }).formatToParts(new Date());
     const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
-    return hour === digestHourLocal;
+    // >= (not ===) so a drift-prone hourly scheduler that gives a clock hour
+    // zero ticks (deploy/restart/blocked loop) still sends later that day
+    // rather than silently skipping the rep entirely. At-most-once per day is
+    // guaranteed downstream by the daily_usage.digestSent marker.
+    return hour >= digestHourLocal;
   } catch {
     return true;
   }
@@ -91,6 +96,13 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
  * error boundary so one failed recipient does not abort the batch.
  */
 export async function runFollowupDigests(): Promise<DigestResult> {
+  // Short-circuit when SMTP is unconfigured: otherwise the join query runs and
+  // sendMail throws once per user every hour, inflating usersFailed and log
+  // noise. Mirrors weeklyDigest / pushoverDigest, which guard the same way.
+  if (!isSmtpConfigured()) {
+    return { usersEmailed: 0, followupsListed: 0, usersFailed: 0 };
+  }
+
   const today = new Date().toISOString().slice(0, 10);
 
   const rows = (await db

@@ -547,7 +547,13 @@ export function isOrgNamePlausible(
     (orgLower.includes(stratLower) || stratLower.includes(orgLower));
   const origMatches =
     Boolean(origLower) &&
-    (orgLower.includes(origLower) || origLower.includes(orgLower));
+    (orgLower.includes(origLower) || origLower.includes(orgLower))
+    // Fixed copy-paste bug: the second clause previously read
+    // `origLower.includes(origLower)` (orig ∈ orig, always true), which made
+    // origMatches always true whenever origLower was non-empty and defeated
+    // the entire plausibility gate. The intended check is substring in either
+    // direction between the resolved org and the original company name.
+    ;
 
   return hasOverlap || stratMatches || origMatches;
 }

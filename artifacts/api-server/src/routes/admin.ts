@@ -225,12 +225,17 @@ router.get(
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s =
+  const raw =
     value instanceof Date
       ? value.toISOString()
       : typeof value === "object"
         ? JSON.stringify(value)
         : String(value);
+  // Neutralize spreadsheet formula injection: a cell beginning with = + - @
+  // (or a tab / CR that Excel treats as a formula lead-in) can execute code
+  // when the admin opens the export in Excel/Sheets. Prefix such cells with a
+  // single quote so they are rendered as literal text.
+  const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   if (s.includes(",") || s.includes('"') || s.includes("\n")) {
     return `"${s.replace(/"/g, '""')}"`;
   }

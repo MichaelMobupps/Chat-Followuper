@@ -528,8 +528,15 @@ router.post(
     }
 
     if (body.channel === "whatsapp") {
+      // phone is nullable (pending Apollo reveal). Guard before generateLink,
+      // which would otherwise throw a TypeError on a null phone instead of a
+      // clean 409 (mirrors routes/whatsappLink.ts).
+      if (!prospect.phone) {
+        res.status(409).json({ error: "phone_reveal_pending" });
+        return;
+      }
       try {
-        const url = generateLink(prospect.phone!, messageBody);
+        const url = generateLink(prospect.phone, messageBody);
         // We do NOT mark sentAt here. The actual send completes when the
         // user clicks the link and either /prospects/:id/send-intent is
         // called or a future worker observes the clickedAt write. This
