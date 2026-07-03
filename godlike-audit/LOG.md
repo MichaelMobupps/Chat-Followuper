@@ -235,4 +235,20 @@ d3149e2 — LLM4 org-plausibility bug, API6 CSV injection, CH7 null-phone, FUP1 
 
 ## Confidence
 
-Godlike convergence NOT claimed (per the rubric's no-false-convergence rule): a full multi-package codebase cannot reach 3-clean-round convergence in one session, and several high-severity items are gated pending live verification / DB access / product decisions. **Confidence in the applied fixes: high** (each verified against source + typecheck-green, low blast radius). Residual risk concentrated in the GATED list above. Resume point = this file + branch commits.
+Godlike convergence NOT claimed (per the rubric's no-false-convergence rule): a full multi-package codebase cannot reach 3-clean-round convergence in one session. **Confidence in the applied fixes: high** — each verified against source, full workspace typecheck-green, and (where a live path exists) exercised against the real API/DB. Low blast radius throughout.
+
+## Batch B — GATED list fully worked through (session 2)
+
+Every item from the original GATED/DEFERRED list is now resolved or precisely characterized. Green bar: full-workspace `pnpm run typecheck` PASS; `@workspace/db` test suite PASS 3/3 (was RED at baseline). Dev DB migrated to head (0013).
+
+**Applied + verified (High/Critical):** LLM5 (model IDs, live-tested), LLM1 (prompt-injection hardening), LLM3 (daily spend cap), APO1/API3 (reveal cap), APO2 (AbortSignal, abort-verified), DB1 (migrate-to-head + globalSetup; failing test now green), FUP2/FUP3/FUP4/FUP5 (double-send: atomic claim DB-verified, tz key, channel index), DB2-live (nonce hashing, verified).
+**Applied + verified (Med):** DB4 (FK indexes), DB5 (identity partial-unique indexes), FE1/FE2/FE5/FE10/FE11/FE12/FE15, BUILD2/BUILD3.
+
+**True residuals (documented, not silently dropped):**
+1. **DB2 token encryption** — `microsoft_refresh_token`/`slack_bot_token` are currently UNUSED (Teams/Slack OAuth unimplemented). Encrypt when that feature ships; needs a **KMS/app-key decision**.
+2. **magic_link_tokens** — dead schema (zero refs); wire-securely-or-drop.
+3. **weeklyDigest cross-process atomic claim** — FUP4 fixed the real double-send; the theoretical once/week cross-process race needs an `action_logs` partial-unique-index migration.
+4. **DB3 snapshot rebuild** — practically mitigated (idempotent migrations applied cleanly); `meta/` snapshots (0000–0007) should be rebuilt for clean future `drizzle-kit generate`.
+5. **Un-triaged Med/Low findings BELOW the gated line** (never in the gated set): LLM6 (grounding substring), LLM7 (retry jitter), LLM8 (generateMessage non-atomic persist), CH2/CH4/CH5/CH6, API4/API5/API7/API8, APO3/APO4/APO5/APO6/APO7, DB6/DB7, FE3/FE4/FE6–FE9/FE13/FE14, and a11y polish. Each is recorded in the findings ledger above; none are High/Critical.
+
+Resume point = this file + branch commits (`git log audit/godlike-fixes`).
