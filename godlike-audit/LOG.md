@@ -513,3 +513,73 @@ extra query; the two service writers read it from their already-loaded user row.
 at the user's midnight now, not ~02:00–03:00 local. **Deliberately left UTC (documented in
 usageBucket.ts):** Apollo reveal counter (MONTHLY cap → negligible nuance) and messages_sent
 (no cap). Verified helper format + tz + garbage-tz fallback at runtime.
+
+### weeklyDigest cross-process atomic claim (migration 0014; applied + verified)
+Replaced the check-then-send TOCTOU with an atomic claim: partial unique index
+`action_logs_weekly_digest_week_uq` on `(user_id, (metadata->>'weekKey')) WHERE
+action_type='digest.weekly_sent'` (added to the schema + hand-authored 0014, which
+first dedups any pre-existing duplicate markers so the index can build). `weeklyDigest.ts`
+now inserts the marker BEFORE sending (`onConflictDoNothing().returning()`); an empty
+return means another runner won the week → skip. On send failure the claim is deleted so a
+later run retries. Applied to dev DB; index present; db tests 3/3.
+
+### magic_link_tokens dropped (migration 0015; applied + verified)
+Dead schema — zero code refs repo-wide (auth is Google-OAuth-only), so the raw-token
+column was pure attack surface. Hand-authored `0015_drop_magic_link_tokens.sql`
+(`DROP TABLE IF EXISTS`), removed the schema file + index export. Applied; `to_regclass`
+confirms the table is gone; db tests 3/3.
+
+### DB3 — latest drizzle snapshot rebuilt (generate is clean again)
+Ran `drizzle-kit generate` once (it dumped 0007→current as a bogus 0016 because meta/
+stopped at 0007) purely to capture the accurate current-schema snapshot it produced;
+promoted that to `meta/0015_snapshot.json` (baseline for the last real migration), deleted
+the bogus 0016 SQL + journal entry. **Verified:** a follow-up `drizzle-kit generate` now
+reports "No schema changes, nothing to migrate" — future generation diffs correctly instead
+of re-emitting 0008–0015. Intermediate 0008–0014 snapshots intentionally NOT reconstructed
+(neither `generate` nor `migrate` reads them; `migrate` uses journal + SQL hashes). migrate
+to head + db tests 3/3 still green.
+
+### FE7 — API contract corrected + client regenerated (wrapper-rewire deferred)
+Root drift source was the spec: `openapi.yaml`'s `NotificationSettings` RESPONSE schema still
+declared the raw `pushoverUserKey`, so the generated type carried it (contradicting API7).
+Removed it from the response schema (kept in `NotificationSettingsPatch` to SET a key) and
+re-ran `orval` codegen — the generated `NotificationSettings` type is now masked-only, matching
+the hand-written client (drift + latent raw-key leak in the contract resolved; typecheck:libs
+green). The physical dedup (delete hand-written `lib/api/{notification-settings,test-channel}.ts`
++ rewire their 1 consumer each to generated hooks) is DEFERRED: pure plumbing with no behavior
+change, and the runtime bits (queryKey/invalidation shapes) can't be verified without running
+the dashboard in a browser. `manual-ingest` is NOT a generated-hook duplicate (6 consumers, no
+generated equivalent) — out of scope.
+
+### Genuinely blocked / infeasible-as-specified (documented, not guessed)
+- **APO5 (CallBudget precision):** the cap is a *documented, intentional* coarse stop-loss —
+  services are internally bounded by zod limits, so no true runaway; the imprecision is only
+  in calls made INSIDE findOrg/collectContacts (bumped post-hoc by flat estimates). A precise
+  fix must thread the budget through the whole Apollo cascade (mirroring APO2's signal
+  threading — ~9 functions), bump per real `apolloPost`, check in each loop, drop the flat
+  estimates, AND re-tune `DEFAULT_APOLLO_CALL_BUDGET` (it changes discovery REACH). That's a
+  credit-spend + product-tuning change I can't validate without a live Apollo key; a
+  half-measure would alter reach unverified. Precise plan recorded here; left for Apollo-
+  integration-tested work.
+- **APO4 (webhook replay):** infeasible AS SPECIFIED — `apolloWebhookSecurity.ts`'s own docs
+  state Apollo doesn't commit to a signing scheme across plan tiers, so there is NO timestamp
+  to bind. Practical exposure is already low: the terminal-state guard makes reprocessing a
+  completed reveal idempotent, the correlationId is unguessable CSPRNG and never logged, and the
+  reveal counter is incremented at REQUEST time (not webhook time) so replay can't inflate
+  credits. Residual (bearer-fallback has no body binding; `expired`→`arrived` re-promotion is
+  replayable-but-benign) is inherent to Apollo's signing limits.
+- **APO4 (counter weight):** reveals-vs-credits is a PRODUCT-semantics decision (the counter is
+  internally consistent at 1/reveal, cap named/defaulted as "reveals"). Not a bug to guess at.
+- **DB2 (token encryption):** `microsoft_refresh_token`/`slack_bot_token` remain UNUSED (Teams/
+  Slack OAuth unimplemented). Encrypting empty columns is premature and the correct design needs
+  a KMS/app-key decision — do it WHEN that OAuth ships. (magic_link_tokens, the other DB2 arm,
+  is now dropped.)
+- **CH5 (Telegram non-bot prefill):** behavioral/product question, not a code fix.
+
+## Session 4 — summary
+
+Of the items flagged for a decision, **6 completed** (APO3, DB7-LLM-group, weeklyDigest,
+magic_link drop, DB3 snapshot, FE7 contract) — all typecheck-green, migrations applied to the
+dev DB and verified, db tests 3/3. **5 documented as genuinely blocked or infeasible-as-specified**
+with precise rationale + plans (APO5, APO4-replay, APO4-counter, DB2, CH5). No guesses on
+credit-spend, product-semantics, or KMS decisions.
