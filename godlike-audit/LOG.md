@@ -438,3 +438,44 @@ batch. Product-decision items (CH5, APO3, APO5) flagged, not guessed.
   API7 just removed from `NotificationSettings` — so this must be done together with
   regenerating the api-spec to reflect the masked-only contract (a codegen toolchain step,
   out of scope for a code batch). Left as a documented residual with that dependency noted.
+
+## Session 3 — Med/Low pile worked through (summary)
+
+The entire un-triaged Med/Low pile below the old gated line (residual #5) is now
+resolved or precisely characterized. Green bar held after every batch: full-workspace
+`pnpm run typecheck` PASS; no new typecheck errors introduced. Seven batches, all on
+`audit/godlike-fixes`.
+
+**Applied + verified (typecheck-green each batch):**
+- **LLM:** LLM6 (token-grounding, closes the substring false-negative), LLM7 (retry
+  jitter + unknown→non-retryable + budget-clamped sleep), LLM8 (atomic message+spend).
+- **Channels:** CH2 (`InvalidPhoneError`→422), CH4 (`ChannelNotImplementedError`→501),
+  CH6 (token-match verticals).
+- **API:** API4 (SSE spend-cap + per-user concurrency limiter + sanitized errors),
+  API5 (link TTL 14d→72h), API7 (mask pushover key, BE+FE, footgun closed),
+  API8 (telegram-aware status filter).
+- **Apollo:** APO6 (abort research on disconnect), APO7 (compensating rollback on 4xx reveal).
+- **DB:** DB6 (corrected the false doctrineVariant backfill comment).
+- **Frontend:** FE3 (all-tab partial-error banner), FE4 (honest bulk-open counts +
+  popup-block detection), FE6 (idempotent outcome notes), FE8 (sign-out + identity),
+  FE9 (keyboard-accessible rows), FE13 (persist manual message edits), FE14 (research-
+  cancel dead-end).
+
+**Flagged (documented, not guessed) — need a product/infra/codegen decision:**
+- **CH5** — Telegram non-bot-handle prefill (behavioral; product confirm).
+- **APO3** — geo-gate E.164 normalize vs store-raw (auditor itself said "needs product call").
+- **APO4** — reveal counter "weight by credits" (cap = reveals vs credits is product
+  semantics; counter is internally consistent) + webhook replay needs an Apollo timestamp
+  that may not exist.
+- **APO5** — CallBudget precision (discovery-orchestrator refactor).
+- **DB7** — daily_usage UTC→user-tz bucket: cross-cutting across ~6 writers + the cap
+  readers + the FUP3 digest claim key; must convert atomically or corrupt accounting.
+  Precise plan recorded. Not a crash.
+- **FE7** — adopt generated api hooks / delete hand-written dupes; entangled with the
+  API7 masked-only contract → needs api-spec regeneration first.
+
+**Carried residuals from session 2 (unchanged):** DB2 token encryption (unused cols;
+KMS decision), magic_link_tokens (dead schema), weeklyDigest cross-process claim,
+DB3 snapshot rebuild.
+
+Resume point = this file + branch commits (`git log audit/godlike-fixes`).
