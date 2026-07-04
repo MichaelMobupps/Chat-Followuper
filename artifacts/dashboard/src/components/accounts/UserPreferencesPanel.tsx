@@ -19,6 +19,7 @@ import {
   getUserPreferences,
   patchUserPreferences,
   type PreferredChannel,
+  type UserPreferencesPatch,
 } from "@/lib/api/user-extras";
 
 export function UserPreferencesPanel() {
@@ -39,13 +40,13 @@ export function UserPreferencesPanel() {
     setPreferredChannel(prefs.data.preferredChannel ?? "none");
     setMessageTemplate(prefs.data.messageTemplate ?? "");
     setQuietStart(
-      prefs.data.quietHoursStart != null
-        ? String(prefs.data.quietHoursStart)
+      prefs.data.pushoverQuietHourStart != null
+        ? String(prefs.data.pushoverQuietHourStart)
         : "",
     );
     setQuietEnd(
-      prefs.data.quietHoursEnd != null
-        ? String(prefs.data.quietHoursEnd)
+      prefs.data.pushoverQuietHourEnd != null
+        ? String(prefs.data.pushoverQuietHourEnd)
         : "",
     );
   }, [prefs.data]);
@@ -80,15 +81,20 @@ export function UserPreferencesPanel() {
       return;
     }
 
-    save.mutate({
-      preferredChannel:
-        preferredChannel === "none"
-          ? null
-          : (preferredChannel as PreferredChannel),
+    // The api-server PATCH is .strict() and these fields are optional but NOT
+    // nullable, so only include fields that carry a real value. preferredChannel
+    // has no "unset" on the backend (enum, non-null column), so "none" simply
+    // omits it (no change) rather than sending an invalid null.
+    const patch: UserPreferencesPatch = {
       messageTemplate: messageTemplate.trim() || null,
-      quietHoursStart: start,
-      quietHoursEnd: end,
-    });
+    };
+    if (preferredChannel !== "none") {
+      patch.preferredChannel = preferredChannel as PreferredChannel;
+    }
+    if (start != null) patch.pushoverQuietHourStart = start;
+    if (end != null) patch.pushoverQuietHourEnd = end;
+
+    save.mutate(patch);
   }
 
   return (

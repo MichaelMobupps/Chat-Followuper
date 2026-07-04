@@ -216,10 +216,12 @@ export function patchFollowup(
 
 export type SnoozePreset = "1d" | "3d" | "next_monday";
 
+// The api-server returns only `{ followup }`; the new schedule is on the
+// returned row (followup.scheduledAt) — there is no top-level `scheduledAt`.
 export function snoozeFollowup(
   followupId: number,
   preset: SnoozePreset,
-): Promise<{ followup: Followup; scheduledAt: string }> {
+): Promise<{ followup: Followup }> {
   return req("POST", `/api/followups/${followupId}/snooze`, { preset });
 }
 

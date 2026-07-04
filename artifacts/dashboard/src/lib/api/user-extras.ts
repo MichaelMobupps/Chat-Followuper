@@ -15,8 +15,12 @@ export type PreferredChannel = "whatsapp" | "telegram";
 export interface UserPreferences {
   preferredChannel: PreferredChannel | null;
   messageTemplate: string | null;
-  quietHoursStart: number | null;
-  quietHoursEnd: number | null;
+  // Field names mirror the api-server (pushover_quiet_hour_* columns). The GET
+  // response always returns numbers (columns are NOT NULL w/ defaults 8/20); the
+  // PATCH schema is .strict() and these are optional-but-NOT-nullable, so callers
+  // must OMIT them when unset — never send null.
+  pushoverQuietHourStart: number | null;
+  pushoverQuietHourEnd: number | null;
 }
 
 export type UserPreferencesPatch = Partial<UserPreferences>;
@@ -68,18 +72,52 @@ export interface HealthCheckResponse {
   checkedAt: string;
 }
 
+// The api-server's health-check endpoint reports which integrations are
+// CONFIGURED (boolean flags), not a list of live check results. Adapt that into
+// the panel's { status, checks[], checkedAt } shape so Accounts renders it
+// instead of crashing on `health.data.checks.map` (checks was undefined).
+// Frontend-only; no backend change.
+interface HealthCheckConfigResponse {
+  smtpConfigured: boolean;
+  pushoverConfigured: boolean;
+  apolloConfigured: boolean;
+  appUrlConfigured: boolean;
+  appUrl: string | null;
+}
+
 export function getHealthCheck(): Promise<HealthCheckResponse> {
-  return apiFetch<HealthCheckResponse>("/api/users/me/health-check");
+  return apiFetch<HealthCheckConfigResponse>(
+    "/api/users/me/health-check",
+  ).then((r) => {
+    const checks: HealthCheckItem[] = [
+      { name: "Email (SMTP)", status: r.smtpConfigured ? "ok" : "error" },
+      { name: "Pushover", status: r.pushoverConfigured ? "ok" : "error" },
+      { name: "Apollo", status: r.apolloConfigured ? "ok" : "error" },
+      {
+        name: "Public URL",
+        status: r.appUrlConfigured ? "ok" : "error",
+        message: r.appUrl ?? undefined,
+      },
+    ];
+    const status: HealthCheckStatus = checks.every((c) => c.status === "ok")
+      ? "ok"
+      : "degraded";
+    return { status, checks, checkedAt: new Date().toISOString() };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Apollo usage
 // ─────────────────────────────────────────────────────────────────
 
+// Mirrors the api-server GET /api/users/me/apollo-usage response. (Currently
+// unconsumed; realigned so a future consumer reads real fields, not undefined.)
 export interface ApolloUsage {
-  revealsUsedToday: number;
-  revealsLimit: number;
-  revealsUsedAllTime: number;
+  month: string; // "YYYY-MM"
+  revealsUsed: number;
+  revealCap: number;
+  remaining: number;
+  capExceeded: boolean;
 }
 
 export function getApolloUsage(): Promise<ApolloUsage> {

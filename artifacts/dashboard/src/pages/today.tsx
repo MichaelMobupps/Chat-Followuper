@@ -273,7 +273,7 @@ export default function TodayPage() {
         onSuccess: (data) => {
           toast({
             title: "Snoozed",
-            description: `Rescheduled to ${format(new Date(data.scheduledAt), "MMM d, HH:mm")}`,
+            description: `Rescheduled to ${format(new Date(data.followup.scheduledAt), "MMM d, HH:mm")}`,
           });
           refetch();
         },

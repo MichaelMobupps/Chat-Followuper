@@ -85,13 +85,13 @@ export function useSendNextFollowup(): UseMutationResult<
 }
 
 export function useSnoozeFollowup(): UseMutationResult<
-  { followup: Followup; scheduledAt: string },
+  { followup: Followup },
   ApiError,
   { followupId: number; preset: SnoozePreset }
 > {
   const invalidate = useInvalidateFollowups();
   return useMutation<
-    { followup: Followup; scheduledAt: string },
+    { followup: Followup },
     ApiError,
     { followupId: number; preset: SnoozePreset }
   >({
