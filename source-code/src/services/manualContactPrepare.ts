@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { getLanguageForCountry } from "../lib/geoGate";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
+import { usageBucketDate } from "../lib/usageBucket";
 import { researchProspect, type ProspectBrief } from "./prospectResearch";
 import { LoggingProgressEmitter } from "./progressEvents";
 import {
@@ -37,9 +38,6 @@ export interface PrepareFirstMessageResult {
   generationCostUsd?: number;
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function defaultSubVertical(vertical: string | null): string {
   if (vertical === "web_cps") return "cps_web_classifieds_general";
@@ -98,7 +96,10 @@ export async function prepareFirstMessage(params: {
       )
       .limit(1),
     db
-      .select({ messageTemplate: usersTable.messageTemplate })
+      .select({
+        messageTemplate: usersTable.messageTemplate,
+        digestTimezone: usersTable.digestTimezone,
+      })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1),
@@ -106,6 +107,7 @@ export async function prepareFirstMessage(params: {
 
   const rows = prospectRows;
   const userMessageTemplate = userRows[0]?.messageTemplate;
+  const userTimezone = userRows[0]?.digestTimezone;
 
   const prospect = rows[0];
   if (!prospect) {
@@ -212,7 +214,8 @@ export async function prepareFirstMessage(params: {
     generated.message,
     userMessageTemplate,
   );
-  const today = todayUtc();
+  // DB7: user's local-day bucket so LLM spend lands in the same row the cap reads.
+  const today = usageBucketDate(userTimezone);
 
   await db
     .update(prospectsTable)

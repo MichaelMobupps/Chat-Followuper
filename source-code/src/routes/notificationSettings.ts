@@ -53,8 +53,9 @@ router.get(
       return;
     }
 
+    // API7: never return the raw key — only the masked form. Round-tripping the
+    // secret back to the client leaks it to anyone who can read the response.
     res.status(200).json({
-      pushoverUserKey: row.pushoverUserKey,
       pushoverUserKeyMasked: maskPushoverKey(row.pushoverUserKey),
       pushoverEnabled: !!row.pushoverUserKey?.trim(),
       pushoverAppConfigured: isPushoverAppConfigured(),
@@ -114,8 +115,8 @@ router.patch(
       },
     });
 
+    // API7: masked-only response (see GET handler).
     res.status(200).json({
-      pushoverUserKey: row.pushoverUserKey,
       pushoverUserKeyMasked: maskPushoverKey(row.pushoverUserKey),
       pushoverEnabled: !!row.pushoverUserKey?.trim(),
       pushoverAppConfigured: isPushoverAppConfigured(),

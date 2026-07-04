@@ -115,9 +115,14 @@ function statusSqlFilter(status: ProspectStatus) {
         eq(prospectsTable.phoneRevealStatus, "expired"),
       );
     case "phone-pending":
+      // API8: mirror computeProspectStatus, which treats a telegramHandle as a
+      // valid contact identity. A prospect with a handle but no phone is NOT
+      // pending — so exclude it here too (was keyed on phone alone, producing
+      // list badges that contradicted the active filter).
       return and(
         isNull(prospectsTable.firstMessageSentAt),
         isNull(prospectsTable.phone),
+        isNull(prospectsTable.telegramHandle),
         ne(prospectsTable.phoneRevealStatus, "blocked"),
         ne(prospectsTable.phoneRevealStatus, "no_match"),
         ne(prospectsTable.phoneRevealStatus, "expired"),
@@ -125,13 +130,19 @@ function statusSqlFilter(status: ProspectStatus) {
     case "ready":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
-        isNotNull(prospectsTable.phone),
+        or(
+          isNotNull(prospectsTable.phone),
+          isNotNull(prospectsTable.telegramHandle),
+        ),
         isNotNull(prospectsTable.firstMessageBody),
       );
     case "draft":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
-        isNotNull(prospectsTable.phone),
+        or(
+          isNotNull(prospectsTable.phone),
+          isNotNull(prospectsTable.telegramHandle),
+        ),
         isNull(prospectsTable.firstMessageBody),
       );
   }

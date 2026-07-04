@@ -1,6 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-const DEFAULT_TTL_HOURS = 24 * 14; // 14 days
+// API5: 72h, down from 14 days. The token carries read access to the prospect's
+// phone + message and rides in the `?t=` query string (so it lands in logs and
+// email history) — a 14-day replay window was the risk. A short TTL is safe
+// because every digest send (email + pushover) re-mints a fresh token, so a
+// link expiring between digests is simply superseded by the next one. 72h keeps
+// a Friday link valid across the weekend even if a daily digest is missed once.
+// Overridable via FOLLOWUP_LINK_TTL_HOURS.
+// NOTE (residual): true single-use / invalidate-on-confirm would need a
+// per-followup nonce column + migration; left as a documented sub-residual so
+// re-opening a still-valid link (legitimate) keeps working.
+const DEFAULT_TTL_HOURS = 72;
 
 function resolveTtlHours(): number {
   const raw = Number(process.env.FOLLOWUP_LINK_TTL_HOURS);

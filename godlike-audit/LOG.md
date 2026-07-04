@@ -643,3 +643,59 @@ decision), **FE7** (spec fixed; rewire correctly declined on error-contract grou
 items remain that don't require net-new product features (Teams/Slack OAuth) or live Apollo re-tuning
 (the APO5 budget number). Green bar throughout; APO4 anti-replay + APO5 ceiling verified against the DB
 and in isolation.
+
+---
+
+## Session 6 — "do everything doable except the Slack/Teams thing"
+
+User asked to finish everything actionable, explicitly EXCLUDING the DB2 token-encryption arm
+(`microsoft_refresh_token`/`slack_bot_token` — deferred until Teams/Slack OAuth ships, per the
+Session-5 decision). An Apollo key + Anthropic key are both present in this environment, so the
+one item previously blocked on "live Apollo re-tuning" (the APO5 budget number) became doable.
+
+### BUILD (new, found during verification) — `pnpm run build` was broken outside the Replit wrapper
+Verifying the "green bar" beyond typecheck surfaced a real failure: `pnpm run build` (the command
+`replit.md` documents) **failed** in any environment without `PORT` set. `artifacts/dashboard/vite.config.ts`
+threw `PORT`/`BASE_PATH` "required" at config-LOAD time, but `PORT` is only consumed by the dev
+`server`/`preview` blocks — never by `vite build`. Production deploys pass because the dashboard
+artifact's `[services.env]` injects `PORT=23183`/`BASE_PATH=/`, but a bare workspace-root build (CI,
+local, the documented command) died before Vite could distinguish build from serve. FIXED: switched to
+Vite's config-function form `defineConfig(async ({ command }) => …)` and enforce `PORT` + the `BASE_PATH`
+throw only when `command === "serve"`; `base` still reads `BASE_PATH ?? "/"` (identical to what production
+sets), so build output is unchanged and dev/preview strictness is preserved. Verified: bare
+`pnpm --filter @workspace/dashboard run build` succeeds; full root `pnpm run build` now **exits 0**
+(api-server + dashboard) — previously exit 1. (Typecheck was always green; only the production build was
+broken, which is why prior sessions' typecheck-only bar missed it.)
+
+### APO5 — budget number re-checked against a real run; kept 80, made env-tunable
+Prior sessions implemented the exact per-call ceiling but flagged the *number* 80 for "re-check against
+real run counts." Done:
+- **Analytical:** the removed flat estimates were `FIND_ORG_CALL_ESTIMATE=5`, `COLLECT_CONTACTS_CALL_ESTIMATE=20`,
+  `SUBSIDIARY_COLLECT_CALL_ESTIMATE=10`. The `collectContacts` estimate (20) **under-counted** its real
+  cost (per-page search + up to 3 enrich calls per email-less person, ×25/page ×3 tiers ×3 pages) — the very
+  "illusory cap" the APO5 fix named. So exact counting did NOT shrink typical reach; it only tightened the
+  *runaway* path (which the old estimate let escape past 80 real calls). Typical successful discoveries were
+  always well under 80 either way.
+- **Empirical anchor (one live run, minimal spend — domain-seeded strict path, rescue+subsidiary disabled):**
+  Stripe discovery → `status=success, apolloCallsConsumed=14, budgetExhausted=false, contacts=6`. A full
+  successful discovery uses **~14 real calls**, so 80 is ~5.7× headroom.
+- **Decision:** keep the default at **80** (no reach loss, caps the enrichment runaway) rather than guess a
+  new hardcoded number that would need a live Apollo tuning campaign to validate. Instead made it
+  **env-tunable**: `DEFAULT_APOLLO_CALL_BUDGET` → `defaultApolloCallBudget()` reading `APOLLO_CALL_BUDGET`
+  (default 80, clamped to the same `[10,200]` as the per-request `apolloCallBudget` override), mirroring the
+  `APOLLO_MONTHLY_REVEAL_CAP` pattern — operators re-tune from production `apolloCallsConsumed` telemetry
+  without a deploy. Documented in `.env.example`.
+- **Doc bug fixed:** the comment above the `CallBudget` class still described the removed
+  "APPROXIMATE … bump by a conservative estimate" behavior — rewritten to state it's now an exact
+  ALS-scoped per-call meter.
+
+### Explicitly NOT done (per user)
+- **DB2 token encryption** (Slack/Teams) — excluded by the user; unchanged, still correctly deferred to
+  when that OAuth ships (columns are unused today).
+
+### Green bar (stronger than prior sessions)
+- Full-workspace `pnpm run build` → **exit 0** (typecheck + api-server esbuild + dashboard vite build).
+- `@workspace/db` tests → **3/3 PASS** (globalSetup migrates to head).
+The throwaway APO5 probe script was removed. No open audit items remain except the two that genuinely
+need a net-new feature (Teams/Slack OAuth → DB2 encryption) or ongoing production telemetry (APO5 number,
+now operator-tunable via env).

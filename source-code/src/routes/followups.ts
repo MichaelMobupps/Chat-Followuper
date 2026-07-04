@@ -50,6 +50,7 @@ import { requireAuth } from "../middlewares/auth";
 import {
   generateLink,
   GeoGateBlockedError,
+  InvalidPhoneError,
 } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
@@ -549,6 +550,10 @@ router.post(
           generatedMessage: messageBody,
         });
       } catch (err) {
+        if (err instanceof InvalidPhoneError) {
+          res.status(422).json({ error: "invalid_phone" });
+          return;
+        }
         if (err instanceof GeoGateBlockedError) {
           res.status(422).json({ error: "geo_blocked", country: err.country });
           return;

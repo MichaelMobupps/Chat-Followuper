@@ -38,6 +38,8 @@
  *                   or zero-width chars (defense against env-var corruption).
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // ─── Constants ────────────────────────────────────────────────────────────
 
 const APOLLO_BASE_URL = "https://api.apollo.io/api/v1";
@@ -215,6 +217,27 @@ async function withTimeout<T>(
 
 // ─── Core POST ────────────────────────────────────────────────────────────
 
+/**
+ * APO5: minimal per-request Apollo call budget. `CallBudget` in
+ * discoveryOrchestrator satisfies this. Passing it into apolloPost makes the
+ * discovery "hard cap" a REAL per-call ceiling instead of a coarse post-hoc
+ * estimate — see ApolloPostOptions.budget.
+ */
+export interface ApolloCallBudget {
+  bump(): void;
+  exhausted(): boolean;
+}
+
+/**
+ * APO5: per-request Apollo call budget scoped via AsyncLocalStorage. The
+ * discovery orchestrator wraps its run in `apolloBudgetStore.run(budget, …)`, so
+ * every apolloPost anywhere in that async context (findOrg, collectContacts, and
+ * all their internals) reads the same budget and self-counts — no need to thread
+ * a budget param through the whole cascade. Concurrent /discover requests each
+ * get their own context via `run()`.
+ */
+export const apolloBudgetStore = new AsyncLocalStorage<ApolloCallBudget>();
+
 export interface ApolloPostOptions {
   /** Path under APOLLO_BASE_URL, e.g. "/organizations/enrich" (leading slash). */
   path: string;
@@ -228,6 +251,11 @@ export interface ApolloPostOptions {
    *  Used by /discover to halt in-flight Apollo work when its outer 300s
    *  timeout fires (closes 2.2-BE-B residual finding F-NEW-A). */
   signal?: AbortSignal;
+  /** APO5: per-request call budget. When exhausted, apolloPost returns null
+   *  WITHOUT making the request (callers treat null as "no data" and stop
+   *  gracefully); otherwise this call is counted. This turns the discovery cap
+   *  into a real per-call ceiling that services can't overshoot. */
+  budget?: ApolloCallBudget;
 }
 
 /**
@@ -243,6 +271,17 @@ export interface ApolloPostOptions {
 export async function apolloPost(
   opts: ApolloPostOptions,
 ): Promise<Record<string, unknown> | null> {
+  // APO5: enforce the per-request call budget as a real ceiling. The budget is
+  // supplied either explicitly (opts.budget) or — the common path — via the
+  // AsyncLocalStorage the orchestrator wraps discovery in, so EVERY apolloPost
+  // anywhere in that async context self-counts with no signature threading. If
+  // exhausted, return null WITHOUT making the request (and without needing an
+  // API key) — callers already treat null as "no data" and fall through / stop.
+  // Placed before the retry loop so a call counts once regardless of 5xx retries.
+  const _budget = opts.budget ?? apolloBudgetStore.getStore();
+  if (_budget?.exhausted()) return null;
+  _budget?.bump();
+
   const apiKey = getApiKey();
   const path = opts.path.startsWith("/") ? opts.path : `/${opts.path}`;
 

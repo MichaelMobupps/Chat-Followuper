@@ -70,9 +70,26 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-/** Default Apollo-call budget per /discover request. Hard cap; cascade halts
- *  cleanly when reached. Generous enough for normal cascades + Phase 3. */
-const DEFAULT_APOLLO_CALL_BUDGET = 80;
+/** Default Apollo-call budget per /discover request. Hard, exact per-call cap
+ *  (APO5); the cascade halts cleanly when reached. A typical successful
+ *  discovery (org found + 6 contacts) measures ~14 real calls, so 80 leaves
+ *  generous headroom for the rescue/enrichment/subsidiary tail while still
+ *  capping the pathological per-person-enrichment runaway.
+ *
+ *  Env-overridable via APOLLO_CALL_BUDGET so operators can re-tune from
+ *  production `apolloCallsConsumed` telemetry without a deploy. Clamped to the
+ *  same [10, 200] range as the per-request `apolloCallBudget` override. */
+const FALLBACK_APOLLO_CALL_BUDGET = 80;
+const MIN_APOLLO_CALL_BUDGET = 10;
+const MAX_APOLLO_CALL_BUDGET = 200;
+
+function defaultApolloCallBudget(): number {
+  const raw = process.env.APOLLO_CALL_BUDGET;
+  if (raw === undefined || raw.trim() === "") return FALLBACK_APOLLO_CALL_BUDGET;
+  const n = Number(raw);
+  if (!Number.isInteger(n)) return FALLBACK_APOLLO_CALL_BUDGET;
+  return Math.min(MAX_APOLLO_CALL_BUDGET, Math.max(MIN_APOLLO_CALL_BUDGET, n));
+}
 
 /** Cap on smart-search names tried (port: Python uses [:8]). */
 const SMART_SEARCH_NAMES_CAP = 8;
@@ -194,15 +211,15 @@ export interface DiscoveryOptions {
 // ─── Apollo call counter (per-request) ────────────────────────────────────
 
 /**
- * Wraps apolloPost with a budget counter. The counter is per-request
+ * Per-request Apollo call counter. The counter is per-request
  * (instance-scoped) so concurrent /discover requests don't share state.
  *
- * The bump granularity is APPROXIMATE — services like findOrg and
- * collectContacts make 1-25 Apollo calls internally without exposing a
- * counter to us. We bump by a conservative estimate (FIND_ORG_ESTIMATE,
- * COLLECT_CONTACTS_ESTIMATE, etc.) at the orchestrator boundary so the
- * budget is a coarse stop-loss, not a precise meter. Real per-call counts
- * are bounded by zod limits + cascade structure inside each service.
+ * APO5: this is now an EXACT per-call meter, not an estimate. Every apolloPost
+ * in the run — orchestrator-inline calls plus all findOrg/collectContacts
+ * internals — self-counts via the ALS-scoped `apolloBudgetStore` and stops the
+ * instant the limit is hit, so the budget is a real hard ceiling. (Previously
+ * the orchestrator bumped by flat per-service estimates, which under-counted
+ * the per-person-enrichment path and let a "capped" run blow past the limit.)
  */
 class CallBudget {
   private consumed = 0;
@@ -484,7 +501,7 @@ export async function discover(
   input: DiscoveryInput,
   opts: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
-  const budget = new CallBudget(input.apolloCallBudget ?? DEFAULT_APOLLO_CALL_BUDGET);
+  const budget = new CallBudget(input.apolloCallBudget ?? defaultApolloCallBudget());
   // APO5: scope the budget to this discovery run so EVERY apolloPost — in
   // findOrg/collectContacts and all their internals — self-counts and stops the
   // instant the true limit is hit (a real ceiling, not a post-hoc estimate).

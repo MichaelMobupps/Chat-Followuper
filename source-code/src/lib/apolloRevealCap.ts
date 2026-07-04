@@ -20,10 +20,28 @@
  * Bucket is UTC month, matching the existing reporting endpoint. (Audit DB7's
  * UTC-vs-local concern applies to all daily_usage accounting and is out of scope
  * here — this deliberately matches the existing reader.)
+ *
+ * APO4 (counter semantics — decided: this is a REVEAL QUOTA, not a credit
+ * budget). Every phone reveal (sync `/apollo/reveal` and async
+ * `/apollo/request-phone-reveal`) increments the counter by exactly 1, which is
+ * correct and consistent — and keeps `daily_usage.apollo_reveals_used` a true
+ * reveal COUNT for the weekly/admin reporting that reads it. It is deliberately
+ * NOT re-scaled into credits (which would silently change the column's meaning
+ * and 8× the effective limit). Operators sizing the cap should know the credit
+ * implication: 1 reveal ≈ `APOLLO_CREDITS_PER_PHONE_REVEAL` Apollo credits, so a
+ * 100-reveal cap ≈ 800 credits/month. A separate credit budget, if ever wanted,
+ * belongs in its own counter rather than overloading this one.
  */
 
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { db, dailyUsageTable } from "@workspace/db";
+
+/**
+ * Apollo credits consumed by a single phone reveal. Reference value for
+ * operators reasoning about the reveal quota in credit terms (see module note);
+ * the counter itself stays a reveal count.
+ */
+export const APOLLO_CREDITS_PER_PHONE_REVEAL = 8;
 
 /**
  * Thrown when the user has already used their monthly reveal allowance.

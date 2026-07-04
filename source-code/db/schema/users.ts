@@ -43,11 +43,16 @@ export interface StageTiming {
   minDays: number;
   maxDays: number;
   /**
-   * Doctrine variant for this stage. Optional in the type to tolerate
-   * pre-migration rows that don't carry the field yet — the 0006
-   * migration backfills existing rows so production data always has
-   * the field, but defensive reads should still treat it as optional
-   * and fall back to the per-stage default below.
+   * Doctrine variant for this stage. Optional in the type because it is a
+   * nested field inside the `stage_timing` jsonb column, and migration 0006
+   * only changed the column DEFAULT (applied to newly-created rows) — it did
+   * NOT run an UPDATE to backfill existing rows. So users created before 0006
+   * carry `stage_timing` entries WITHOUT this field. Reads MUST treat it as
+   * optional and fall back to `defaultVariantForStage` below.
+   *
+   * (Audit DB6: the previous comment here claimed 0006 "backfills existing
+   * rows so production data always has the field" — it does not. The optional
+   * type + per-stage default is what actually keeps this safe.)
    */
   doctrineVariant?: DoctrineVariant;
 }

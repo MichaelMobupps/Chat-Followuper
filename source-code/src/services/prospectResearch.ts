@@ -353,6 +353,10 @@ function sanitizeContextNotes(notes: string | undefined): string | undefined {
 export async function researchProspect(
   input: ResearchInput,
   emitter: ProgressEmitter,
+  // APO6: optional abort signal. When the SSE client disconnects the route
+  // aborts it so the in-flight Opus call is cancelled instead of running to
+  // completion and discarding a paid-for result. Omitted → zero behavior change.
+  signal?: AbortSignal,
 ): Promise<ResearchResult> {
   // ── Validate input ──
   if (!input.brand || !input.brand.trim()) {
@@ -454,12 +458,17 @@ export async function researchProspect(
     response = (await withTimeout(
       withAnthropicRetry(
         () =>
-          anthropic.messages.create({
-            model: RESEARCH_MODEL,
-            max_tokens: 2500,
-            system: systemPrompt,
-            messages: [{ role: "user", content: userPrompt }],
-          }),
+          anthropic.messages.create(
+            {
+              model: RESEARCH_MODEL,
+              max_tokens: 2500,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userPrompt }],
+            },
+            // APO6: pass the abort signal as a request option so a client
+            // disconnect cancels the HTTP request mid-flight.
+            { signal },
+          ),
         { label: "research" },
       ),
       RESEARCH_TIMEOUT_MS,

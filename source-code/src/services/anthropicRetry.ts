@@ -57,8 +57,11 @@ function isRetryable(err: unknown): boolean {
   if (msg.includes("fetch failed") || msg.includes("network")) {
     return true;
   }
-  // Unknown — err on the side of retry once; the attempt counter caps us anyway.
-  return true;
+  // Unknown error with no APIError status and no recognizable network
+  // signature — treat as NON-retryable. It is far more likely a programming
+  // bug or an unexpected condition that retrying cannot fix, and blindly
+  // retrying it burns the whole backoff budget before failing anyway.
+  return false;
 }
 
 function retryAfterMs(err: unknown): number | null {
@@ -113,9 +116,18 @@ export async function withAnthropicRetry<T>(
       }
 
       const hint = retryAfterMs(err);
-      const backoff = hint ?? cfg.backoffMs[Math.min(attempt - 1, cfg.backoffMs.length - 1)];
+      const base = hint ?? cfg.backoffMs[Math.min(attempt - 1, cfg.backoffMs.length - 1)];
+      // Jitter to avoid thundering-herd retries when many callers back off in
+      // lockstep. For a server Retry-After hint only ever wait LONGER (never
+      // undercut the server's ask, which would re-trip the rate limit); for our
+      // own backoff schedule spread ±20% around the base.
+      const jitterFactor = hint != null ? 1 + Math.random() * 0.2 : 0.8 + Math.random() * 0.4;
+      // Clamp the sleep to the remaining budget so we never sleep past the cap
+      // only to fail the budget check on the next iteration.
+      const remainingBudget = cfg.totalBudgetMs - (Date.now() - startedAt);
+      const backoff = Math.max(0, Math.min(base * jitterFactor, remainingBudget));
       logger.warn(
-        { label, attempt, willRetryInMs: backoff, err: String(err) },
+        { label, attempt, willRetryInMs: Math.round(backoff), err: String(err) },
         "Transient Anthropic error — retrying",
       );
       await new Promise((r) => setTimeout(r, backoff));

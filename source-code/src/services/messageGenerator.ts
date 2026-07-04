@@ -421,25 +421,36 @@ function detectUngroundedClaims(
 
   const matches: string[] = [];
 
+  // Build the set of numeric tokens that ARE grounded, and match on exact
+  // token membership — NOT substring. `groundText.includes("200")` is true
+  // when the brief merely says "2000", which lets a fabricated "200" slip
+  // through the gate (LLM6). A normalized digit-string set closes that
+  // false-negative: "200" is only grounded if "200" appears as its own token.
+  const numericTokenRe = /\d+(?:\.\d+)?/g;
+  const groundedNums = new Set<string>(groundText.match(numericTokenRe) ?? []);
+  const isGrounded = (n: string): boolean => groundedNums.has(n);
+
   // 1. Percentages: "12%", "12.5%", "0.7%". Most common hallucination
-  // surface ("14% first-order completion" with no 14% in brief).
+  // surface ("14% first-order completion" with no 14% in brief). Compare
+  // the numeric part against the grounded token set.
   const percentRe = /\d+(?:\.\d+)?%/g;
   for (const m of text.match(percentRe) ?? []) {
-    if (!groundText.includes(m)) matches.push(`Percentage \`${m}\` not in brief or conversation`);
+    const bare = m.slice(0, -1); // drop the trailing "%"
+    if (!isGrounded(bare)) matches.push(`Percentage \`${m}\` not in brief or conversation`);
   }
 
   // 2. Large-number volume tokens: "400+", "5000 daily", "1200 installs".
   // We restrict to >=3 digits to avoid false positives on day numbers
   // ("Day 7"), stage numbers ("Stage 1"), and conventional figures.
   const largeNumRe = /\b\d{3,}(?:\+|k|K|M)?\b/g;
-  const seenLargeNum = new Set();
+  const seenLargeNum = new Set<string>();
   for (const m of text.match(largeNumRe) ?? []) {
     if (seenLargeNum.has(m)) continue;
     seenLargeNum.add(m);
-    // Strip trailing modifiers for substring check (so "400" matches
+    // Strip trailing modifiers for the membership check (so "400+" matches a
     // brief saying "400 daily").
     const bareNum = m.replace(/[+kKM]+$/, "");
-    if (!groundText.includes(bareNum)) {
+    if (!isGrounded(bareNum)) {
       matches.push(`Large number \`${m}\` not in brief or conversation`);
     }
   }
@@ -447,11 +458,11 @@ function detectUngroundedClaims(
   // 3. Bounded claims: "above 12%", "under 200 daily", "more than 14%".
   // These are claim-shapes that imply specific numeric grounding. Even
   // if the bare number is in the brief, the BOUND ("above") may be a
-  // hallucination, but for now we just check the number matches.
+  // hallucination, but for now we just check the number matches (by token).
   const boundedRe = /(?:above|over|under|below|less than|more than|around|approximately|roughly)\s+\d+(?:\.\d+)?(?:%|\+)?/gi;
   for (const m of text.match(boundedRe) ?? []) {
     const numMatch = m.match(/\d+(?:\.\d+)?/);
-    if (numMatch && !groundText.includes(numMatch[0])) {
+    if (numMatch && !isGrounded(numMatch[0])) {
       matches.push(`Bounded claim \`${m}\` with number not in brief or conversation`);
     }
   }
