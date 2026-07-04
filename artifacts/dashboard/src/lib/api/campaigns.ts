@@ -43,46 +43,56 @@ export interface CreateCampaignInput {
 
 export type UpdateCampaignInput = Partial<CreateCampaignInput>;
 
+// The api-server wraps every campaign response in an envelope
+// (`{ campaigns }`, `{ campaign }`), matching the house convention used by
+// prospects/followups. These helpers unwrap it so callers receive the bare
+// `Campaign` / `Campaign[]` shape their types promise. (Returning the raw
+// envelope is what made `campaigns?.map(...)` throw "n?.map is not a function"
+// and blank the whole app.)
 export function listCampaigns(
   opts: { includeArchived?: boolean } = {},
 ): Promise<Campaign[]> {
   const qs = opts.includeArchived ? "?includeArchived=true" : "";
-  return apiFetch<Campaign[]>(`/api/campaigns${qs}`);
+  return apiFetch<{ campaigns: Campaign[] }>(`/api/campaigns${qs}`).then(
+    (r) => r.campaigns,
+  );
 }
 
 export function getCampaign(id: string): Promise<CampaignDetail> {
-  return apiFetch<CampaignDetail>(`/api/campaigns/${id}`);
+  return apiFetch<{ campaign: Campaign; prospectCount: number }>(
+    `/api/campaigns/${id}`,
+  ).then((r) => ({ ...r.campaign, prospectCount: r.prospectCount }));
 }
 
 export function createCampaign(
   input: CreateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>("/api/campaigns", {
+  return apiFetch<{ campaign: Campaign }>("/api/campaigns", {
     method: "POST",
     body: JSON.stringify(input),
-  });
+  }).then((r) => r.campaign);
 }
 
 export function updateCampaign(
   id: string,
   input: UpdateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}`, {
+  return apiFetch<{ campaign: Campaign }>(`/api/campaigns/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
-  });
+  }).then((r) => r.campaign);
 }
 
 export function archiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}/archive`, {
+  return apiFetch<{ campaign: Campaign }>(`/api/campaigns/${id}/archive`, {
     method: "POST",
-  });
+  }).then((r) => r.campaign);
 }
 
 export function unarchiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}/unarchive`, {
+  return apiFetch<{ campaign: Campaign }>(`/api/campaigns/${id}/unarchive`, {
     method: "POST",
-  });
+  }).then((r) => r.campaign);
 }
 
 export function deleteCampaign(id: string): Promise<void> {
