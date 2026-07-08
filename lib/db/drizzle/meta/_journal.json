@@ -113,6 +113,13 @@
       "when": 1779260000000,
       "tag": "0015_drop_magic_link_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783545124180,
+      "tag": "0016_drop_dormant_channel_columns",
+      "breakpoints": true
     }
   ]
 }

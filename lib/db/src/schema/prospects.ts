@@ -47,8 +47,6 @@ export const prospectsTable = pgTable(
      */
     phone: text("phone"),
     telegramHandle: text("telegram_handle"),
-    teamsEmail: text("teams_email"),
-    slackUserId: text("slack_user_id"),
     linkedinUrl: text("linkedin_url"),
     apolloPersonId: text("apollo_person_id"),
     apolloOrgId: text("apollo_org_id"),
@@ -138,12 +136,6 @@ export const prospectsTable = pgTable(
     uniqueIndex("prospects_user_telegram_unique")
       .on(table.userId, table.telegramHandle)
       .where(sql`${table.telegramHandle} IS NOT NULL`),
-    uniqueIndex("prospects_user_teams_unique")
-      .on(table.userId, table.teamsEmail)
-      .where(sql`${table.teamsEmail} IS NOT NULL`),
-    uniqueIndex("prospects_user_slack_unique")
-      .on(table.userId, table.slackUserId)
-      .where(sql`${table.slackUserId} IS NOT NULL`),
     uniqueIndex("prospects_user_apollo_person_unique")
       .on(table.userId, table.apolloPersonId)
       .where(sql`${table.apolloPersonId} IS NOT NULL`),
