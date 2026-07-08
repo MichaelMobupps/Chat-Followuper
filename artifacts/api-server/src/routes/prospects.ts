@@ -45,6 +45,7 @@ import {
   type Prospect,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { uniqueViolationCode } from "../lib/dbErrors";
 import { detectCountry } from "../lib/geoGate";
 
 const router: IRouter = Router();
@@ -1494,11 +1495,12 @@ const manualIngestBulkBodySchema = z
 type BulkRejectedRow = {
   index: number;
   identifier: string;
-  error:
-    | "invalid_identifier"
-    | "duplicate_phone"
-    | "duplicate_telegram_handle"
-    | "insert_failed";
+  // Stable machine-readable code. Enumerated here for the common cases; DB
+  // unique violations map through uniqueViolationCode() (duplicate_*), so the
+  // field is a plain string rather than a closed union that would drift from
+  // dbErrors.ts. C3/A5: missing_company_product is distinct from
+  // invalid_identifier (the identifier may be perfectly valid).
+  error: string;
   detail?: string;
 };
 
@@ -1541,10 +1543,14 @@ router.post(
       const companyToStore = (row.company ?? body.defaultCompany ?? "").trim();
       const tickerToStore = row.ticker ?? body.defaultTicker;
       if (companyToStore.length === 0 || !tickerToStore) {
+        // C3/A5: the identifier may be perfectly valid — the problem is the
+        // missing company/product, so use a distinct code (not
+        // invalid_identifier, whose FE fallback copy is "Invalid phone or
+        // handle.").
         rejected.push({
           index: i,
           identifier,
-          error: "invalid_identifier",
+          error: "missing_company_product",
           detail:
             "Company and product are required — set them per row or as a batch default.",
         });
@@ -1677,14 +1683,19 @@ router.post(
           // ignore audit failure
         }
       } catch (err) {
-        // DB-level unexpected failure (constraint violation outside the
-        // (user_id, phone) unique index, transient error). Log to row
-        // and continue; do not halt the batch.
+        // A3/D3: a DB failure here is most reachably a concurrent duplicate on
+        // an identity index NOT covered by the (user_id, phone) onConflict
+        // target — e.g. prospects_user_telegram_unique. Map 23505 to a stable
+        // duplicate_* code; NEVER ship the raw driver message (constraint name /
+        // SQL text) to the client. Log the real error server-side.
+        const dupCode = uniqueViolationCode(err);
+        if (!dupCode) {
+          console.error(`[manual-ingest-bulk] row ${i} insert failed`, err);
+        }
         rejected.push({
           index: i,
           identifier,
-          error: "insert_failed",
-          detail: err instanceof Error ? err.message : "unknown insert error",
+          error: dupCode ?? "insert_failed",
         });
         continue;
       }

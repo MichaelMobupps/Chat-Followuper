@@ -52,12 +52,23 @@ import {
 } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
+import { DailyLlmCapExceededError } from "../lib/llmSpendCap";
 
 const router: IRouter = Router();
 
 // ─────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────
+
+// A1: the only generation errors safe to echo to the client as a 409. Anything
+// generateAndPersistFollowupMessage throws outside this set is an internal
+// fault → 500 (never echo a raw exception message as an error code).
+const CURATED_GENERATION_CODES: ReadonlySet<string> = new Set([
+  "followup_not_found",
+  "invalid_channel",
+  "research_not_complete",
+  "missing_conversation_context",
+]);
 
 const SUPPORTED_CHANNELS = ["whatsapp", "telegram"] as const;
 type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
@@ -513,13 +524,26 @@ router.post(
         });
         messageBody = generated.message;
       } catch (genErr) {
-        const code =
-          genErr instanceof Error ? genErr.message : "generation_failed";
-        res.status(409).json({
-          error: code,
-          followupId: next.id,
-          stage: next.stage,
-        });
+        // A1: the cap error must reach the terminal handler as 429 (with
+        // spentUsd/capUsd), NOT be flattened into a 409 here. Only the curated
+        // codes generateAndPersistFollowupMessage throws are safe to echo as a
+        // 409; any other error is an internal fault → 500 with a generic code
+        // (never echo a raw exception message as if it were an error code).
+        if (genErr instanceof DailyLlmCapExceededError) throw genErr;
+        const msg = genErr instanceof Error ? genErr.message : "";
+        if (CURATED_GENERATION_CODES.has(msg)) {
+          res.status(409).json({
+            error: msg,
+            followupId: next.id,
+            stage: next.stage,
+          });
+          return;
+        }
+        console.error(
+          `[followups] followup ${next.id} generation failed`,
+          genErr,
+        );
+        res.status(500).json({ error: "generation_failed" });
         return;
       }
     }

@@ -167,6 +167,27 @@ router.post(
       return;
     }
 
+    // A2: verify the prospect exists AND belongs to the caller BEFORE recording
+    // anything. The followupId branch is owner-scoped (API1), but the
+    // subsequent action_logs insert uses this URL prospectId — without this
+    // guard a caller could stamp an audit row referencing another tenant's
+    // prospect (cross-tenant timeline pollution), and a nonexistent UUID hits
+    // the action_logs FK and 500s the whole transaction instead of a clean 404.
+    const ownRows = await db
+      .select({ id: prospectsTable.id })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, user.id),
+        ),
+      )
+      .limit(1);
+    if (ownRows.length === 0) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
     const channel = await resolveSendChannel(
       prospectId,
       user.id,

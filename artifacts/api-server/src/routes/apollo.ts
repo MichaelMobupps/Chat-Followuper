@@ -155,7 +155,15 @@ async function handleApolloError(
     return true;
   }
 
-  res.status(httpStatus).json({ error: errorCode, detail });
+  // A9: the generic/unknown branch (errorCode stays "apollo_unknown") sets
+  // detail = raw err.message — an internal-fault message (e.g. a DB error from
+  // the dedup-annotation query) that must NOT reach the client. The full detail
+  // is already in the action_log above; the client gets only the code. Curated
+  // Apollo error classes keep their descriptive, safe detail.
+  res.status(httpStatus).json({
+    error: errorCode,
+    detail: errorCode === "apollo_unknown" ? undefined : detail,
+  });
   return true;
 }
 

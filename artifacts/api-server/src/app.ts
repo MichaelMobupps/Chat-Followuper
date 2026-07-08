@@ -10,6 +10,7 @@ import { loadUser } from "./middlewares/auth";
 import { DailyLlmCapExceededError } from "./lib/llmSpendCap";
 import { ApolloRevealCapExceededError } from "./lib/apolloRevealCap";
 import { InvalidPhoneError } from "./services/channels/whatsapp";
+import { uniqueViolationCode } from "./lib/dbErrors";
 
 const app: Express = express();
 
@@ -86,6 +87,17 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
   // builder. 422 `invalid_phone`, not the misleading `geo_blocked`.
   if (err instanceof InvalidPhoneError) {
     res.status(422).json({ error: "invalid_phone" });
+    return;
+  }
+  // Unique-constraint violation (D1/A4): a duplicate identity insert/update
+  // (telegram handle, apolloPersonId, phone…) that the route's pre-check SELECT
+  // didn't catch (concurrent write, or a PATCH collision with no pre-check).
+  // Map to 409 with a stable code instead of an opaque 500. Logged below is the
+  // raw error; the client sees only the code (no constraint/SQL text).
+  const dupCode = uniqueViolationCode(err);
+  if (dupCode) {
+    logger.warn({ err }, "unique constraint violation");
+    res.status(409).json({ error: dupCode });
     return;
   }
   logger.error({ err }, "unhandled route error");
