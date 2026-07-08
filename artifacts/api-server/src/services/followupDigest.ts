@@ -1,4 +1,4 @@
-import { and, eq, isNull, isNotNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -123,6 +123,12 @@ export async function runFollowupDigests(): Promise<DigestResult> {
     .where(
       and(
         eq(followupsTable.status, "scheduled"),
+        // F4/D2: exclude removed-channel rows. A followup sequenced on
+        // teams/slack before those channels were deleted can never complete
+        // (generation throws invalid_channel) and is invisible in the
+        // whatsapp|telegram-only management UI, so without this guard it would
+        // be re-emailed in every digest with a dead link, forever.
+        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
         eq(prospectsTable.followupPaused, false),

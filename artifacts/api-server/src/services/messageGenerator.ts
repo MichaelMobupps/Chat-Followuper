@@ -1191,6 +1191,17 @@ export async function generateChatMessage(
       };
     }
 
+    // L7: on the LAST iteration a rewrite is pure waste — it's never critiqued
+    // and the loop returns `best` (not `current`), so this Sonnet call's output
+    // can never be selected or improve the result. Stop here and finalize best.
+    if (iteration === maxHealingIterations) {
+      logger.info(
+        { prospect: ctx.prospect_name, iteration },
+        "Final iteration still needs rewrite — skipping the unusable (never-critiqued) rewrite; returning best draft",
+      );
+      break;
+    }
+
     logger.info(
       { prospect: ctx.prospect_name, iteration },
       `Iteration ${iteration}: Rewriting draft (Sonnet 4.6)`,

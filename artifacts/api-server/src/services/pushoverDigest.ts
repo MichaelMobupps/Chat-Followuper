@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -86,6 +86,8 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
     .where(
       and(
         eq(followupsTable.status, "scheduled"),
+        // F4/D2: exclude removed-channel (teams/slack) zombie rows.
+        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
         eq(prospectsTable.followupPaused, false),
