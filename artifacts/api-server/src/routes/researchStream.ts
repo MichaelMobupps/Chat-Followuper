@@ -30,7 +30,11 @@ import type { Request, Response } from "express";
 import { researchProspect, type ResearchInput, ResearchFailedError } from "../services/prospectResearch";
 import { SseProgressEmitter } from "../services/progressEvents";
 import { logger } from "../lib/logger";
-import { assertUnderDailyLlmCap, DailyLlmCapExceededError } from "../lib/llmSpendCap";
+import {
+  assertUnderDailyLlmCap,
+  recordDailyLlmSpend,
+  DailyLlmCapExceededError,
+} from "../lib/llmSpendCap";
 
 // API4: cap concurrent research streams per user. Each stream drives an
 // expensive Opus research run; without a limit a user (or a runaway client
@@ -183,6 +187,14 @@ export async function researchStreamRoute(req: Request, res: Response): Promise<
     // ── Run research ──
     try {
       const { brief, cost } = await researchProspect(input, emitter, ctrl.signal);
+      // L2: the Opus research ran and billed — record its spend so it counts
+      // toward the daily cap and the admin/weekly rollups (previously the cap
+      // pre-check above was self-referentially inert on this route because
+      // nothing here ever wrote the spend). Best-effort; recorded even on
+      // client disconnect since the cost was already incurred.
+      await recordDailyLlmSpend(userId, cost.usd).catch((e) =>
+        logger.error({ e }, "research spend record failed"),
+      );
       if (clientGone) return;
       res.write(`event: result\ndata: ${JSON.stringify({ brief, cost })}\n\n`);
       emitter.close();
