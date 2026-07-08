@@ -2,8 +2,9 @@
  * Postgres error helpers (audit2 D1/C2/A3/A4).
  *
  * Since migration 0013 added partial-unique identity indexes
- * (prospects_user_{telegram,teams,slack,apollo_person}_unique) plus the
- * pre-existing prospects_user_phone_unique, a duplicate insert/update on any of
+ * (prospects_user_{telegram,apollo_person}_unique — the teams/slack ones were
+ * dropped in 0016) plus the pre-existing prospects_user_phone_unique, a
+ * duplicate insert/update on any of
  * them raises SQLSTATE 23505. The pre-check SELECTs in the ingest routes only
  * arbitrate on (user_id, phone), so a concurrent duplicate handle/apolloPersonId
  * — or a PATCH that collides — used to escape as an opaque 500 (terminal
@@ -34,6 +35,7 @@ const UNIQUE_CONSTRAINT_CODES: Record<string, string> = {
   prospects_user_phone_unique: "duplicate_phone",
   prospects_user_telegram_unique: "duplicate_telegram_handle",
   prospects_user_apollo_person_unique: "duplicate_apollo_person",
+  prospects_user_linkedin_unique: "duplicate_linkedin_url",
 };
 
 /**

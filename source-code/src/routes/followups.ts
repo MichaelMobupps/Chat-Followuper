@@ -51,6 +51,7 @@ import {
   InvalidPhoneError,
 } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
+import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 import { DailyLlmCapExceededError } from "../lib/llmSpendCap";
 
@@ -70,12 +71,13 @@ const CURATED_GENERATION_CODES: ReadonlySet<string> = new Set([
   "missing_conversation_context",
 ]);
 
-const SUPPORTED_CHANNELS = ["whatsapp", "telegram"] as const;
+const SUPPORTED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
 const SEND_IMPLEMENTED_CHANNELS: ReadonlySet<SupportedChannel> = new Set([
   "whatsapp",
   "telegram",
+  "linkedin",
 ]);
 
 const LIST_STATUSES = [
@@ -88,11 +90,16 @@ const LIST_STATUSES = [
 ] as const;
 type ListStatus = (typeof LIST_STATUSES)[number];
 
+// P3-3 (A7): "sent" removed. F1 made 'sent' a live terminal state stamped by
+// recordSendIntent alongside sentAt. A PATCH to status:"sent" would set
+// status='sent' with sentAt still NULL — a dark row that no due query serves
+// (they require status='scheduled'), yet the list shows it not_yet_sent
+// (keyed on sentAt) and send-next 409s. The transition to sent belongs to
+// recordSendIntent only; clients may edit scheduled/queued/cancelled.
 const FOLLOWUP_EDITABLE_STATUSES = [
   "scheduled",
   "queued",
   "cancelled",
-  "sent",
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────
@@ -305,6 +312,7 @@ router.get(
           language: prospectsTable.language,
           phone: prospectsTable.phone,
           telegramHandle: prospectsTable.telegramHandle,
+          linkedinUrl: prospectsTable.linkedinUrl,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
           firstMessageSentAt: prospectsTable.firstMessageSentAt,
@@ -482,6 +490,13 @@ router.post(
       }
       return;
     }
+    if (body.channel === "linkedin" && !prospect.linkedinUrl) {
+      // F-A: LinkedIn needs a stored profile URL — nothing to open otherwise.
+      // Pre-checked here so we don't spend an LLM call generating a message for
+      // a prospect that can't be reached.
+      res.status(409).json({ error: "no_linkedin_identifier" });
+      return;
+    }
     if (body.channel === "telegram" && !prospect.telegramHandle && !prospect.phone) {
       // Telegram can deep-link by @handle or by E.164 phone. If neither
       // identifier is stored, there is no link to open.
@@ -592,6 +607,21 @@ router.post(
         return;
       }
       const url = generateTelegramLink(telegramIdentifier, messageBody);
+      res.status(200).json({
+        followupId: next.id,
+        stage: next.stage,
+        deepLinkUrl: url,
+        generatedMessage: messageBody,
+      });
+    } else if (body.channel === "linkedin") {
+      // F-A: LinkedIn is clipboard-only — the deepLinkUrl opens the profile
+      // (no message prefill possible), and the FE copies generatedMessage to
+      // the clipboard for the SDR to paste.
+      if (!prospect.linkedinUrl) {
+        res.status(409).json({ error: "no_linkedin_identifier" });
+        return;
+      }
+      const url = generateLinkedinLink(prospect.linkedinUrl, messageBody);
       res.status(200).json({
         followupId: next.id,
         stage: next.stage,

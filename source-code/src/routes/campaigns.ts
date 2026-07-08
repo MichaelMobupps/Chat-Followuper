@@ -45,7 +45,7 @@ const router: IRouter = Router();
 // Channel enum at the route layer. Only whatsapp / telegram are supported;
 // Teams and Slack were removed (never built past a 501 stub). If a channel is
 // ever revived, add it here and the schema column will already tolerate it.
-const ALLOWED_CHANNELS = ["whatsapp", "telegram"] as const;
+const ALLOWED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 const channelSchema = z.enum(ALLOWED_CHANNELS);
 
 // ISO 639-1 language code: two lowercase letters.

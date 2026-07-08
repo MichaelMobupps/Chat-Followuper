@@ -102,6 +102,7 @@ export const ACTION_TYPES = {
   // Ticket 2.5-BE — followup management
   followupEdited: "followup.edited",
   sequenceConfigUpdated: "sequence_config.updated",
+  notificationSettingsUpdated: "notification_settings.updated",
   digestSent: "digest.sent",
   pushoverDigestSent: "pushover.digest_sent",
   pushoverDueSent: "pushover.due_sent",
@@ -115,6 +116,7 @@ export const ACTION_TYPES = {
   whatsappSendIntent: "whatsapp.send_intent",
   whatsappLinkGenerated: "whatsapp.link_generated",
   telegramSendIntent: "telegram.send_intent",
+  linkedinSendIntent: "linkedin.send_intent",
   telegramLinkGenerated: "telegram.link_generated",
   // Ticket 1.5b — async Apollo phone reveal flow. Three terminal states
   // for the audit trail: requested (outbound POST sent), arrived (webhook

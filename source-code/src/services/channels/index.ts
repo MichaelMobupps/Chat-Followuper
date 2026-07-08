@@ -4,6 +4,7 @@ import {
   GeoGateBlockedError,
 } from "./whatsapp";
 import { generateLink as telegramGenerateLink } from "./telegram";
+import { generateLink as linkedinGenerateLink } from "./linkedin";
 
 export { GeoGateBlockedError };
 
@@ -14,6 +15,7 @@ export interface ChannelAdapter {
 const ADAPTERS: Record<ChannelCode, ChannelAdapter> = {
   whatsapp: { generateLink: whatsappGenerateLink },
   telegram: { generateLink: telegramGenerateLink },
+  linkedin: { generateLink: linkedinGenerateLink },
 };
 
 /**

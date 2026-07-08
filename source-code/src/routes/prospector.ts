@@ -965,10 +965,12 @@ router.post(
       return;
     }
 
-    // L1: bound runaway LLM spend. This cascade bills Sonnet + (on rescue) Opus
-    // + web_search but never checked the cap. Uncaught → terminal 429. No-op
-    // when the cap env is unset.
-    await assertUnderDailyLlmCap(user.id);
+    // P3-5: no LLM spend-cap check here. /discover-simple is Apollo-ONLY — the
+    // resolved company arrives in the request body, so this path runs findOrg +
+    // collectContacts (Apollo) with no resolveCompany/validator/opusRescue call.
+    // Gating an Apollo-only endpoint on the LLM cap over-restricts (it's already
+    // bounded by the per-call Apollo budget + the stage-B rate limit above). The
+    // LLM cap belongs on /discover and /resolve-company, which do bill Anthropic.
 
     let body: z.infer<typeof discoverSimpleBodySchema>;
     try {

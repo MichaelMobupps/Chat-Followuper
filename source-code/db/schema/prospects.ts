@@ -130,15 +130,21 @@ export const prospectsTable = pgTable(
     // sequential-scan + lock the whole prospects table.
     index("prospects_campaign_id_idx").on(table.campaignId),
     // DB5: the (user_id, phone) unique index doesn't dedup non-phone identities
-    // (NULLs are distinct), so Telegram/Teams/Slack + reveal-pending prospects
-    // (phone=null) could be created — and messaged — repeatedly. Partial unique
-    // indexes per identity dedup them per user without constraining null rows.
+    // (NULLs are distinct), so Telegram + reveal-pending prospects (phone=null)
+    // could be created — and messaged — repeatedly. Partial unique indexes per
+    // identity dedup them per user without constraining null rows. (The teams/
+    // slack identity indexes were dropped in 0016 with those channels.)
     uniqueIndex("prospects_user_telegram_unique")
       .on(table.userId, table.telegramHandle)
       .where(sql`${table.telegramHandle} IS NOT NULL`),
     uniqueIndex("prospects_user_apollo_person_unique")
       .on(table.userId, table.apolloPersonId)
       .where(sql`${table.apolloPersonId} IS NOT NULL`),
+    // F-A: dedup LinkedIn prospects per user (linkedin_url is nullable, so a
+    // partial unique index — like the telegram/apollo ones above).
+    uniqueIndex("prospects_user_linkedin_unique")
+      .on(table.userId, table.linkedinUrl)
+      .where(sql`${table.linkedinUrl} IS NOT NULL`),
   ],
 );
 

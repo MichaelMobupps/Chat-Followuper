@@ -24,9 +24,17 @@ const PUSHOVER_KEY_SCHEMA = z
     message: "Pushover user key must be 30 alphanumeric characters",
   });
 
+// F-B: surface these alongside the Pushover key so the follow-ups menu can
+// configure them in one place. The columns already existed on `users`; only
+// the API + UI were missing.
+const PREFERRED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
+
 const patchSchema = z
   .object({
     pushoverUserKey: PUSHOVER_KEY_SCHEMA.nullable().optional(),
+    pushoverQuietHourStart: z.number().int().min(0).max(23).optional(),
+    pushoverQuietHourEnd: z.number().int().min(0).max(23).optional(),
+    preferredChannel: z.enum(PREFERRED_CHANNELS).optional(),
   })
   .strict();
 
@@ -42,7 +50,12 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const user = req.user!;
     const rows = await db
-      .select({ pushoverUserKey: usersTable.pushoverUserKey })
+      .select({
+        pushoverUserKey: usersTable.pushoverUserKey,
+        pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
+        pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
+        preferredChannel: usersTable.preferredChannel,
+      })
       .from(usersTable)
       .where(eq(usersTable.id, user.id))
       .limit(1);
@@ -59,6 +72,9 @@ router.get(
       pushoverUserKeyMasked: maskPushoverKey(row.pushoverUserKey),
       pushoverEnabled: !!row.pushoverUserKey?.trim(),
       pushoverAppConfigured: isPushoverAppConfigured(),
+      pushoverQuietHourStart: row.pushoverQuietHourStart,
+      pushoverQuietHourEnd: row.pushoverQuietHourEnd,
+      preferredChannel: row.preferredChannel,
     });
   },
 );
@@ -80,12 +96,26 @@ router.patch(
       throw err;
     }
 
-    const updates: { pushoverUserKey?: string | null } = {};
+    const updates: {
+      pushoverUserKey?: string | null;
+      pushoverQuietHourStart?: number;
+      pushoverQuietHourEnd?: number;
+      preferredChannel?: string;
+    } = {};
     if (body.pushoverUserKey !== undefined) {
       updates.pushoverUserKey =
         body.pushoverUserKey === "" || body.pushoverUserKey === null
           ? null
           : body.pushoverUserKey.trim();
+    }
+    if (body.pushoverQuietHourStart !== undefined) {
+      updates.pushoverQuietHourStart = body.pushoverQuietHourStart;
+    }
+    if (body.pushoverQuietHourEnd !== undefined) {
+      updates.pushoverQuietHourEnd = body.pushoverQuietHourEnd;
+    }
+    if (body.preferredChannel !== undefined) {
+      updates.preferredChannel = body.preferredChannel;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -97,7 +127,12 @@ router.patch(
       .update(usersTable)
       .set(updates)
       .where(eq(usersTable.id, user.id))
-      .returning({ pushoverUserKey: usersTable.pushoverUserKey });
+      .returning({
+        pushoverUserKey: usersTable.pushoverUserKey,
+        pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
+        pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
+        preferredChannel: usersTable.preferredChannel,
+      });
 
     const row = updated[0];
     if (!row) {
@@ -107,10 +142,10 @@ router.patch(
 
     await db.insert(actionLogsTable).values({
       userId: user.id,
-      actionType: ACTION_TYPES.sequenceConfigUpdated,
+      actionType: ACTION_TYPES.notificationSettingsUpdated,
       actionStatus: "success",
       metadata: {
-        patchedFields: ["pushoverUserKey"],
+        patchedFields: Object.keys(updates),
         pushoverEnabled: !!row.pushoverUserKey,
       },
     });
@@ -120,6 +155,9 @@ router.patch(
       pushoverUserKeyMasked: maskPushoverKey(row.pushoverUserKey),
       pushoverEnabled: !!row.pushoverUserKey?.trim(),
       pushoverAppConfigured: isPushoverAppConfigured(),
+      pushoverQuietHourStart: row.pushoverQuietHourStart,
+      pushoverQuietHourEnd: row.pushoverQuietHourEnd,
+      preferredChannel: row.preferredChannel,
     });
   },
 );

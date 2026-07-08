@@ -10,6 +10,24 @@ result; when you start something, note it under IN PROGRESS with the exact next 
 
 ---
 
+## ⭐ SESSION 9 — THIRD GODLIKE PASS + built F-A & F-B (2026-07-08). Ledger: `PASS3-LEDGER.md`.
+Audited the pass-2 FIXES adversarially (5 auditors): 0 Crit/High regressions; caught + fixed 3
+self-inflicted issues (apolloFetch retry signal, incomplete L5 brief guard, F-B maxFollowups FE) +
+Low/doc tail → commit `cef896a`.
+Then BUILT the two remaining features:
+- **F-A LinkedIn channel** (clipboard-only): adapter + CHANNEL_CODES single-source-of-truth +
+  isChannelCode + LinkedIn prompt blocks + partial-unique dedup (migration **0017**) + allowlists +
+  followups send-path + send-intent dispatch + testChannelLink + followupOpen/confirm + prospect
+  status/identity + FE (unions/maps/filters/clipboard/Today-linkedin-column/route/page/nav). BE
+  `beb866e`, FE `ce50490`.
+- **F-B followups menu**: notificationSettings GET/PATCH now expose quiet-hours + preferredChannel
+  (columns already existed); PushoverSettings UI extended; per-stage schedule view in
+  ChannelFollowupPage; maxFollowups range bug fixed. BE `beb866e`, FE `ce50490`.
+Then AUDITED the new features (2 auditors) → LinkedIn wasn't fully threaded; fixed 5 BE + 6 FE gaps
+(digest-guard exclusion, buildDeepLink, prospect-status, testChannelLink, followupOpen, PushoverSettings
+null-400, Today wrong-message-copy, bulk-open) → commit `6780dd5`. Green + live smokes throughout.
+**F-A and F-B are DONE (were the last backlog features).** Migrations now 0000–0017.
+
 ## ⭐ SESSION 7 — SECOND GODLIKE PASS (2026-07-08). Full ledger: `PASS2-LEDGER.md`.
 Re-audited the delta since session 6 (F-E bulk seed, F-C Teams/Slack removal, FE contract fixes)
 with 8 parallel read-only auditors. Found **1 Critical, 5 High, ~15 Med + Low tail**. Fixed in 8

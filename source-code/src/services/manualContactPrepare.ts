@@ -19,6 +19,7 @@ import {
 } from "./messageGenerator";
 import { generateLink } from "./channels/whatsapp";
 import { generateLink as generateTelegramLink } from "./channels/telegram";
+import { generateLink as generateLinkedinLink } from "./channels/linkedin";
 import { GeoGateBlockedError } from "./channels/whatsapp";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { logger } from "../lib/logger";
@@ -54,6 +55,9 @@ function resolveChannel(prospect: Prospect, requested?: ChannelCode): ChannelCod
   const stored = prospect.firstMessageChannel;
   if (stored && isChannelCode(stored)) return stored;
   if (prospect.telegramHandle && !prospect.phone) return "telegram";
+  // F-A: a linkedin-only prospect (URL set, no phone/handle) defaults to linkedin.
+  if (prospect.linkedinUrl && !prospect.phone && !prospect.telegramHandle)
+    return "linkedin";
   return "whatsapp";
 }
 
@@ -66,6 +70,13 @@ function buildDeepLink(
     const id = prospect.telegramHandle ?? prospect.phone;
     if (!id) throw new Error("no_telegram_identifier");
     return generateTelegramLink(id, message);
+  }
+  if (channel === "linkedin") {
+    // F-A: LinkedIn is clipboard-only. The deep link is the bare profile URL
+    // (no prefill); the FE copies `message`. Without this branch a linkedin-only
+    // prospect fell through to the phone path and threw a misleading no_phone.
+    if (!prospect.linkedinUrl) throw new Error("no_linkedin_identifier");
+    return generateLinkedinLink(prospect.linkedinUrl, message);
   }
   if (!prospect.phone) throw new Error("no_phone");
   return generateLink(prospect.phone, message);

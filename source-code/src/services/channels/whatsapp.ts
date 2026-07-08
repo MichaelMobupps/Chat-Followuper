@@ -66,13 +66,11 @@ export interface RecordSendIntentInput {
  * we treat as the "send" event for Mode A (manual send). Three effects in
  * one transaction:
  *
- *   1. Either prospects.first_message_sent_at = now() (followupId null)
- *      or followups.clicked_at = now() (followupId numeric).
+ *   1. Either prospects.first_message_sent_at = now() (followupId null) or, for
+ *      a followup, followups.clicked_at + sent_at = now() and status='sent'
+ *      (F1: the click IS the send in Mode A, so the row leaves the due queues).
  *   2. Upsert daily_usage for (userId, today) with messages_sent + 1.
  *   3. Insert action_logs row with action_type whatsapp.send_intent.
- *
- * Touching followups.sent_at is intentionally avoided: that column tracks
- * when a queued follow-up was dispatched; the click event lives in clickedAt.
  */
 export async function recordSendIntent(
   input: RecordSendIntentInput,

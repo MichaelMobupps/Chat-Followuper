@@ -37,3 +37,25 @@ DEFER (negligible/optional): P3-6, P3-9, P3-10, P3-13.
 - **[Low] P3-12** replit.md:58,62-63,65-66 migration head stale — says 0015, S3 added 0016. Table count (8) + channel count (2) still correct. FIX: bump 0015→0016 refs.
 - **[Info] P3-13** prod-bring-to-head.sql header doesn't mention the new prod-drop-dormant-channel-columns.sql (0016 by-hand). Optional.
 - Verified CORRECT: E2 (all yes/no/maybe states + BE phone/apolloPersonId cross-field; "no" early-returns before create), E3 (BE always enforced enum+lang so no legacy email/pt-BR; no Record-map crash), E4/E5 (routes/icons/isActive), C5 (right message field per handler, copy after popup-guard, single toast), E6, E7, P3c (sweep .catch inside Promise.all, null-safe, env default, no concurrency). FE handle regex mirrors BE exactly; no other FE/BE drift.
+
+## ─────── PASS 3 PHASE 2+3: F-A LinkedIn + F-B built, then audited ───────
+Built F-A (LinkedIn channel) + F-B (followups-menu Pushover config + schedule view),
+commits beb866e (BE) + ce50490 (FE). Then 2 adversarial auditors on the new work.
+
+**F-A audit found LinkedIn wasn't fully threaded (all fixed in 6780dd5):**
+- HIGH: F4/D2 digest guards hardcoded ["whatsapp","telegram"] → LinkedIn followups
+  excluded from ALL reminders. Fixed via new CHANNEL_CODES single-source-of-truth.
+- HIGH: manualContactPrepare.buildDeepLink no linkedin branch → no_phone after billing.
+- HIGH: computeProspectStatus/statusSqlFilter → linkedin-only stuck "phone-pending".
+- MED: testChannelLink no linkedin handler; followupOpen open/confirm no linkedin branch.
+- FE HIGH: PushoverSettings null quiet-hours → 400; Today copied wrong message; bulk-open
+  can't serve clipboard-only LinkedIn.
+- FE LOW: SendConfirmDialog copy; no_linkedin_identifier error map.
+**F-B audit: CLEAN** (quiet-hours tolerate inverted/equal windows; preferredChannel safe;
+masked key; new action type present; PushoverSettings seeds from GET w/ FE2 guard).
+
+**Documented residuals (minor, pre-existing):** Today partial-error banner names 1 of N
+failed channels; Today per-row icon hardcoded MessageCircle. FE-Low, not shipped-blocking.
+
+**FINAL GREEN BAR:** pnpm run build exit 0; @workspace/db 3/3; live smokes (F1 lifecycle
+6/6 + F-E bulk 9/9) PASS after all phases. Migrations 0000–0017 (0017 = linkedin dedup).

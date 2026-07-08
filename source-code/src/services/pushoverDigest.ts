@@ -16,6 +16,7 @@ import {
 } from "../lib/pushoverSchedule";
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
 import { isFeatureEnabled } from "../lib/featureFlags";
+import { CHANNEL_CODES } from "../lib/channelRegister";
 import { isPushoverAppConfigured, sendPushover } from "./pushover";
 
 export interface PushoverDigestResult {
@@ -87,7 +88,7 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
       and(
         eq(followupsTable.status, "scheduled"),
         // F4/D2: exclude removed-channel (teams/slack) zombie rows.
-        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
+        inArray(followupsTable.channel, [...CHANNEL_CODES]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
         eq(prospectsTable.followupPaused, false),
