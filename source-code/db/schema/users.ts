@@ -123,8 +123,6 @@ export const usersTable = pgTable("users", {
    * Optional personal sign-off appended to every generated message.
    */
   messageTemplate: text("message_template"),
-  microsoftRefreshToken: text("microsoft_refresh_token"),
-  slackBotToken: text("slack_bot_token"),
   /**
    * Channels with manual prospect ingest enabled (Ticket 2.7-BE-A).
    *
