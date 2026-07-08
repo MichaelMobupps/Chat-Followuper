@@ -25,6 +25,8 @@ import { apiFetch } from "@/lib/api";
 export const SUPPORTED_CHANNELS = [
   "whatsapp",
   "telegram",
+  // F-A: LinkedIn is a real channel now (clipboard-only send).
+  "linkedin",
 ] as const;
 export type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
@@ -38,11 +40,12 @@ export const LIST_STATUSES = [
 ] as const;
 export type ListStatus = (typeof LIST_STATUSES)[number];
 
+// P3-3: mirrors the BE — "sent" is NOT client-editable (the sent transition
+// belongs to recordSendIntent; a PATCH to status:"sent" now 400s server-side).
 export const FOLLOWUP_EDITABLE_STATUSES = [
   "scheduled",
   "queued",
   "cancelled",
-  "sent",
 ] as const;
 export type FollowupEditableStatus = (typeof FOLLOWUP_EDITABLE_STATUSES)[number];
 
@@ -72,6 +75,8 @@ export interface FollowupListProspect {
   language: string | null;
   phone: string | null;
   telegramHandle: string | null;
+  // F-A: LinkedIn is clipboard-only; the profile deep link needs this URL.
+  linkedinUrl: string | null;
   firstMessageBody: string | null;
   firstMessageChannel: string | null;
   firstMessageSentAt: string | null;

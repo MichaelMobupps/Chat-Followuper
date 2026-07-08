@@ -8,6 +8,7 @@ import {
   Settings,
   MessageCircle,
   Send,
+  Linkedin,
   Megaphone,
   Users,
   Sparkles,
@@ -33,6 +34,8 @@ const PRIMARY_NAV: NavItem[] = [
   // channel switcher of its own).
   { label: "Follow-ups · WhatsApp", href: "/followup/whatsapp", icon: MessageCircle },
   { label: "Follow-ups · Telegram", href: "/followup/telegram", icon: Send },
+  // F-A: LinkedIn follow-ups nav entry.
+  { label: "Follow-ups · LinkedIn", href: "/followup/linkedin", icon: Linkedin },
 ];
 
 const SECONDARY_NAV: NavItem[] = [

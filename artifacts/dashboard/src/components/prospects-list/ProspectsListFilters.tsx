@@ -24,6 +24,8 @@ const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
 const CHANNEL_OPTIONS: { value: ListChannel; label: string }[] = [
   { value: "whatsapp", label: "WhatsApp" },
   { value: "telegram", label: "Telegram" },
+  // F-A: LinkedIn channel filter.
+  { value: "linkedin", label: "LinkedIn" },
 ];
 
 const SORT_OPTIONS: { value: ListSortCol; label: string }[] = [

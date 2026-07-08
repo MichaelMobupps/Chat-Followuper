@@ -47,6 +47,8 @@ type DueRow = {
       company: string | null;
       phone: string | null;
       telegramHandle: string | null;
+      // F-A: LinkedIn profile URL — gates "open chat" for the LinkedIn channel.
+      linkedinUrl: string | null;
       followupPaused: boolean;
       replied: number;
       firstMessageBody: string | null;
@@ -59,16 +61,27 @@ type DueRow = {
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  // F-A: LinkedIn label.
+  linkedin: "LinkedIn",
 };
 
 type SnoozeOption = "1d" | "3d" | "next_monday";
 
 function canOpenChat(
   channel: SupportedChannel,
-  prospect: { phone: string | null; telegramHandle: string | null },
+  prospect: {
+    phone: string | null;
+    telegramHandle: string | null;
+    // F-A: LinkedIn gate.
+    linkedinUrl: string | null;
+  },
 ): boolean {
   if (channel === "telegram") {
     return !!(prospect.telegramHandle || prospect.phone);
+  }
+  // F-A: LinkedIn is reachable when we have the prospect's profile URL.
+  if (channel === "linkedin") {
+    return !!prospect.linkedinUrl;
   }
   return !!prospect.phone;
 }
@@ -99,12 +112,25 @@ export default function TodayPage() {
     status: "not_yet_sent",
     perPage: 100,
   });
+  // F-A: LinkedIn queue, mirroring the WhatsApp/Telegram queries.
+  const linkedinQuery = useListFollowups({
+    channel: "linkedin",
+    status: "not_yet_sent",
+    perPage: 100,
+  });
   const sendNext = useSendNextFollowup();
   const snoozeFollowup = useSnoozeFollowup();
   const markReplied = useMarkProspectReplied();
 
   const activeQuery =
-    channel === "telegram" ? tgQuery : channel === "whatsapp" ? waQuery : null;
+    channel === "telegram"
+      ? tgQuery
+      : channel === "whatsapp"
+        ? waQuery
+        : // F-A: route the LinkedIn tab to its own query.
+          channel === "linkedin"
+          ? linkedinQuery
+          : null;
 
   const dueItems = useMemo((): DueRow[] => {
     const now = Date.now();
@@ -118,6 +144,11 @@ export default function TodayPage() {
             ...(tgQuery.data?.items ?? []).map((item) => ({
               item,
               channel: "telegram" as SupportedChannel,
+            })),
+            // F-A: fold the LinkedIn queue into the "All" aggregation.
+            ...(linkedinQuery.data?.items ?? []).map((item) => ({
+              item,
+              channel: "linkedin" as SupportedChannel,
             })),
           ]
         : (activeQuery?.data?.items ?? []).map((item) => ({
@@ -152,7 +183,8 @@ export default function TodayPage() {
           new Date(a.next.scheduledAt).getTime() -
           new Date(b.next.scheduledAt).getTime(),
       );
-  }, [channel, waQuery.data, tgQuery.data, activeQuery?.data]);
+    // F-A: include linkedinQuery.data so the "All" view recomputes when it loads.
+  }, [channel, waQuery.data, tgQuery.data, linkedinQuery.data, activeQuery?.data]);
 
   useEffect(() => {
     setFocusedIndex((i) =>
@@ -162,30 +194,39 @@ export default function TodayPage() {
 
   const isLoading =
     channel === "all"
-      ? waQuery.isLoading || tgQuery.isLoading
+      ? waQuery.isLoading || tgQuery.isLoading || linkedinQuery.isLoading
       : (activeQuery?.isLoading ?? false);
   const isError =
     channel === "all"
-      ? waQuery.isError && tgQuery.isError
+      ? waQuery.isError && tgQuery.isError && linkedinQuery.isError
       : (activeQuery?.isError ?? false);
   const error =
-    channel === "all" ? waQuery.error ?? tgQuery.error : activeQuery?.error;
+    channel === "all"
+      ? waQuery.error ?? tgQuery.error ?? linkedinQuery.error
+      : activeQuery?.error;
   // FE3: on the "All" tab a single-channel failure must not be hidden. isError
   // is a hard fail (BOTH failed); this flags the case where exactly one channel
   // errored so we can warn without blanking the channel that loaded — otherwise
   // an SDR reads an empty WhatsApp column as "nobody due" when it actually failed.
-  const partialErrorChannel: "WhatsApp" | "Telegram" | null =
-    channel === "all" && !(waQuery.isError && tgQuery.isError)
+  // F-A: LinkedIn folded into the partial-error banner (reports the first
+  // channel that failed while others loaded).
+  const partialErrorChannel: "WhatsApp" | "Telegram" | "LinkedIn" | null =
+    channel === "all" &&
+    !(waQuery.isError && tgQuery.isError && linkedinQuery.isError)
       ? waQuery.isError
         ? "WhatsApp"
         : tgQuery.isError
           ? "Telegram"
-          : null
+          : linkedinQuery.isError
+            ? "LinkedIn"
+            : null
       : null;
 
   function refetch() {
     if (channel === "all" || channel === "whatsapp") void waQuery.refetch();
     if (channel === "all" || channel === "telegram") void tgQuery.refetch();
+    // F-A: refresh the LinkedIn queue too.
+    if (channel === "all" || channel === "linkedin") void linkedinQuery.refetch();
   }
 
   function openEdit(f: Followup) {
@@ -226,11 +267,16 @@ export default function TodayPage() {
             // CH5: t.me/<handle>?text= often doesn't prefill the composer for
             // plain user handles (only bot deep links do), so the SDR can land
             // on an empty chat. Copy the message so they can paste it.
-            if (sendChannel === "telegram" && message) {
+            // F-A: LinkedIn is clipboard-only (deep link opens the profile, no
+            // message prefill) — same copy-to-clipboard branch as Telegram.
+            if (
+              (sendChannel === "telegram" || sendChannel === "linkedin") &&
+              message
+            ) {
               void navigator.clipboard.writeText(message).catch(() => {});
               toast({
-                title: "Opening Telegram — message copied",
-                description: `${prospectName}: Telegram may not prefill the text — paste it if the composer is empty.`,
+                title: `Opening ${CHANNEL_LABEL[sendChannel]} — message copied`,
+                description: `${prospectName}: ${CHANNEL_LABEL[sendChannel]} won't prefill — paste the message into the composer.`,
               });
             } else {
               toast({
@@ -504,6 +550,8 @@ export default function TodayPage() {
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
             <TabsTrigger value="telegram">Telegram</TabsTrigger>
+            {/* F-A: LinkedIn queue tab. */}
+            <TabsTrigger value="linkedin">LinkedIn</TabsTrigger>
           </TabsList>
         </Tabs>
       </header>

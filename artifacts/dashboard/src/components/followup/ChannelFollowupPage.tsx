@@ -21,6 +21,11 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  // F-A: LinkedIn channel icon.
+  Linkedin,
+  // F-B: per-stage schedule expand toggle.
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,11 +79,15 @@ import { SequenceConfigPanel } from "./SequenceConfigPanel";
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  // F-A: LinkedIn label.
+  linkedin: "LinkedIn",
 };
 
 const CHANNEL_ICON: Record<SupportedChannel, typeof MessageCircle> = {
   whatsapp: MessageCircle,
   telegram: Send,
+  // F-A: LinkedIn icon.
+  linkedin: Linkedin,
 };
 
 const STATUS_TAB_LABEL: Record<ListStatus, string> = {
@@ -161,11 +170,16 @@ export function ChannelFollowupPage({ channel }: Props) {
           window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
           // CH5: Telegram t.me/<handle>?text= often doesn't prefill the composer
           // for plain user handles — copy the message so the SDR can paste it.
-          if (channel === "telegram" && data.generatedMessage) {
+          // F-A: LinkedIn is clipboard-only (no message prefill deep link), so it
+          // takes the same copy-to-clipboard branch as Telegram.
+          if (
+            (channel === "telegram" || channel === "linkedin") &&
+            data.generatedMessage
+          ) {
             void navigator.clipboard.writeText(data.generatedMessage).catch(() => {});
             toast({
-              title: "Opened Telegram — message copied",
-              description: `${prospectName}: Telegram may not prefill — paste it if the composer is empty.`,
+              title: `Opened ${CHANNEL_LABEL[channel]} — message copied`,
+              description: `${prospectName}: paste it into ${CHANNEL_LABEL[channel]} if the composer is empty.`,
             });
           } else {
             toast({
@@ -542,6 +556,10 @@ function FollowupRow({
   busy,
 }: RowProps) {
   const { prospect, derived } = item;
+  // F-B: the list response already carries every stage row per prospect, so we
+  // can show a compact per-stage schedule without an extra request.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const stageRows = [...item.followups].sort((a, b) => a.stage - b.stage);
   const next = derived.nextScheduled;
   const last = derived.lastSent;
   const showStage = next?.stage ?? last?.stage ?? null;
@@ -572,6 +590,38 @@ function FollowupRow({
           {[prospect.title, prospect.company].filter(Boolean).join(" · ") ||
             "—"}
         </div>
+        {/* F-B: compact expandable per-stage schedule. */}
+        {stageRows.length > 0 ? (
+          <div className="mt-1">
+            <button
+              type="button"
+              onClick={() => setScheduleOpen((o) => !o)}
+              className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              data-testid={`row-schedule-toggle-${prospect.id}`}
+              aria-expanded={scheduleOpen}
+            >
+              {scheduleOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              Schedule ({stageRows.length})
+            </button>
+            {scheduleOpen ? (
+              <ul
+                className="mt-1 space-y-0.5 text-[11px] text-muted-foreground"
+                data-testid={`row-schedule-${prospect.id}`}
+              >
+                {stageRows.map((f) => (
+                  <li key={f.id}>
+                    Stage {f.stage} · {format(new Date(f.scheduledAt), "MMM d")} ·{" "}
+                    {f.status}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </TableCell>
       <TableCell>
         <StatusBadge status={derived.uiStatus} />

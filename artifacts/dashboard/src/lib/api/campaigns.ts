@@ -10,6 +10,8 @@ import { apiFetch } from "../api";
 export const CAMPAIGN_CHANNELS = [
   "whatsapp",
   "telegram",
+  // F-A: LinkedIn is a supported campaign channel now.
+  "linkedin",
 ] as const;
 
 export type CampaignChannel = (typeof CAMPAIGN_CHANNELS)[number];

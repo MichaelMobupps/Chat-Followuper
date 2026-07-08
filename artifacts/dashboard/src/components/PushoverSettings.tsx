@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,17 +11,43 @@ import {
   getNotificationSettings,
   patchNotificationSettings,
   postTestPushover,
+  type NotificationSettingsPatch,
+  type PreferredChannel,
 } from "@/lib/api/notification-settings";
 
 export function PushoverSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [userKey, setUserKey] = useState("");
+  // F-B: local edit state for the three new fields. Kept as strings for the
+  // number inputs so a cleared field is "" (null on save), never NaN.
+  const [preferredChannel, setPreferredChannel] =
+    useState<PreferredChannel>("whatsapp");
+  const [quietStart, setQuietStart] = useState("");
+  const [quietEnd, setQuietEnd] = useState("");
 
   const settings = useQuery({
     queryKey: ["notification-settings"],
     queryFn: getNotificationSettings,
   });
+
+  // F-B: seed the local fields once settings load (and re-seed after a save
+  // refetches). Editing before a save never gets clobbered since the query
+  // isn't refetching then.
+  useEffect(() => {
+    if (!settings.data) return;
+    setPreferredChannel(settings.data.preferredChannel ?? "whatsapp");
+    setQuietStart(
+      settings.data.pushoverQuietHourStart == null
+        ? ""
+        : String(settings.data.pushoverQuietHourStart),
+    );
+    setQuietEnd(
+      settings.data.pushoverQuietHourEnd == null
+        ? ""
+        : String(settings.data.pushoverQuietHourEnd),
+    );
+  }, [settings.data]);
 
   // API7: the raw key is never sent back, so the input starts (and stays) empty
   // like a password field. A blank input means "leave the saved key unchanged";
@@ -63,12 +89,25 @@ export function PushoverSettings() {
   const trimmed = userKey.trim();
   const keyValid = trimmed === "" || /^[A-Za-z0-9]{30}$/.test(trimmed);
 
+  // F-B: quiet hours are optional; when present they must be whole 0-23 hours.
+  const quietStartNum = quietStart === "" ? null : Number(quietStart);
+  const quietEndNum = quietEnd === "" ? null : Number(quietEnd);
+  const hourValid = (n: number | null) =>
+    n === null || (Number.isInteger(n) && n >= 0 && n <= 23);
+  const quietValid = hourValid(quietStartNum) && hourValid(quietEndNum);
+
   function handleSave() {
-    // Never PATCH null from here: a blank field means "no change" (the raw key
-    // is no longer shown, so blank is the normal loaded state). Clearing goes
-    // through handleDisable. The Save button is disabled while blank anyway.
-    if (trimmed === "") return;
-    save.mutate({ pushoverUserKey: trimmed });
+    // FE2: never save over a key we couldn't load. A blank key field means "no
+    // change" (the raw key is never shown) — only include pushoverUserKey when
+    // the user typed a new one. Clearing the key goes through handleDisable.
+    if (!settings.data) return;
+    const patch: NotificationSettingsPatch = {
+      preferredChannel,
+      pushoverQuietHourStart: quietStartNum,
+      pushoverQuietHourEnd: quietEndNum,
+    };
+    if (trimmed !== "") patch.pushoverUserKey = trimmed;
+    save.mutate(patch);
   }
 
   function handleDisable() {
@@ -150,6 +189,58 @@ export function PushoverSettings() {
           ) : null}
         </div>
 
+        {/* F-B: preferred channel + quiet hours. */}
+        <div className="space-y-2 max-w-md">
+          <Label htmlFor="preferred-channel">Preferred channel</Label>
+          <select
+            id="preferred-channel"
+            value={preferredChannel}
+            onChange={(e) =>
+              setPreferredChannel(e.target.value as PreferredChannel)
+            }
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+            data-testid="preferred-channel"
+          >
+            <option value="whatsapp">WhatsApp</option>
+            <option value="telegram">Telegram</option>
+            <option value="linkedin">LinkedIn</option>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          <div className="space-y-2">
+            <Label htmlFor="quiet-start">Quiet hours start (local hour)</Label>
+            <Input
+              id="quiet-start"
+              type="number"
+              min={0}
+              max={23}
+              placeholder="0–23"
+              value={quietStart}
+              onChange={(e) => setQuietStart(e.target.value)}
+              data-testid="quiet-start"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="quiet-end">Quiet hours end (local hour)</Label>
+            <Input
+              id="quiet-end"
+              type="number"
+              min={0}
+              max={23}
+              placeholder="0–23"
+              value={quietEnd}
+              onChange={(e) => setQuietEnd(e.target.value)}
+              data-testid="quiet-end"
+            />
+          </div>
+        </div>
+        {!quietValid ? (
+          <p className="text-xs text-destructive">
+            Quiet hours must be whole numbers between 0 and 23.
+          </p>
+        ) : null}
+
         {settings.isError ? (
           <p className="text-xs text-destructive" role="alert">
             Couldn't load your Pushover settings. Saving is disabled so your
@@ -168,10 +259,12 @@ export function PushoverSettings() {
           <Button
             onClick={handleSave}
             // FE2: block Save until settings have loaded — a failed GET leaves
-            // the key field empty and Save would PATCH null over the saved key.
+            // the key field empty and Save would PATCH over the saved values.
+            // F-B: Save now also persists preferred channel + quiet hours, so a
+            // blank key no longer blocks it (a blank key is left unchanged).
             disabled={
               !keyValid ||
-              trimmed === "" ||
+              !quietValid ||
               save.isPending ||
               settings.isLoading ||
               settings.isError ||
@@ -182,7 +275,7 @@ export function PushoverSettings() {
             {save.isPending ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : null}
-            Save key
+            Save settings
           </Button>
           <Button
             variant="outline"

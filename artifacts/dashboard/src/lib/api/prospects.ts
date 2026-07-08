@@ -166,7 +166,8 @@ export type ProspectStatus =
   | "phone-no-match"
   | "phone-expired";
 
-export type ListChannel = "whatsapp" | "telegram";
+// F-A: LinkedIn added to the prospect-list channel filter.
+export type ListChannel = "whatsapp" | "telegram" | "linkedin";
 
 export type ListSortCol = "createdAt" | "updatedAt" | "prospectName";
 

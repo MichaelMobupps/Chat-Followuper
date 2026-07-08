@@ -35,7 +35,8 @@ export function getChannelLink(
     : getWhatsappLink(prospectId);
 }
 
-export type SendIntentChannel = "whatsapp" | "telegram";
+// F-A: LinkedIn added — clipboard-only send, same intent-recording flow.
+export type SendIntentChannel = "whatsapp" | "telegram" | "linkedin";
 
 export interface SendIntentInput {
   followupId: number | null;
