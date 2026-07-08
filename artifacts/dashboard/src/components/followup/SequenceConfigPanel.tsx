@@ -78,7 +78,9 @@ function configToForm(c: SequenceConfig): FormState {
     sendDays: [...c.sendDays].sort((a, b) => a - b),
     sendHourStart: c.sendHourStart,
     sendHourEnd: c.sendHourEnd,
-    maxFollowups: c.maxFollowups,
+    // P3-11: clamp a legacy out-of-range value (rows saved under the old 0-20
+    // schema) into the BE-accepted 1-10 on load, so the first Save doesn't 400.
+    maxFollowups: Math.min(Math.max(c.maxFollowups, 1), 10),
     requireApproval: c.requireApproval,
     digestHourLocal: c.digestHourLocal,
     digestTimezone: c.digestTimezone,
@@ -434,15 +436,22 @@ function PanelBody({ onClose }: { onClose: () => void }) {
           <Label className="text-xs" htmlFor="max-followups">
             Maximum follow-ups
           </Label>
+          {/* P3-11: match the BE range (1-10, the scheduler clamp). Empty/NaN
+              falls back to 1 (not 0), and out-of-range typed values are clamped
+              so a save can't 400 with invalid_body. */}
           <Input
             id="max-followups"
             type="number"
-            min={0}
-            max={20}
+            min={1}
+            max={10}
             value={form.maxFollowups}
-            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-              update("maxFollowups", Number.parseInt(e.target.value, 10) || 0)
-            }
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              const n = Number.parseInt(e.target.value, 10);
+              update(
+                "maxFollowups",
+                Number.isNaN(n) ? 1 : Math.min(Math.max(n, 1), 10),
+              );
+            }}
             data-testid="max-followups"
           />
         </div>

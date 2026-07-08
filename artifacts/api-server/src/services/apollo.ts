@@ -280,22 +280,33 @@ async function apolloFetch<T>(
   // redirect:"error" — undici forwards a custom X-Api-Key across a 3xx to a
   // different origin (it only strips authorization/cookie/host), so a stray
   // Apollo redirect could exfiltrate the key; refuse redirects instead.
-  // signal timeout — without it a stalled Apollo response hangs the /apollo/*
-  // handler indefinitely (and holds the request slot through the 60s 429 wait).
-  const init: RequestInit = {
+  // P3-4: each attempt gets a FRESH 30s timeout signal. A single
+  // AbortSignal.timeout shared across the attempts fires ~30s after creation,
+  // but the 429 retry runs after a 60s sleep — so a reused signal is already
+  // aborted and the retry would fail instantly with a TimeoutError instead of
+  // actually retrying (defeating the whole 429 recovery). redirect:"error" —
+  // undici forwards a custom X-Api-Key across a 3xx to a different origin, so
+  // refuse redirects. timeout — a stalled Apollo response otherwise hangs the
+  // handler indefinitely.
+  const baseInit: RequestInit = {
     method: opts.method,
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     redirect: "error",
-    signal: AbortSignal.timeout(30_000),
   };
 
-  let response = await fetch(url, init);
+  let response = await fetch(url, {
+    ...baseInit,
+    signal: AbortSignal.timeout(30_000),
+  });
 
   if (response.status === 429) {
-    // Wait the documented full window then retry exactly once.
+    // Wait the documented full window then retry exactly once (fresh signal).
     await sleep(60_000);
-    response = await fetch(url, init);
+    response = await fetch(url, {
+      ...baseInit,
+      signal: AbortSignal.timeout(30_000),
+    });
     if (response.status === 429) {
       throw new ApolloRateLimitError();
     }

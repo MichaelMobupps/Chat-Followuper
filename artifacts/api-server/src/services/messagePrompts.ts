@@ -292,6 +292,17 @@ function isUsableName(name: string | undefined): boolean {
  * Paired with the SECURITY directive in the system prompts, which instructs the
  * model to treat all fenced content as data, never as instructions.
  */
+/**
+ * P3-14: the researchBrief is client-writable free-form JSONB, so its list
+ * fields may be missing or non-array. `.join()` on a non-array throws a
+ * TypeError mid-prompt-assembly — and in the critic/rewriter that lands AFTER
+ * the draft LLM call is already paid for. Guard every brief `.join()` through
+ * this (mirrors the arr() guard in buildResearchBriefBlock).
+ */
+function safeBriefJoin(v: unknown, sep: string): string {
+  return Array.isArray(v) ? v.map((x) => String(x)).join(sep) : "";
+}
+
 function neutralizeUntrusted(text: string, maxLen: number): string {
   let s = String(text).replace(/\r/g, "");
   // Collapse runs of 3+ dashes (our fences use `---`) → en dash, so untrusted
@@ -751,11 +762,11 @@ export function getCriticUserPrompt(
     ? `\nRESEARCH BRIEF (numeric claims and competitor names in the draft MUST trace to this):
 - Calibrated daily volume: ${ctx.research_brief.calibratedDailyVolume}
 - Primary conversion event: ${ctx.research_brief.primaryEvent}
-- Peer brands the writer may name: ${ctx.research_brief.finalCompetitors.join(", ")}
+- Peer brands the writer may name: ${safeBriefJoin(ctx.research_brief.finalCompetitors, ", ")}
 - WHY argument seed: ${ctx.research_brief.whyArgument}
 - VALIDATION argument seed: ${ctx.research_brief.validationArgument}
 - HOW argument seed: ${ctx.research_brief.howArgument}
-- Proof points pool: ${ctx.research_brief.tangibleReasons.join(" | ")}
+- Proof points pool: ${safeBriefJoin(ctx.research_brief.tangibleReasons, " | ")}
 - Market context: ${ctx.research_brief.marketContext}
 - Prospect-specific hook: ${ctx.research_brief.prospectSpecificHook}
 `
@@ -841,11 +852,11 @@ export function getRewriterUserPrompt(
     ? `\nRESEARCH BRIEF (the rewrite MUST keep every numeric claim and competitor name grounded in this):
 - Calibrated daily volume: ${ctx.research_brief.calibratedDailyVolume}
 - Primary conversion event: ${ctx.research_brief.primaryEvent}
-- Peer brands you may name: ${ctx.research_brief.finalCompetitors.join(", ")}
+- Peer brands you may name: ${safeBriefJoin(ctx.research_brief.finalCompetitors, ", ")}
 - WHY argument seed: ${ctx.research_brief.whyArgument}
 - VALIDATION argument seed: ${ctx.research_brief.validationArgument}
 - HOW argument seed: ${ctx.research_brief.howArgument}
-- Proof points pool: ${ctx.research_brief.tangibleReasons.join(" | ")}
+- Proof points pool: ${safeBriefJoin(ctx.research_brief.tangibleReasons, " | ")}
 - Market context: ${ctx.research_brief.marketContext}
 - Prospect-specific hook: ${ctx.research_brief.prospectSpecificHook}
 `

@@ -55,15 +55,15 @@ Eight Drizzle tables in `lib/db/src/schema/` (all timestamps `timestamptz`):
 `users`, `prospects`, `campaigns`, `followups`, `conversations`,
 `oauth_nonces`, `daily_usage`, `action_logs`.
 
-Migrations live in `lib/db/drizzle/` (currently 0000–0015; migration 0015
-dropped the old `magic_link_tokens` table).
+Migrations live in `lib/db/drizzle/` (currently 0000–0016; 0015 dropped the old
+`magic_link_tokens` table; 0016 dropped the dormant Teams/Slack columns).
 
 > ⚠️ Audit note (DB1/DB3): a dev/test DB may be behind the latest migrations.
-> Drizzle meta snapshots cover 0000–0007 and the rebuilt head 0015; the
-> intermediate 0008–0014 snapshots are absent but benign, because 0015's
-> `prevId` chains back to 0007 so `drizzle-kit generate` stays clean.
-> Run `pnpm --filter @workspace/db run migrate` and verify the environment is at
-> 0015 before relying on `.returning()` (which selects newer columns). See
+> Drizzle meta snapshots cover 0000–0007 and the rebuilt head 0016; the
+> intermediate 0008–0015 snapshots are absent but benign, because 0016's
+> `prevId` chains back to 0015 (and 0015 to 0007) so `drizzle-kit generate`
+> stays clean. Run `pnpm --filter @workspace/db run migrate` and verify the
+> environment is at 0016 before relying on `.returning()`. See
 > `godlike-audit/LOG.md`.
 
 ## Key Commands

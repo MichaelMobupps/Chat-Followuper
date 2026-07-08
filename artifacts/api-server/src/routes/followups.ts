@@ -88,11 +88,16 @@ const LIST_STATUSES = [
 ] as const;
 type ListStatus = (typeof LIST_STATUSES)[number];
 
+// P3-3 (A7): "sent" removed. F1 made 'sent' a live terminal state stamped by
+// recordSendIntent alongside sentAt. A PATCH to status:"sent" would set
+// status='sent' with sentAt still NULL — a dark row that no due query serves
+// (they require status='scheduled'), yet the list shows it not_yet_sent
+// (keyed on sentAt) and send-next 409s. The transition to sent belongs to
+// recordSendIntent only; clients may edit scheduled/queued/cancelled.
 const FOLLOWUP_EDITABLE_STATUSES = [
   "scheduled",
   "queued",
   "cancelled",
-  "sent",
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────

@@ -433,7 +433,7 @@ function detectUngroundedClaims(
   // (validateVolumeFormat explicitly permits comma-formatted volumes). Applied
   // identically to grounded text and draft, so membership stays consistent.
   const collapseThousands = (s: string): string =>
-    s.replace(/(?<=\d)[, \s](?=\d)/g, "");
+    s.replace(/(?<=\d)[,\u00A0 ](?=\d)/g, "");
   const numericTokenRe = /\d+(?:\.\d+)?/g;
   const groundedNums = new Set<string>(
     collapseThousands(groundText).match(numericTokenRe) ?? [],
@@ -1136,7 +1136,13 @@ export async function generateChatMessage(
     // into the critique. Mirrors the meta-language injection above.
     if (claimCheck.found) {
       const briefVolume = ctx.research_brief?.calibratedDailyVolume ?? "(no brief volume)";
-      const briefProofs = ctx.research_brief?.tangibleReasons?.slice(0, 2).join(" | ") ?? "(no brief proofs)";
+      // P3-14: tangibleReasons may be a non-array in a client-written brief; the
+      // optional chain guards null/undefined but not a wrong type (a string has
+      // .slice but no post-slice .join symmetry; an object has no .slice → throw).
+      const tr = ctx.research_brief?.tangibleReasons;
+      const briefProofs = Array.isArray(tr)
+        ? tr.slice(0, 2).map((x) => String(x)).join(" | ")
+        : "(no brief proofs)";
       const claimIssue: CriticIssue = {
         excerpt: claimCheck.matches.slice(0, 3).join(" | "),
         reason: `Message contains numbers or claims that do not trace to the research brief or prior conversation. Findings: ${claimCheck.matches.join(" | ")}. Replace with brief-grounded numbers (calibrated_daily_volume: ${briefVolume}) or remove the unsupported claim entirely.`,
