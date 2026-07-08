@@ -103,9 +103,14 @@ export function PushoverSettings() {
     if (!settings.data) return;
     const patch: NotificationSettingsPatch = {
       preferredChannel,
-      pushoverQuietHourStart: quietStartNum,
-      pushoverQuietHourEnd: quietEndNum,
     };
+    // FE-High-1: only include quiet-hour fields when they're valid numbers. The
+    // BE schema is z.number().optional() — it accepts undefined (omitted) but
+    // REJECTS null, so sending a blank field as null 400s the whole save. The
+    // DB columns are NOT NULL, so there's nothing to "clear" — a blank input
+    // just means "leave unchanged" (omit it).
+    if (quietStartNum !== null) patch.pushoverQuietHourStart = quietStartNum;
+    if (quietEndNum !== null) patch.pushoverQuietHourEnd = quietEndNum;
     if (trimmed !== "") patch.pushoverUserKey = trimmed;
     save.mutate(patch);
   }

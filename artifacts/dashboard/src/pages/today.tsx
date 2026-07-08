@@ -186,6 +186,19 @@ export default function TodayPage() {
     // F-A: include linkedinQuery.data so the "All" view recomputes when it loads.
   }, [channel, waQuery.data, tgQuery.data, linkedinQuery.data, activeQuery?.data]);
 
+  // F-A: rows the "Open all" bulk action can actually serve — excludes LinkedIn
+  // (clipboard-only; can't bulk-copy per-row messages) and rows with no
+  // reachable identifier. The button shows/uses THIS count, not dueItems.length,
+  // so on the LinkedIn tab it correctly reads 0 and is disabled.
+  const bulkOpenable = useMemo(
+    () =>
+      dueItems.filter(
+        ({ item, channel: ch }) =>
+          ch !== "linkedin" && canOpenChat(ch, item.prospect),
+      ),
+    [dueItems],
+  );
+
   useEffect(() => {
     setFocusedIndex((i) =>
       dueItems.length === 0 ? 0 : Math.min(i, dueItems.length - 1),
@@ -269,11 +282,17 @@ export default function TodayPage() {
             // on an empty chat. Copy the message so they can paste it.
             // F-A: LinkedIn is clipboard-only (deep link opens the profile, no
             // message prefill) — same copy-to-clipboard branch as Telegram.
+            // Copy data.generatedMessage (the server-generated stage-N followup
+            // text), NOT the local `message` — which is often empty (lazy gen)
+            // or the cold first-message, so copying it would paste the wrong
+            // text / nothing on a clipboard-only channel.
             if (
               (sendChannel === "telegram" || sendChannel === "linkedin") &&
-              message
+              data.generatedMessage
             ) {
-              void navigator.clipboard.writeText(message).catch(() => {});
+              void navigator.clipboard
+                .writeText(data.generatedMessage)
+                .catch(() => {});
               toast({
                 title: `Opening ${CHANNEL_LABEL[sendChannel]} — message copied`,
                 description: `${prospectName}: ${CHANNEL_LABEL[sendChannel]} won't prefill — paste the message into the composer.`,
@@ -353,8 +372,13 @@ export default function TodayPage() {
   }
 
   async function handleBulkOpen() {
-    const openable = dueItems.filter(({ item, channel: ch }) =>
-      canOpenChat(ch, item.prospect),
+    // F-A: exclude LinkedIn from bulk-open. LinkedIn is clipboard-only, and a
+    // bulk loop can't copy a distinct message per row to one clipboard — it
+    // would just open N profile tabs with nothing to paste. LinkedIn rows are
+    // sent one at a time (single send copies the message).
+    const openable = dueItems.filter(
+      ({ item, channel: ch }) =>
+        ch !== "linkedin" && canOpenChat(ch, item.prospect),
     );
     if (openable.length === 0) return;
 
@@ -529,7 +553,7 @@ export default function TodayPage() {
               </span>
             </p>
           </div>
-          {dueItems.length > 0 ? (
+          {bulkOpenable.length > 0 ? (
             <Button
               variant="outline"
               size="sm"
@@ -538,7 +562,7 @@ export default function TodayPage() {
               data-testid="bulk-open"
             >
               <Layers className="mr-1 h-3.5 w-3.5" />
-              {bulkOpening ? "Opening…" : `Open all (${dueItems.length})`}
+              {bulkOpening ? "Opening…" : `Open all (${bulkOpenable.length})`}
             </Button>
           ) : null}
         </div>

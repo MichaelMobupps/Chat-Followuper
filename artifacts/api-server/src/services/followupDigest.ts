@@ -12,6 +12,7 @@ import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
 import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { usageBucketDate } from "../lib/usageBucket";
+import { CHANNEL_CODES } from "../lib/channelRegister";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -128,7 +129,7 @@ export async function runFollowupDigests(): Promise<DigestResult> {
         // (generation throws invalid_channel) and is invisible in the
         // whatsapp|telegram-only management UI, so without this guard it would
         // be re-emailed in every digest with a dead link, forever.
-        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
+        inArray(followupsTable.channel, [...CHANNEL_CODES]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
         eq(prospectsTable.followupPaused, false),

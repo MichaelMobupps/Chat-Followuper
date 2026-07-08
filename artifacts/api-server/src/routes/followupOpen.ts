@@ -10,6 +10,10 @@ import {
   generateLink as generateTelegramLink,
   recordSendIntent as recordTelegramSendIntent,
 } from "../services/channels/telegram";
+import {
+  generateLink as generateLinkedinLink,
+  recordSendIntent as recordLinkedinSendIntent,
+} from "../services/channels/linkedin";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 import { appPublicUrl } from "../lib/appPublicUrl";
 
@@ -56,6 +60,7 @@ router.get(
           userId: prospectsTable.userId,
           phone: prospectsTable.phone,
           telegramHandle: prospectsTable.telegramHandle,
+          linkedinUrl: prospectsTable.linkedinUrl,
           followupPaused: prospectsTable.followupPaused,
           replied: prospectsTable.replied,
           userName: usersTable.name,
@@ -108,6 +113,17 @@ router.get(
           return;
         }
         res.redirect(302, generateTelegramLink(identifier, messageBody));
+        return;
+      }
+      if (row.channel === "linkedin") {
+        // F-A: LinkedIn is clipboard-only (no prefill), so redirect to the
+        // profile URL. The message can't be embedded in the URL; the in-app
+        // send flow copies it to the clipboard.
+        if (!row.linkedinUrl) {
+          res.redirect(302, dashboardFallback());
+          return;
+        }
+        res.redirect(302, generateLinkedinLink(row.linkedinUrl, messageBody));
         return;
       }
       res.redirect(302, dashboardFallback());
@@ -170,6 +186,8 @@ router.post(
       };
       if (row.channel === "telegram") {
         await recordTelegramSendIntent(input);
+      } else if (row.channel === "linkedin") {
+        await recordLinkedinSendIntent(input);
       } else {
         await recordWhatsappSendIntent(input);
       }

@@ -116,14 +116,14 @@ function statusSqlFilter(status: ProspectStatus) {
         eq(prospectsTable.phoneRevealStatus, "expired"),
       );
     case "phone-pending":
-      // API8: mirror computeProspectStatus, which treats a telegramHandle as a
-      // valid contact identity. A prospect with a handle but no phone is NOT
-      // pending — so exclude it here too (was keyed on phone alone, producing
-      // list badges that contradicted the active filter).
+      // API8 + F-A: a phone, telegram handle, OR linkedin URL is a valid contact
+      // identity — a prospect with any of them is NOT phone-pending. (Keyed on
+      // phone alone would badge linkedin-only prospects as pending forever.)
       return and(
         isNull(prospectsTable.firstMessageSentAt),
         isNull(prospectsTable.phone),
         isNull(prospectsTable.telegramHandle),
+        isNull(prospectsTable.linkedinUrl),
         ne(prospectsTable.phoneRevealStatus, "blocked"),
         ne(prospectsTable.phoneRevealStatus, "no_match"),
         ne(prospectsTable.phoneRevealStatus, "expired"),
@@ -134,6 +134,7 @@ function statusSqlFilter(status: ProspectStatus) {
         or(
           isNotNull(prospectsTable.phone),
           isNotNull(prospectsTable.telegramHandle),
+          isNotNull(prospectsTable.linkedinUrl),
         ),
         isNotNull(prospectsTable.firstMessageBody),
       );
@@ -143,6 +144,7 @@ function statusSqlFilter(status: ProspectStatus) {
         or(
           isNotNull(prospectsTable.phone),
           isNotNull(prospectsTable.telegramHandle),
+          isNotNull(prospectsTable.linkedinUrl),
         ),
         isNull(prospectsTable.firstMessageBody),
       );
@@ -152,6 +154,7 @@ function statusSqlFilter(status: ProspectStatus) {
 function computeProspectStatus(p: {
   phone: string | null;
   telegramHandle: string | null;
+  linkedinUrl: string | null;
   phoneRevealStatus: string;
   firstMessageBody: string | null;
   firstMessageSentAt: Date | string | null;
@@ -160,7 +163,8 @@ function computeProspectStatus(p: {
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
   if (p.phoneRevealStatus === "expired") return "phone-expired";
-  if (!p.phone && !p.telegramHandle) return "phone-pending";
+  // F-A: linkedinUrl is a valid identity too (LinkedIn is clipboard-only).
+  if (!p.phone && !p.telegramHandle && !p.linkedinUrl) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
 }
@@ -227,6 +231,7 @@ router.get(
           language: prospectsTable.language,
           phone: prospectsTable.phone,
           telegramHandle: prospectsTable.telegramHandle,
+          linkedinUrl: prospectsTable.linkedinUrl,
           phoneRevealStatus: prospectsTable.phoneRevealStatus,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
@@ -258,6 +263,7 @@ router.get(
       language: r.language,
       phone: r.phone,
       telegramHandle: r.telegramHandle,
+      linkedinUrl: r.linkedinUrl,
       phoneRevealStatus: r.phoneRevealStatus,
       firstMessageBody: r.firstMessageBody,
       firstMessageChannel: r.firstMessageChannel,

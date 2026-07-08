@@ -17,10 +17,11 @@ export interface NotificationSettings {
 
 export interface NotificationSettingsPatch {
   pushoverUserKey?: string | null;
-  // F-B: new fields the API now accepts.
+  // F-B: new fields the API now accepts. Quiet-hours are non-nullable on the BE
+  // (z.number().optional()) — omit to leave unchanged; NEVER send null (400).
   preferredChannel?: PreferredChannel;
-  pushoverQuietHourStart?: number | null;
-  pushoverQuietHourEnd?: number | null;
+  pushoverQuietHourStart?: number;
+  pushoverQuietHourEnd?: number;
 }
 
 export function getNotificationSettings(): Promise<NotificationSettings> {

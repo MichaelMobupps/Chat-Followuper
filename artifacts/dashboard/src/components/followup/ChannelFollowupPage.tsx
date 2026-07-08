@@ -202,6 +202,8 @@ export function ChannelFollowupPage({ channel }: Props) {
                     ? "Apollo phone reveal has not arrived yet."
                     : apiCode === "no_telegram_identifier" || apiCode === "no_telegram_handle"
                       ? "No Telegram handle or phone number for this prospect."
+                    : apiCode === "no_linkedin_identifier"
+                      ? "No LinkedIn profile URL for this prospect."
                       : apiCode === "no_phone"
                         ? "No phone number for this prospect."
                         : apiCode === "prospect_paused"

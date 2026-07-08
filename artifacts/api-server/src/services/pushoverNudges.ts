@@ -11,6 +11,7 @@ import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
 import { isFeatureEnabled } from "../lib/featureFlags";
+import { CHANNEL_CODES } from "../lib/channelRegister";
 import { isPushoverAppConfigured, sendPushover } from "./pushover";
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
@@ -111,7 +112,7 @@ export async function sendOverdueEscalations(): Promise<number> {
         eq(followupsTable.status, "scheduled"),
         // F4/D2: exclude removed-channel (teams/slack) zombie rows from the
         // priority-1 overdue escalation.
-        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
+        inArray(followupsTable.channel, [...CHANNEL_CODES]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, cutoff),
         eq(prospectsTable.followupPaused, false),
@@ -235,7 +236,7 @@ export async function sendMondayQueueClearNudges(): Promise<number> {
           eq(prospectsTable.userId, user.id),
           eq(followupsTable.status, "scheduled"),
           // F4/D2: exclude removed-channel (teams/slack) zombie rows.
-          inArray(followupsTable.channel, ["whatsapp", "telegram"]),
+          inArray(followupsTable.channel, [...CHANNEL_CODES]),
           isNull(followupsTable.sentAt),
           lte(followupsTable.scheduledAt, new Date()),
           eq(prospectsTable.followupPaused, false),

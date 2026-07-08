@@ -3,6 +3,7 @@ import { z, ZodError } from "zod/v4";
 import { requireAuth } from "../middlewares/auth";
 import { generateLink } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
+import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
 
 const router: IRouter = Router();
 
@@ -56,6 +57,30 @@ router.post(
         deepLinkUrl,
         message: body.message,
         target: body.identifier,
+      });
+      return;
+    }
+
+    if (body.channel === "linkedin") {
+      // F-A: LinkedIn accepts a full profile URL or a bare slug. Clipboard-only,
+      // so the "link" is just the profile URL (no message prefill).
+      const id = body.identifier;
+      const looksValid =
+        /^https?:\/\/([\w-]+\.)*linkedin\.com\//i.test(id) ||
+        /^\/?in\/[\w%-]+\/?$/i.test(id) ||
+        /^@?[a-zA-Z0-9][\w-]{2,99}$/.test(id);
+      if (!looksValid) {
+        res.status(400).json({
+          error: "invalid_identifier",
+          detail: "Use a LinkedIn profile URL or handle, e.g. https://www.linkedin.com/in/yourname",
+        });
+        return;
+      }
+      res.status(200).json({
+        channel: "linkedin",
+        deepLinkUrl: generateLinkedinLink(id, body.message),
+        message: body.message,
+        target: id,
       });
       return;
     }

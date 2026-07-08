@@ -75,9 +75,15 @@ export function SendConfirmDialog({
               : "Did you press Send in the app?"}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {bulkMode
-              ? "Each chat opened with your message prefilled. Followuper only tracks delivery after you tap Send in WhatsApp or Telegram for each contact."
-              : "The chat opened with your message prefilled. Followuper only tracks delivery after you tap Send in WhatsApp or Telegram."}
+            {/* F-A: LinkedIn is clipboard-only (no prefill) — the copy is
+                channel-specific so it isn't misleading. */}
+            {pending?.channel === "linkedin"
+              ? bulkMode
+                ? "Each LinkedIn profile opened and the message was copied. Followuper only tracks delivery after you paste it and send in LinkedIn for each contact."
+                : "The LinkedIn profile opened and the message was copied. Followuper only tracks delivery after you paste it and send in LinkedIn."
+              : bulkMode
+                ? "Each chat opened with your message prefilled. Followuper only tracks delivery after you tap Send in WhatsApp or Telegram for each contact."
+                : "The chat opened with your message prefilled. Followuper only tracks delivery after you tap Send in WhatsApp or Telegram."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

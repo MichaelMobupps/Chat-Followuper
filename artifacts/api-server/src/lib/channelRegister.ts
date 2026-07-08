@@ -20,11 +20,16 @@
  * message. Teams and Slack were removed (never built past a 501 stub).
  */
 
-export type ChannelCode = "whatsapp" | "telegram" | "linkedin";
+// Single source of truth for the live channel set. Anything that enumerates
+// channels at runtime (digest due-query guards, etc.) should derive from this
+// so adding/removing a channel can't silently leave a stale hardcoded list
+// (the F4/D2 guards excluded LinkedIn exactly because they were hardcoded).
+export const CHANNEL_CODES = ["whatsapp", "telegram", "linkedin"] as const;
+export type ChannelCode = (typeof CHANNEL_CODES)[number];
 export type GenerationMode = "prospector" | "followuper";
 
 export function isChannelCode(value: string): value is ChannelCode {
-  return ["whatsapp", "telegram", "linkedin"].includes(value);
+  return (CHANNEL_CODES as readonly string[]).includes(value);
 }
 
 // ─────────────────────────────────────────────────────────────────
