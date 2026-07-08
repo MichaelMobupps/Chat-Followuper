@@ -9,7 +9,9 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "digest": "node --enable-source-maps ./dist/scripts/sendFollowupDigests.mjs",
-    "smoke:followup": "node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeFollowupFlow.ts"
+    "smoke:followup": "node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeFollowupFlow.ts",
+    "smoke:audit2": "node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeAudit2.ts",
+    "smoke:bulk": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeBulk.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
