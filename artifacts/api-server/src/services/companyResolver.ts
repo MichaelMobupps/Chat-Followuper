@@ -427,14 +427,21 @@ export function modelRejectsSamplingParams(model: string): boolean {
 }
 
 /**
- * Sonnet 5 (and Fable 5) enable adaptive thinking when the `thinking` param is
- * omitted. Our short, deterministic JSON-extraction calls run on tiny token
- * budgets that a thinking pass would exhaust (truncating the JSON), so disable
- * thinking explicitly for those models. Opus 4.7/4.8 default to thinking-off on
- * omission, so they don't need this.
+ * Sonnet 5 enables adaptive thinking when the `thinking` param is omitted. Our
+ * short, deterministic JSON-extraction calls run on tiny token budgets that a
+ * thinking pass would exhaust (truncating the JSON), so disable thinking
+ * explicitly for that model. Opus 4.7/4.8 default to thinking-off on omission,
+ * so they don't need this.
+ *
+ * L9 (audit-2, verified against the Claude API reference): Fable 5 is
+ * deliberately EXCLUDED — thinking is always on there and an explicit
+ * `thinking: {type: "disabled"}` returns a 400 (the param must be omitted).
+ * Sonnet 5 accepts `disabled`. So if PROSPECTOR_SONNET_MODEL is ever set to
+ * claude-fable-5, we omit the thinking param entirely (adaptive thinking will
+ * consume budget — prefer a Sonnet-tier model for this extraction path).
  */
 function modelDefaultsAdaptiveThinking(model: string): boolean {
-  return /claude-(sonnet-5|fable-5)/.test(model);
+  return /claude-sonnet-5/.test(model);
 }
 
 /** Default LLM caller: real Anthropic SDK. */
