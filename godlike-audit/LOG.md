@@ -699,3 +699,31 @@ real run counts." Done:
 The throwaway APO5 probe script was removed. No open audit items remain except the two that genuinely
 need a net-new feature (Teams/Slack OAuth → DB2 encryption) or ongoing production telemetry (APO5 number,
 now operator-tunable via env).
+
+---
+
+## Session 7 — SECOND GODLIKE PASS (2026-07-08)
+
+Re-audited the delta since session 6 (features F-E bulk phone-seed + F-C Teams/Slack removal, and the
+FE contract fixes) with 8 parallel read-only subsystem auditors, triple-framed, blast-radius per finding.
+Full finding-by-finding ledger + triage + per-batch fix log: **`godlike-audit/PASS2-LEDGER.md`**.
+
+- **Found:** 1 Critical, 5 High, ~15 Med, long Low/trivia tail. Several corroborated by 2–3 auditors
+  independently (the 23505 cluster; the zombie-teams/slack-followups issue).
+- **Fixed:** 8 serial batches, full `pnpm run build` + `@workspace/db` tests green after each. Commits
+  `71083bf` (batch1) → `88600e1` (batch8), mirror re-sync `4aee64d`, all on `audit/godlike-fixes`.
+- **Headline:** F1 (Critical) — `followups.sent_at` was written nowhere, so every followup a rep sent
+  stayed "due" forever (re-digested, re-escalated priority-1, re-served with duplicate outreach);
+  recordSendIntent now stamps sentAt + status='sent'. L1 (High) — prospector LLM endpoints ran
+  uncapped and unrecorded (unbounded spend); P1 (High) — webhook phone-promote lost 8-credit reveals
+  on shared numbers; C1 (High) — digit strings were stored as telegram handles, corrupting phone-only
+  bulk pastes.
+- **Residuals** (documented, reason each): P2a/P2b abort-threading (bounded blast), C4 direct-API bulk
+  400, L9 fable-5 thinking param (latent/env), L11 dead summarizer, harmless dead-code (GeoGate catches,
+  ManualContactsSection). Prod action pending: run
+  `godlike-audit/prod-cancel-legacy-channel-followups.sql` (dev has zero such rows).
+
+**Godlike convergence NOT claimed** (per the rubric's no-false-convergence rule): a full multi-package
+codebase cannot reach 3-consecutive-clean-round convergence in one session, and the deferred residuals
+above are honest open items. **Confidence in the applied fixes: high** — each verified against source,
+full-workspace build-green + db-tests-green after every batch, low blast radius throughout.

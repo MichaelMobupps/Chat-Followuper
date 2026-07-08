@@ -10,6 +10,42 @@ result; when you start something, note it under IN PROGRESS with the exact next 
 
 ---
 
+## ⭐ SESSION 7 — SECOND GODLIKE PASS (2026-07-08). Full ledger: `PASS2-LEDGER.md`.
+Re-audited the delta since session 6 (F-E bulk seed, F-C Teams/Slack removal, FE contract fixes)
+with 8 parallel read-only auditors. Found **1 Critical, 5 High, ~15 Med + Low tail**. Fixed in 8
+batches, green bar after each, commits `71083bf`→`88600e1` (+ mirror `4aee64d`).
+
+**Applied + green (highest first):**
+- **F1 [CRIT]** followup lifecycle: recordSendIntent now stamps `sentAt`+`status='sent'` (was
+  write-nowhere → every sent followup re-digested/re-escalated/re-served forever). `71083bf`
+- **High:** L1 prospector routes had NO spend cap + never recorded USD (unbounded burn) → cap
+  pre-check ×3 + recordDailyLlmSpend; P1 webhook phone-promote 23505 lost paid reveals → dup guard;
+  C1 telegram digit-strings stored as handles (corrupt phone-only batches) → regex must-start-letter;
+  E1 bulk-add didn't refresh Contacts list. `7d3acf0`/`13d1af5`
+- **Med:** F2 digest UTC-claim double-send; F3 pushover `>=` gate; F5 snooze-from-now; F6 claim-
+  release-after-send; L2 researchStream spend; L8 tx×2; L10 cache-before-cap; P3a apolloFetch
+  hardening; 23505→409 taxonomy (D1/A3/C2 + new `lib/dbErrors.ts`); A1 cap/error contract; A2 send-
+  intent ownership 404; A9 detail leak; C3/A5 missing_company_product; L3/L4/L5 prompt-injection
+  hardening; L6 grounding thousands-sep; A6 handle lowercase; E2-E7 frontend UX; C5 clipboard×3;
+  F4/D2 zombie teams/slack followup guards ×4 + prod SQL; L7 wasted-rewrite; P3c reveal-sweep wired;
+  B1 replit.md; B3 .env.example; B4 prod SQL run-order.
+
+**RESIDUALS (documented, not fixed — reason each):**
+- **P2a/P2b** [Med] AbortSignal not threaded through the stage-B prospector routes + discover's LLM
+  steps → timeout losers keep burning credits. Bounded (rate-limited + zod-capped). Threading it is
+  sprawling; deferred. discover-simple exact spend-recording also deferred (cap pre-check IS added).
+- **C4** [Low] one bad row Zod-400s the whole bulk batch for DIRECT API clients (the FE can't trip it).
+- **L9** [Low] `modelDefaultsAdaptiveThinking` sends `thinking:{disabled}` for fable-5 (reportedly
+  400s) — latent, only via `PROSPECTOR_SONNET_MODEL=claude-fable-5`. Needs an authoritative fable-5
+  API check before changing.
+- **L11** [Low] messageSummarizer/priorSummary is unwired dead code — wire-with-spend or delete (product call).
+- Dead code (harmless): GeoGate catch branches in routes/apollo.ts (unreachable since APO3);
+  orphaned `ManualContactsSection.tsx` (zero importers post-F-E).
+- **F4/D2 prod data:** `godlike-audit/prod-cancel-legacy-channel-followups.sql` must be run on prod
+  (dev has zero such rows; the app-side guard already stops processing them).
+
+---
+
 ## IN PROGRESS / OPEN
 
 ### 1. Production DB migration  ← the thing interrupted by the SSH drop (2026-07-04 ~18:11)
