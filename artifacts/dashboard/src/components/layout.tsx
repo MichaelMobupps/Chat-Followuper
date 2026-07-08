@@ -7,6 +7,8 @@ import {
   Activity,
   Settings,
   MessageCircle,
+  Send,
+  Megaphone,
   Users,
   Sparkles,
   Search,
@@ -26,23 +28,29 @@ type NavItem = {
 const PRIMARY_NAV: NavItem[] = [
   { label: "Today", href: "/", icon: CalendarClock },
   { label: "Contacts", href: "/contacts", icon: Sparkles },
-  { label: "Follow-ups", href: "/followup/whatsapp", icon: MessageCircle },
+  // E5: split the single hardcoded "Follow-ups" → /followup/whatsapp into two
+  // per-channel entries so /followup/telegram is reachable (the page has no
+  // channel switcher of its own).
+  { label: "Follow-ups · WhatsApp", href: "/followup/whatsapp", icon: MessageCircle },
+  { label: "Follow-ups · Telegram", href: "/followup/telegram", icon: Send },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
   { label: "Apollo seeder", href: "/seeder", icon: Search },
   { label: "All prospects", href: "/prospects", icon: Users },
+  // E4: Campaigns list/create UI existed with no nav entry to reach it.
+  { label: "Campaigns", href: "/campaigns", icon: Megaphone },
   { label: "Activity", href: "/activity", icon: Activity },
   { label: "Accounts", href: "/accounts", icon: Settings },
 ];
 
-function isActive(currentPath: string, href: string, label?: string): boolean {
+function isActive(currentPath: string, href: string, _label?: string): boolean {
   if (href === "/") {
     return currentPath === "/" || currentPath === "";
   }
-  if (label === "Follow-ups") {
-    return currentPath.startsWith("/followup/");
-  }
+  // E5: the per-channel follow-up entries now match on their exact href, so the
+  // old label-based "/followup/" catch-all is gone — each channel highlights
+  // only for its own route.
   return currentPath === href || currentPath.startsWith(href + "/");
 }
 

@@ -125,10 +125,20 @@ export default function ContactsPage() {
       });
       setSendConfirmOpen(true);
 
-      toast({
-        title: "Opening chat",
-        description: `${prospect.prospectName ?? "Contact"} — review the message and press send in ${CHANNEL_LABEL[channel]}.`,
-      });
+      // C5: t.me/<handle>?text= often doesn't prefill the composer for plain
+      // user handles — copy the message so the SDR can paste it. Best-effort.
+      if (channel === "telegram" && result.message) {
+        void navigator.clipboard.writeText(result.message).catch(() => {});
+        toast({
+          title: "Opening Telegram — message copied",
+          description: `${prospect.prospectName ?? "Contact"}: Telegram may not prefill the text — paste it if the composer is empty.`,
+        });
+      } else {
+        toast({
+          title: "Opening chat",
+          description: `${prospect.prospectName ?? "Contact"} — review the message and press send in ${CHANNEL_LABEL[channel]}.`,
+        });
+      }
     } catch (err) {
       if (!toastDuplicateContactError(err, toast)) {
         toast({

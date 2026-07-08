@@ -30,19 +30,21 @@ const NO_CHANNEL = "__none__" as const;
 const CHANNEL_OPTIONS = [NO_CHANNEL, ...CAMPAIGN_CHANNELS] as const;
 
 const formSchema = z.object({
+  // E3: limits match the api-server (name ≤120, description ≤1000, language a
+  // bare 2-letter ISO code). BE rejects region-tagged codes like pt-BR.
   name: z
     .string()
     .min(1, "Name is required")
-    .max(200, "Name is too long"),
-  description: z.string().max(2000, "Too long").optional(),
+    .max(120, "Name is too long"),
+  description: z.string().max(1000, "Too long").optional(),
   defaultChannel: z.enum(CHANNEL_OPTIONS).optional(),
   defaultSubVertical: z.string().max(100, "Too long").optional(),
   defaultLanguage: z
     .string()
     .optional()
     .refine(
-      (v) => !v || /^[a-z]{2}(-[A-Z]{2})?$/.test(v),
-      "Use ISO code, e.g. 'en' or 'pt-BR'",
+      (v) => !v || /^[a-z]{2}$/.test(v),
+      "Use a 2-letter ISO code, e.g. 'en' or 'hi'",
     ),
   defaultCountry: z
     .string()
@@ -210,7 +212,7 @@ export function CampaignForm({
                   />
                 </FormControl>
                 <FormDescription className="text-xs">
-                  ISO code, e.g. en, hi, pt-BR
+                  2-letter ISO code, e.g. en, hi, pt
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -41,7 +41,16 @@ export function TestChannelMessage({ compact = false }: Props) {
     mutationFn: postTestChannelLink,
     onSuccess: (data) => {
       localStorage.setItem(STORAGE_KEY[channel], identifier.trim());
-      window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
+      // E6: a blocked popup makes window.open return null — don't claim success.
+      const w = window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
+      if (!w) {
+        toast({
+          title: "Popup blocked",
+          description: "Allow popups to open the link.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         title: `Opening ${channel === "whatsapp" ? "WhatsApp" : "Telegram"}`,
         description: `Message prefilled in the chat box — press send in the app to deliver to ${data.target}.`,

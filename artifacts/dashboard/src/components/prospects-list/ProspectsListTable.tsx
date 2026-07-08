@@ -303,6 +303,18 @@ function ActionButton({ prospect }: { prospect: ProspectListItem }) {
                       "Allow popups for this site, or copy the link manually.",
                     variant: "destructive",
                   });
+                  return;
+                }
+                // C5: t.me/<handle>?text= often doesn't prefill the composer for
+                // plain user handles — copy the message so the SDR can paste it.
+                // Best-effort.
+                if (channel === "telegram" && data.body) {
+                  void navigator.clipboard.writeText(data.body).catch(() => {});
+                  toast({
+                    title: "Opening Telegram — message copied",
+                    description:
+                      "Telegram may not prefill the text — paste it if the composer is empty.",
+                  });
                 }
               },
               onError: (err) => {

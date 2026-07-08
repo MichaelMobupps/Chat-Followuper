@@ -5,10 +5,11 @@ import { apiFetch } from "../api";
  * Teams and Slack were removed (never built past a 501 stub); do not add
  * them here.
  */
+// E3: dropped "email" — the api-server's ALLOWED_CHANNELS is whatsapp|telegram
+// only, so selecting email always 400'd on create/update.
 export const CAMPAIGN_CHANNELS = [
   "whatsapp",
   "telegram",
-  "email",
 ] as const;
 
 export type CampaignChannel = (typeof CAMPAIGN_CHANNELS)[number];

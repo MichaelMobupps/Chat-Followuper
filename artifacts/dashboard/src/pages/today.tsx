@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import { format } from "date-fns";
 import {
   AlarmClock,
@@ -468,9 +469,10 @@ export default function TodayPage() {
             </h1>
             <p className="text-sm text-muted-foreground">
               Follow-ups due now. Add new contacts from{" "}
-              <a href="/contacts" className="text-[#4FFFE3] hover:underline">
+              {/* E7: use wouter Link so the router base is honored (raw <a> bypassed it). */}
+              <Link href="/contacts" className="text-[#4FFFE3] hover:underline">
                 Contacts
-              </a>
+              </Link>
               .{" "}
               <span className="text-xs">
                 Keys: <kbd className="px-1 rounded bg-muted">j</kbd>/
