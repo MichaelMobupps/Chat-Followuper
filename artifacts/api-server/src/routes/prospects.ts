@@ -79,7 +79,7 @@ const PROSPECT_STATUSES = [
 ] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
-const LIST_CHANNELS = ["whatsapp", "telegram", "teams"] as const;
+const LIST_CHANNELS = ["whatsapp", "telegram"] as const;
 const LIST_SORT_COLS = ["createdAt", "updatedAt", "prospectName"] as const;
 const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 
@@ -334,7 +334,6 @@ const baseProspectFields = {
     .nullable()
     .optional(),
   telegramHandle: z.string().trim().min(1).max(100).nullable().optional(),
-  teamsEmail: z.string().trim().email().nullable().optional(),
   linkedinUrl: z.string().trim().url().nullable().optional(),
   apolloPersonId: z.string().trim().min(1).max(200).nullable().optional(),
   apolloOrgId: z.string().trim().min(1).max(200).nullable().optional(),
@@ -550,7 +549,6 @@ router.post(
         country: body.country ?? null,
         language: body.language ?? null,
         telegramHandle: body.telegramHandle ?? null,
-        teamsEmail: body.teamsEmail ?? null,
         linkedinUrl: body.linkedinUrl ?? null,
         apolloPersonId: body.apolloPersonId ?? null,
         apolloOrgId: body.apolloOrgId ?? null,
@@ -744,7 +742,6 @@ router.patch(
     if (body.country !== undefined) updates.country = body.country;
     if (body.language !== undefined) updates.language = body.language;
     if (body.telegramHandle !== undefined) updates.telegramHandle = body.telegramHandle;
-    if (body.teamsEmail !== undefined) updates.teamsEmail = body.teamsEmail;
     if (body.linkedinUrl !== undefined) updates.linkedinUrl = body.linkedinUrl;
     if (body.apolloPersonId !== undefined) updates.apolloPersonId = body.apolloPersonId;
     if (body.apolloOrgId !== undefined) updates.apolloOrgId = body.apolloOrgId;

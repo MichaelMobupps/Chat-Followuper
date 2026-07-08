@@ -25,8 +25,6 @@ import { apiFetch } from "@/lib/api";
 export const SUPPORTED_CHANNELS = [
   "whatsapp",
   "telegram",
-  "teams",
-  "slack",
 ] as const;
 export type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
@@ -74,8 +72,6 @@ export interface FollowupListProspect {
   language: string | null;
   phone: string | null;
   telegramHandle: string | null;
-  teamsEmail: string | null;
-  slackUserId: string | null;
   firstMessageBody: string | null;
   firstMessageChannel: string | null;
   firstMessageSentAt: string | null;

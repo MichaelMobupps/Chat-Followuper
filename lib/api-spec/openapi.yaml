@@ -266,7 +266,7 @@ components:
       properties:
         channel:
           type: string
-          enum: [whatsapp, telegram, teams, slack]
+          enum: [whatsapp, telegram]
     PrepareFirstMessageResponse:
       type: object
       properties:

@@ -51,7 +51,6 @@ export interface Prospect {
    *  this is null. */
   phone: string | null;
   telegramHandle: string | null;
-  teamsEmail: string | null;
   linkedinUrl: string | null;
   apolloPersonId: string | null;
   apolloOrgId: string | null;
@@ -87,7 +86,6 @@ export interface CreateProspectInput {
   country?: string;
   language?: string;
   telegramHandle?: string;
-  teamsEmail?: string;
   linkedinUrl?: string;
   apolloPersonId?: string;
   apolloOrgId?: string;
@@ -113,7 +111,6 @@ export type UpdateProspectInput = Partial<
   country?: string | null;
   language?: string | null;
   telegramHandle?: string | null;
-  teamsEmail?: string | null;
   linkedinUrl?: string | null;
   apolloPersonId?: string | null;
   apolloOrgId?: string | null;
@@ -169,7 +166,7 @@ export type ProspectStatus =
   | "phone-no-match"
   | "phone-expired";
 
-export type ListChannel = "whatsapp" | "telegram" | "teams";
+export type ListChannel = "whatsapp" | "telegram";
 
 export type ListSortCol = "createdAt" | "updatedAt" | "prospectName";
 

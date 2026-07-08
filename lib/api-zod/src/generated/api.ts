@@ -36,7 +36,7 @@ export const PrepareFirstMessageParams = zod.object({
 });
 
 export const PrepareFirstMessageBody = zod.object({
-  channel: zod.enum(["whatsapp", "telegram", "teams", "slack"]).optional(),
+  channel: zod.enum(["whatsapp", "telegram"]).optional(),
 });
 
 export const PrepareFirstMessageResponse = zod.object({

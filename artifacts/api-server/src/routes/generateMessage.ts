@@ -134,9 +134,7 @@ router.post(
 
     // ── Channel resolution ──
     // Use prospect.firstMessageChannel if set; default to whatsapp otherwise.
-    // Phase 1 ships whatsapp only — telegram/teams adapters are stubs and
-    // will throw when actually used to generate a deep link, but the
-    // generator can run for them since prompts are defined per channel.
+    // whatsapp and telegram both have deep-link adapters + per-channel prompts.
     const rawChannel = prospect.firstMessageChannel ?? "whatsapp";
     if (!isChannelCode(rawChannel)) {
       res.status(409).json({ error: "invalid_channel", channel: rawChannel });

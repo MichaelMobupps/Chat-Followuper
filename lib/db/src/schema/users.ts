@@ -106,7 +106,7 @@ export const usersTable = pgTable("users", {
   pushoverUserKey: text("pushover_user_key"),
   /**
    * Default follow-up channel for new prospects and digest links.
-   * One of: whatsapp, telegram, teams, slack.
+   * One of: whatsapp, telegram. (Teams/Slack were removed.)
    */
   preferredChannel: text("preferred_channel").notNull().default("whatsapp"),
   /**

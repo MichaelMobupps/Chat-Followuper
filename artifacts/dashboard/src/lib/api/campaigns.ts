@@ -2,13 +2,12 @@ import { apiFetch } from "../api";
 
 /**
  * Channel enum mirrors the api-server's accepted values.
- * Slack was explicitly dropped from the master plan (decision log #5);
- * do not add it here.
+ * Teams and Slack were removed (never built past a 501 stub); do not add
+ * them here.
  */
 export const CAMPAIGN_CHANNELS = [
   "whatsapp",
   "telegram",
-  "teams",
   "email",
 ] as const;
 

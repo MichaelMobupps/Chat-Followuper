@@ -1,15 +1,13 @@
 /**
  * Generic channel follow-up page — Ticket 2.5-FE.
  *
- * One implementation; pages/followup/whatsapp.tsx and the future
- * telegram/teams/slack pages each render <ChannelFollowupPage
+ * One implementation; pages/followup/whatsapp.tsx and
+ * pages/followup/telegram.tsx each render <ChannelFollowupPage
  * channel="..." />. Mirrors the BE's channel-parameterized router.
  *
- * Sends the deep link via window.open for the WhatsApp path; for other
- * channels the BE returns 501 channel_send_not_implemented today, and
- * the toast surfaces that code directly. The user-visible action is
- * always the same shape: click → either a tab opens or an error explains
- * why it can't.
+ * Sends the deep link via window.open. The user-visible action is always
+ * the same shape: click → either a tab opens or an error explains why it
+ * can't.
  */
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -76,15 +74,11 @@ import { SequenceConfigPanel } from "./SequenceConfigPanel";
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
-  teams: "Teams",
-  slack: "Slack",
 };
 
 const CHANNEL_ICON: Record<SupportedChannel, typeof MessageCircle> = {
   whatsapp: MessageCircle,
   telegram: Send,
-  teams: Send,
-  slack: Send,
 };
 
 const STATUS_TAB_LABEL: Record<ListStatus, string> = {

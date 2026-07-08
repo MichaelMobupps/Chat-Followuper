@@ -30,8 +30,6 @@ export type PrepareFirstMessageRequestChannel =
 export const PrepareFirstMessageRequestChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
-  teams: "teams",
-  slack: "slack",
 } as const;
 
 export interface PrepareFirstMessageRequest {

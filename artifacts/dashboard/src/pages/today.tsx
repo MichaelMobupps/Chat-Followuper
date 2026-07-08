@@ -58,8 +58,6 @@ type DueRow = {
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
-  teams: "Teams",
-  slack: "Slack",
 };
 
 type SnoozeOption = "1d" | "3d" | "next_monday";
