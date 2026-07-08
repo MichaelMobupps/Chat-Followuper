@@ -2,14 +2,12 @@
  * /api/followups routes — Ticket 2.5-BE.
  *
  * Follow-up management for the per-channel follow-up pages
- * (/followup/whatsapp, /followup/telegram, /followup/teams,
- * /followup/slack). Channel-parameterized so a single router serves
- * all chat-tool follow-up flows; only WhatsApp's send mechanism is
- * implemented today (it uses the existing routes/whatsappLink.ts
- * generateLink + recordSendIntent service). Telegram/Teams/Slack
- * tickets will plug into the same routes by adding their per-channel
- * sender implementation; the list/edit/bulk-archive endpoints are
- * already channel-agnostic.
+ * (/followup/whatsapp, /followup/telegram). Channel-parameterized so a
+ * single router serves both chat-tool follow-up flows; both WhatsApp's and
+ * Telegram's send mechanisms are implemented (they use the deep-link
+ * generateLink + recordSendIntent services). The list/edit/bulk-archive
+ * endpoints are channel-agnostic. (Teams/Slack were removed — never built
+ * past a 501 stub.)
  *
  * Routes:
  *   GET    /api/followups                    — list with filters (channel-parameterized)
@@ -61,7 +59,7 @@ const router: IRouter = Router();
 // Constants
 // ─────────────────────────────────────────────────────────────────
 
-const SUPPORTED_CHANNELS = ["whatsapp", "telegram", "teams", "slack"] as const;
+const SUPPORTED_CHANNELS = ["whatsapp", "telegram"] as const;
 type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
 const SEND_IMPLEMENTED_CHANNELS: ReadonlySet<SupportedChannel> = new Set([
@@ -296,8 +294,6 @@ router.get(
           language: prospectsTable.language,
           phone: prospectsTable.phone,
           telegramHandle: prospectsTable.telegramHandle,
-          teamsEmail: prospectsTable.teamsEmail,
-          slackUserId: prospectsTable.slackUserId,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
           firstMessageSentAt: prospectsTable.firstMessageSentAt,
@@ -431,7 +427,7 @@ router.post(
       res.status(501).json({
         error: "channel_send_not_implemented",
         channel: body.channel,
-        note: `Send is currently only implemented for: ${[...SEND_IMPLEMENTED_CHANNELS].join(", ")}. Telegram/Teams/Slack send mechanics ship with their respective channel tickets.`,
+        note: `Send is currently only implemented for: ${[...SEND_IMPLEMENTED_CHANNELS].join(", ")}.`,
       });
       return;
     }

@@ -38,7 +38,7 @@ import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
  * action_type differs (telegramSendIntent vs whatsappSendIntent). It
  * is duplicated rather than extracted because each channel file is
  * self-contained in this codebase; a cross-channel refactor is its own
- * ticket once Teams/Slack land and the shared shape is established.
+ * ticket if more channels are ever added.
  */
 
 /**

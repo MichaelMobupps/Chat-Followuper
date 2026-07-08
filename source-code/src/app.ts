@@ -10,7 +10,6 @@ import { loadUser } from "./middlewares/auth";
 import { DailyLlmCapExceededError } from "./lib/llmSpendCap";
 import { ApolloRevealCapExceededError } from "./lib/apolloRevealCap";
 import { InvalidPhoneError } from "./services/channels/whatsapp";
-import { ChannelNotImplementedError } from "./services/channels/errors";
 
 const app: Express = express();
 
@@ -87,11 +86,6 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
   // builder. 422 `invalid_phone`, not the misleading `geo_blocked`.
   if (err instanceof InvalidPhoneError) {
     res.status(422).json({ error: "invalid_phone" });
-    return;
-  }
-  // Registered-but-unimplemented channel adapter (CH4): Teams/Slack Mode A.
-  if (err instanceof ChannelNotImplementedError) {
-    res.status(501).json({ error: "channel_not_implemented", channel: err.channel });
     return;
   }
   logger.error({ err }, "unhandled route error");

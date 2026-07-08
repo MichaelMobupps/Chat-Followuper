@@ -184,9 +184,8 @@ router.post(
       } else if (channel === "whatsapp") {
         await recordWhatsappSendIntent(input);
       } else {
-        // teams/slack are advertised by isChannelCode but have no send-intent
-        // recorder yet. Reject explicitly instead of silently recording the
-        // send as WhatsApp (which corrupted per-channel analytics).
+        // Defensive: ChannelCode is whatsapp|telegram, both handled above.
+        // Kept so a future channel can't silently record as WhatsApp.
         res.status(501).json({ error: "channel_not_implemented", channel });
         return;
       }
