@@ -46,6 +46,34 @@ batches, green bar after each, commits `71083bf`→`88600e1` (+ mirror `4aee64d`
 
 ---
 
+## ⭐ SESSION 8 (2026-07-08, cont.) — post-audit hardening + verification
+Done after the audit-2 fix batches (all green; commits on `audit/godlike-fixes`):
+- **S1** live smoke (`5dfffcd`): F1 lifecycle 6/6 + F-E bulk HTTP 9/9 PASS on dev DB.
+  Kept as `pnpm --filter @workspace/api-server smoke:audit2` / `smoke:bulk`.
+- **S2** (`10be5b3`): L9 fable-5 thinking-param fixed (reference-verified — Fable 5 400s on
+  `thinking:{disabled}`, must omit). C4 / L11 / dead-code / xlsx kept as documented residuals (reasons in commit).
+- **S3** (`bca3352`): **migration 0016 drops the dormant Teams/Slack columns** (prospects.teams_email/
+  slack_user_id + indexes, users.microsoft_refresh_token/slack_bot_token). Applied to dev, green. **Ties off
+  DB2 permanently.** Prod: `godlike-audit/prod-drop-dormant-channel-columns.sql` (or auto-applied on Republish).
+- **F-B (partial)** (`a7b5366`): cadence range bug fixed — `maxFollowups` validation now 1–10 (was 0–20)
+  to match the scheduler clamp. **F-B UI slices NOT built** (see below).
+
+### STILL OPEN — two large NET-NEW features (scoped, not built — recommend a focused session each)
+- **F-B remaining (UI):** (a) per-stage schedule view — data already in `GET /api/followups`
+  (`derived.nextScheduled` + every stage row); UI shows only the single next time
+  (`ChannelFollowupPage.tsx:600`). (b) Surface Pushover config from the followups menu — the columns
+  `pushover_quiet_hour_start/end` + `preferred_channel` exist but the PATCH schema
+  (`routes/notificationSettings.ts` patchSchema) only accepts `pushoverUserKey`; add those fields + inputs,
+  then mount `<PushoverSettings/>` (+ new fields) into a followups Sheet/tab.
+- **F-A LinkedIn channel (widest sweep):** adapter + ChannelCode `"linkedin"` + `isChannelCode`; dedup
+  partial-unique index on `(user_id, linkedin_url)` (new migration 0017, mirror 0013); ~15 allowlists
+  (routes prepareFirstMessage/followups/userExtras/campaigns/prospects/testChannelLink; openapi + regen;
+  FE unions + label/icon `Record<Channel,…>` maps); clipboard-only send (no prefill deep link — extend the
+  CH5 telegram branch); `/followup/linkedin` route + page. `prospects.linkedin_url` already exists. Full
+  file-by-file scope in the F-A section below.
+  **NOTE:** both are greenfield features that each deserve the project's scope→build→live-verify discipline
+  in a dedicated session, not a rushed tail-end build.
+
 ## IN PROGRESS / OPEN
 
 ### 1. Production DB migration  ← the thing interrupted by the SSH drop (2026-07-04 ~18:11)
