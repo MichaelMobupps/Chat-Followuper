@@ -36,7 +36,7 @@ export const PrepareFirstMessageParams = zod.object({
 });
 
 export const PrepareFirstMessageBody = zod.object({
-  channel: zod.enum(["whatsapp", "telegram"]).optional(),
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]).optional(),
 });
 
 export const PrepareFirstMessageResponse = zod.object({
@@ -64,13 +64,13 @@ export const GetTelegramLinkResponse = zod.object({
  * @summary Build a test WhatsApp or Telegram deep link
  */
 export const PostTestChannelLinkBody = zod.object({
-  channel: zod.enum(["whatsapp", "telegram"]),
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]),
   identifier: zod.string(),
   message: zod.string().optional(),
 });
 
 export const PostTestChannelLinkResponse = zod.object({
-  channel: zod.enum(["whatsapp", "telegram"]),
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]),
   deepLinkUrl: zod.string(),
   message: zod.string(),
   target: zod.string(),

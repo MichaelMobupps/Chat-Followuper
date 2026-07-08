@@ -35,6 +35,7 @@ const UNIQUE_CONSTRAINT_CODES: Record<string, string> = {
   prospects_user_phone_unique: "duplicate_phone",
   prospects_user_telegram_unique: "duplicate_telegram_handle",
   prospects_user_apollo_person_unique: "duplicate_apollo_person",
+  prospects_user_linkedin_unique: "duplicate_linkedin_url",
 };
 
 /**

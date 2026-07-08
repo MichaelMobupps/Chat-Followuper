@@ -140,6 +140,11 @@ export const prospectsTable = pgTable(
     uniqueIndex("prospects_user_apollo_person_unique")
       .on(table.userId, table.apolloPersonId)
       .where(sql`${table.apolloPersonId} IS NOT NULL`),
+    // F-A: dedup LinkedIn prospects per user (linkedin_url is nullable, so a
+    // partial unique index — like the telegram/apollo ones above).
+    uniqueIndex("prospects_user_linkedin_unique")
+      .on(table.userId, table.linkedinUrl)
+      .where(sql`${table.linkedinUrl} IS NOT NULL`),
   ],
 );
 

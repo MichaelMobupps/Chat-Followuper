@@ -80,7 +80,7 @@ const PROSPECT_STATUSES = [
 ] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
-const LIST_CHANNELS = ["whatsapp", "telegram"] as const;
+const LIST_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 const LIST_SORT_COLS = ["createdAt", "updatedAt", "prospectName"] as const;
 const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 

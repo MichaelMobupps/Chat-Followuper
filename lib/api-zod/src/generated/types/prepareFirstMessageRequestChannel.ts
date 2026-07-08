@@ -12,4 +12,5 @@ export type PrepareFirstMessageRequestChannel =
 export const PrepareFirstMessageRequestChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
+  linkedin: "linkedin",
 } as const;

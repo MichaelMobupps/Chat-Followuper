@@ -12,6 +12,7 @@ import {
   generateLink as generateTelegramLink,
   recordSendIntent as recordTelegramSendIntent,
 } from "../services/channels/telegram";
+import { recordSendIntent as recordLinkedinSendIntent } from "../services/channels/linkedin";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 
 const router: IRouter = Router();
@@ -204,9 +205,10 @@ router.post(
         await recordTelegramSendIntent(input);
       } else if (channel === "whatsapp") {
         await recordWhatsappSendIntent(input);
+      } else if (channel === "linkedin") {
+        await recordLinkedinSendIntent(input);
       } else {
-        // Defensive: ChannelCode is whatsapp|telegram, both handled above.
-        // Kept so a future channel can't silently record as WhatsApp.
+        // Defensive: ChannelCode is exhaustively handled above.
         res.status(501).json({ error: "channel_not_implemented", channel });
         return;
       }

@@ -9,7 +9,7 @@ const router: IRouter = Router();
 
 const bodySchema = z
   .object({
-    channel: z.enum(["whatsapp", "telegram"]).optional(),
+    channel: z.enum(["whatsapp", "telegram", "linkedin"]).optional(),
   })
   .strict();
 

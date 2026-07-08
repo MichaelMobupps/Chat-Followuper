@@ -12,4 +12,5 @@ export type TestChannelLinkRequestChannel =
 export const TestChannelLinkRequestChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
+  linkedin: "linkedin",
 } as const;

@@ -120,6 +120,13 @@
       "when": 1783545124180,
       "tag": "0016_drop_dormant_channel_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783546850280,
+      "tag": "0017_add_linkedin_unique_index",
+      "breakpoints": true
     }
   ]
 }

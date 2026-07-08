@@ -14,15 +14,17 @@
  *     Compressed shape: prior-contact reference + new value point + soft CTA.
  *     2-3 sentences max. Requires conversation context — no context, no message.
  *
- * Both channels (WhatsApp, Telegram) are fully implemented. Teams and
- * Slack were removed (never built past a 501 stub).
+ * WhatsApp, Telegram, and LinkedIn are implemented (F-A). LinkedIn is
+ * clipboard-only: it has no message-prefill deep link (unlike wa.me / t.me),
+ * so its adapter returns the bare profile URL and the SDR pastes the copied
+ * message. Teams and Slack were removed (never built past a 501 stub).
  */
 
-export type ChannelCode = "whatsapp" | "telegram";
+export type ChannelCode = "whatsapp" | "telegram" | "linkedin";
 export type GenerationMode = "prospector" | "followuper";
 
 export function isChannelCode(value: string): value is ChannelCode {
-  return ["whatsapp", "telegram"].includes(value);
+  return ["whatsapp", "telegram", "linkedin"].includes(value);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -582,6 +584,55 @@ If channel_register_match < 3 OR context_grounding < 3, needs_rewrite MUST be tr
 
 
 // ─────────────────────────────────────────────────────────────────
+// LINKEDIN (F-A) — clipboard-only channel, professional register
+// ─────────────────────────────────────────────────────────────────
+
+const LINKEDIN_PROSPECTOR_WRITER_RULES = `LINKEDIN — FIRST COLD MESSAGE — STRUCTURAL RULES
+
+This is the first message to this prospect on LinkedIn (a connection-request
+note or InMail). LinkedIn is a professional network; the register is the most
+formal of the implemented channels — but still human, not corporate boilerplate.
+
+- Length: 3-5 short sentences. LinkedIn tolerates slightly more than WhatsApp,
+  but brevity still wins; a wall of text is ignored.
+- Open with a specific, credible reason you're reaching out to THIS person at
+  THIS company (their role + a concrete, brief-grounded observation). Never
+  "I came across your profile" or "I'd love to connect".
+- One clear value point grounded in the research brief (a peer result, a metric,
+  a market move) — do not stack multiple.
+- Professional but warm. No emoji. No slang. No exclamation stacking.
+- Plain text only: no markdown, no bullets, no em dashes, no snake_case, no
+  bracketed placeholders. Always the "%" symbol for percentages.
+- Soft CTA: propose a brief exchange or ask a low-friction question. Never a hard
+  "book a demo" in the first message.
+- Do NOT open with self-referential "We/Our/At MobUpps/I'm reaching out".`;
+
+const LINKEDIN_PROSPECTOR_CRITIC_RULES = `LINKEDIN CHANNEL REGISTER CHECK — PROSPECTOR MODE:
+- channel_register_match must be 1-2 if the message uses emoji, slang, markdown,
+  bullets, em dashes, exclamation stacking, or a generic opener ("came across
+  your profile", "love to connect").
+- Score 1-2 if it exceeds ~5 sentences or reads as a wall of text.
+- Score 1-2 if it opens self-referentially (We/Our/At MobUpps/I'm reaching out)
+  or issues a hard demo-booking CTA in a first message.
+- A strong LinkedIn first message is professional, specific to the person+company,
+  grounded in the brief, and ends with a soft, low-friction CTA.`;
+
+const LINKEDIN_FOLLOWUPER_WRITER_RULES = `LINKEDIN — FOLLOW-UP MESSAGE — STRUCTURAL RULES
+
+This is a follow-up on LinkedIn. Requires conversation context — no context, no
+message. Compressed shape: brief reference to the prior thread + one new value
+point + soft CTA. 2-4 short sentences. Professional register, no emoji, plain
+text only, no em dashes. Bring a FRESH angle vs prior follow-ups; do not repeat
+the earlier hook, value point, or competitor reference.`;
+
+const LINKEDIN_FOLLOWUPER_CRITIC_RULES = `LINKEDIN CHANNEL REGISTER CHECK — FOLLOWUPER MODE:
+- channel_register_match 1-2 for emoji/slang/markdown/em dashes/wall-of-text.
+- followup_ack 1-2 if it doesn't reference the prior thread.
+- angle_freshness 1-2 (stage >= 2) if it repeats a prior stage's angle/hook/
+  value-point/competitor reference.
+- A strong LinkedIn follow-up is professional, concise, thread-aware, and fresh.`;
+
+// ─────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────
 
@@ -597,6 +648,8 @@ export function buildWriterRegisterBlock(
   if (channel === "whatsapp" && mode === "followuper") return WHATSAPP_FOLLOWUPER_WRITER_RULES;
   if (channel === "telegram" && mode === "prospector") return TELEGRAM_PROSPECTOR_WRITER_RULES;
   if (channel === "telegram" && mode === "followuper") return TELEGRAM_FOLLOWUPER_WRITER_RULES;
+  if (channel === "linkedin" && mode === "prospector") return LINKEDIN_PROSPECTOR_WRITER_RULES;
+  if (channel === "linkedin" && mode === "followuper") return LINKEDIN_FOLLOWUPER_WRITER_RULES;
   return "";
 }
 
@@ -612,5 +665,7 @@ export function buildCriticRegisterBlock(
   if (channel === "whatsapp" && mode === "followuper") return WHATSAPP_FOLLOWUPER_CRITIC_RULES;
   if (channel === "telegram" && mode === "prospector") return TELEGRAM_PROSPECTOR_CRITIC_RULES;
   if (channel === "telegram" && mode === "followuper") return TELEGRAM_FOLLOWUPER_CRITIC_RULES;
+  if (channel === "linkedin" && mode === "prospector") return LINKEDIN_PROSPECTOR_CRITIC_RULES;
+  if (channel === "linkedin" && mode === "followuper") return LINKEDIN_FOLLOWUPER_CRITIC_RULES;
   return "";
 }

@@ -13,7 +13,7 @@ const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
 const bodySchema = z
   .object({
-    channel: z.enum(["whatsapp", "telegram"]),
+    channel: z.enum(["whatsapp", "telegram", "linkedin"]),
     identifier: z.string().trim().min(1).max(64),
     message: z.string().trim().min(1).max(2000).default(
       "Test message from Chat Followuper.",

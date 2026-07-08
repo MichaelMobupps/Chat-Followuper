@@ -266,7 +266,7 @@ components:
       properties:
         channel:
           type: string
-          enum: [whatsapp, telegram]
+          enum: [whatsapp, telegram, linkedin]
     PrepareFirstMessageResponse:
       type: object
       properties:
@@ -306,7 +306,7 @@ components:
       properties:
         channel:
           type: string
-          enum: [whatsapp, telegram]
+          enum: [whatsapp, telegram, linkedin]
         identifier:
           type: string
         message:
@@ -319,7 +319,7 @@ components:
       properties:
         channel:
           type: string
-          enum: [whatsapp, telegram]
+          enum: [whatsapp, telegram, linkedin]
         deepLinkUrl:
           type: string
         message:

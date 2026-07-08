@@ -30,6 +30,7 @@ export type PrepareFirstMessageRequestChannel =
 export const PrepareFirstMessageRequestChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
+  linkedin: "linkedin",
 } as const;
 
 export interface PrepareFirstMessageRequest {
@@ -65,6 +66,7 @@ export type TestChannelLinkRequestChannel =
 export const TestChannelLinkRequestChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
+  linkedin: "linkedin",
 } as const;
 
 export interface TestChannelLinkRequest {
@@ -79,6 +81,7 @@ export type TestChannelLinkResponseChannel =
 export const TestChannelLinkResponseChannel = {
   whatsapp: "whatsapp",
   telegram: "telegram",
+  linkedin: "linkedin",
 } as const;
 
 export interface TestChannelLinkResponse {

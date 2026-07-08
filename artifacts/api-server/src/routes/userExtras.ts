@@ -21,7 +21,7 @@ import { sendMail } from "../services/mailer";
 
 const router: IRouter = Router();
 
-const PREFERRED_CHANNELS = ["whatsapp", "telegram"] as const;
+const PREFERRED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 
 const preferencesPatchSchema = z
   .object({
