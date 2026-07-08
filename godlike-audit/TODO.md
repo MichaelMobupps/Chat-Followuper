@@ -30,8 +30,10 @@ result; when you start something, note it under IN PROGRESS with the exact next 
   - Narrowest possible fix if only the one index is missing: `prod-fix-just-the-broken-one.sql`.
 
 ## NEEDS A DECISION (not bugs — deferred on purpose, see LOG.md Sessions 4–6)
-- **DB2** — encrypt `microsoft_refresh_token` / `slack_bot_token`. Columns are UNUSED today (Teams/Slack
-  OAuth not built). Do it WHEN that feature ships; needs a KMS/app-key decision. User chose: leave until feature.
+- ~~**DB2** — encrypt `microsoft_refresh_token` / `slack_bot_token`~~ **MOOT as of 2026-07-08 (F-C):** Teams
+  and Slack were removed entirely, so these token columns will NEVER be used. No encryption needed. They're now
+  dormant with zero code refs — optionally drop them (+ `teams_email`/`slack_user_id`) in a future DB-cleanup
+  migration; no KMS decision required anymore.
 - **APO5 budget number** — default Apollo call budget = 80 (env `APOLLO_CALL_BUDGET`). One live Stripe run
   used ~14 calls, so 80 is ~5.7× headroom. Re-tune from real prod `apolloCallsConsumed` telemetry.
 
@@ -46,10 +48,10 @@ result; when you start something, note it under IN PROGRESS with the exact next 
 > **STATUS (2026-07-04):** ✅ All 5 read-only SCOPING passes DONE — findings appended under each item below.
 > **USER DECISIONS (2026-07-04):** F-C Teams → **build Azure-free DEEP-LINK Teams (Path A)**. Build order →
 > **start with F-E**, then sequence the rest. **BUILD ORDER: F-E → F-C(deep-link Teams) → F-B → F-A.**
-> **STATUS (2026-07-08):** ✅ **F-E DONE** (commit `8c3f9bf`, chose Option A — batch-level company+product
-> once, names optional; phone-only headerless paste supported; full-workspace build exit 0). **NEXT: F-C
-> (deep-link Teams, Path A)** — see its section for the confirmed file targets. Commit per item; build green
-> bar before moving on.
+> **STATUS (2026-07-08):** ✅ **F-E DONE** (commit `8c3f9bf`, Option A). ✅ **F-C RESOLVED BY REMOVAL**
+> (commit `996f1f9`) — user reversed the earlier "build deep-link Teams" decision: **remove Teams AND Slack
+> entirely** (Path C, code-only). Both were 501-stubs, nothing functional lost. DB columns left dormant (no
+> migration). **NEXT: F-B (followups menu).** Commit per item; build green bar before moving on.
 >
 > **⚠ CANONICAL PATHS — resolve before ANY code:** The app is NOT in `godlike-audit/` (that dir holds only
 > the audit SQL + logs). It lives in SIBLING dirs under `.../working_subv/`:
@@ -125,14 +127,19 @@ result; when you start something, note it under IN PROGRESS with the exact next 
   accepts only `pushoverUserKey`. So "surface Pushover config from followups menu" = new PATCH fields
   (quiet hours + preferred channel) + new inputs, then mount/mirror into the followups menu.
 
-### F-C. Add Teams (investigate requirements FIRST)
-- User: "see what's required first." Ties directly to deferred **DB2** (Teams OAuth would introduce
-  `microsoft_refresh_token` usage → then encryption + KMS decision becomes real). Teams adapter currently
-  throws `ChannelNotImplementedError` (501) per CH4.
-- **USER DECISION (2026-07-04):** "if we need to do anything in Azure i'd rather just remove teams entirely."
-  → Path B (Graph send) is OUT (it needs Azure). **Path A (deep-link) needs NO Azure** — clarifying with user
-  whether to build Azure-free deep-link Teams (same model as their existing WhatsApp/Telegram, which are ALSO
-  just deep-links, NOT real API sends) OR remove Teams scaffolding entirely. AWAITING ANSWER.
+### F-C. Teams — ✅ RESOLVED BY REMOVAL (2026-07-08, commit `996f1f9`)
+- **FINAL USER DECISION (2026-07-08):** "remove Teams from the plan entirely. We don't want it." Chose to
+  **rip out the code scaffolding for BOTH Teams AND Slack** (Path C, code-only), leaving DB columns dormant.
+  Reverses the earlier 2026-07-04 "build Azure-free deep-link Teams" decision.
+- **DONE:** `ChannelCode`/`isChannelCode` narrowed to `whatsapp|telegram`; deleted TEAMS_*/SLACK_* prompt
+  blocks + `services/channels/{teams,slack,errors}.ts` + ADAPTERS entries + app.ts 501 mapping; dropped
+  teams/slack from every route allowlist + the `teamsEmail` create/patch schema/writes; openapi enum →
+  `[whatsapp,telegram]` + orval regen; FE unions/label-icon maps/filters narrowed. Build exit 0; db tests 3/3.
+- **DORMANT (per decision — no migration):** `prospects.teams_email` + `prospects_user_teams_unique` index,
+  `prospects.slack_user_id` (+ its unique index), `users.microsoft_refresh_token`, `users.slack_bot_token`.
+  These now have ZERO code references. Drop them in a future DB-cleanup migration if/when desired (ties off
+  the old **DB2** residual — there's no longer any feature that will ever use those token columns).
+- Historical scoping (the three paths considered) preserved below for context:
 - **SCOPED (F-C findings) — TWO PATHS:**
   - **Path A — DEEP-LINK Teams (NO Azure; mirrors Telegram; small).** Build
     `https://teams.microsoft.com/l/chat/0/0?users=<encodeURIComponent(teams_email)>&message=<encodeURIComponent(body)>`.
@@ -207,3 +214,6 @@ result; when you start something, note it under IN PROGRESS with the exact next 
   Dev DB migrated to head (through migration 0015). Prod-migration workaround SQL authored (the files above).
 - **F-E (2026-07-08, commit `8c3f9bf`):** moved seeding — removed manual-seed from Follow-ups, added
   phone-only bulk seed to Contacts (Option A: batch company+product once, names optional). Build exit 0.
+- **F-C (2026-07-08, commit `996f1f9`):** removed Teams AND Slack entirely (were 501 stubs). Code-only rip-out
+  across BE (types/registry/prompts/routes), openapi+orval regen, and FE; DB columns left dormant. Build exit 0;
+  db tests 3/3. Ties off the DB2 residual (token columns now have zero code refs → drop in a future migration).
