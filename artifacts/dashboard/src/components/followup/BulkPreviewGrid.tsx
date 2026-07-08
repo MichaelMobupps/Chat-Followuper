@@ -99,6 +99,10 @@ interface Props {
   rejectedById?: Map<string, BulkRowServerError>;
   // Disable all inputs while the parent's submit mutation is in flight.
   disabled?: boolean;
+  // F-E: batch-level Company + Product. A row that omits its own inherits
+  // these; passed here so validation + placeholders reflect the inheritance.
+  batchCompany?: string;
+  batchTicker?: Ticker | null;
 }
 
 // Build a blank row with a stable id. Date.now()+random suffix is fine
@@ -114,12 +118,21 @@ export function makeBlankRow(): BulkRow {
   };
 }
 
+// F-E: batch-level Company + Product, captured once for a phone-only paste
+// and applied to any row that omits its own. Passed into validation so a
+// phone-only row counts as valid when the batch defaults cover company/ticker.
+export interface BatchDefaults {
+  company?: string;
+  ticker?: Ticker | null;
+}
+
 // Pure validation function. Exposed because BulkAddDialog also needs to
 // compute the "all rows valid" submit-gate state without re-mounting the
 // grid.
 export function validateBulkRow(
   row: BulkRow,
   channel: ManualIngestChannel,
+  batch?: BatchDefaults,
 ): BulkRowValidation {
   const fn = row.firstName.trim();
   const ph = row.phone.trim();
@@ -131,9 +144,8 @@ export function validateBulkRow(
 
   const reasons: BulkRowValidation["reasons"] = {};
 
-  if (fn.length === 0) {
-    reasons.firstName = "First name required.";
-  } else if (fn.length > 100) {
+  // F-E: first name is optional (phone-only seed). Only cap its length.
+  if (fn.length > 100) {
     reasons.firstName = "Max 100 characters.";
   }
 
@@ -155,14 +167,17 @@ export function validateBulkRow(
     }
   }
 
-  if (co.length === 0) {
-    reasons.company = "Company required.";
+  // F-E: company/ticker are satisfied by the row value OR the batch default.
+  const batchCompany = batch?.company?.trim() ?? "";
+  if (co.length === 0 && batchCompany.length === 0) {
+    reasons.company = "Company required (or set one for the batch).";
   } else if (co.length > 200) {
     reasons.company = "Max 200 characters.";
   }
 
-  if (row.ticker === null) {
-    reasons.ticker = "Pick web or mobile.";
+  const effectiveTicker = row.ticker ?? batch?.ticker ?? null;
+  if (effectiveTicker === null) {
+    reasons.ticker = "Pick web or mobile (or set one for the batch).";
   }
 
   const state =
@@ -193,13 +208,21 @@ export function BulkPreviewGrid({
   onRowsChange,
   rejectedById,
   disabled,
+  batchCompany,
+  batchTicker,
 }: Props) {
-  // Per-row validation memoized on rows + channel. Cheap to recompute
-  // (validateBulkRow is pure and O(1) per row) but worth caching so
-  // unrelated re-renders don't recompute for 200 rows.
+  // Per-row validation memoized on rows + channel + batch defaults. Cheap
+  // to recompute (validateBulkRow is pure and O(1) per row) but worth
+  // caching so unrelated re-renders don't recompute for 200 rows.
   const validations = useMemo(
-    () => rows.map((r) => validateBulkRow(r, channel)),
-    [rows, channel],
+    () =>
+      rows.map((r) =>
+        validateBulkRow(r, channel, {
+          company: batchCompany,
+          ticker: batchTicker,
+        }),
+      ),
+    [rows, channel, batchCompany, batchTicker],
   );
 
   function updateRow(id: string, patch: Partial<BulkRow>) {
@@ -273,7 +296,7 @@ export function BulkPreviewGrid({
                 onChange={(e) =>
                   updateRow(row.id, { firstName: e.target.value })
                 }
-                placeholder="Yaron"
+                placeholder="Yaron (optional)"
                 maxLength={100}
                 disabled={disabled}
                 aria-invalid={!!v.reasons.firstName}
@@ -309,7 +332,9 @@ export function BulkPreviewGrid({
                 onChange={(e) =>
                   updateRow(row.id, { company: e.target.value })
                 }
-                placeholder="MobUpps"
+                placeholder={
+                  batchCompany && !row.company ? batchCompany : "MobUpps"
+                }
                 maxLength={200}
                 disabled={disabled}
                 aria-invalid={!!v.reasons.company}
@@ -329,6 +354,9 @@ export function BulkPreviewGrid({
               >
                 {TICKERS.map((t) => {
                   const active = row.ticker === t;
+                  // F-E: when the row hasn't picked a product, show the batch
+                  // default faintly so the SDR sees what it'll inherit.
+                  const inherited = row.ticker === null && batchTicker === t;
                   return (
                     <button
                       key={t}
@@ -348,6 +376,7 @@ export function BulkPreviewGrid({
                         active
                           ? ""
                           : "border-input bg-background text-foreground",
+                        inherited && "border-dashed",
                         !active && !disabled && "hover:border-ring",
                       )}
                       style={
@@ -358,7 +387,13 @@ export function BulkPreviewGrid({
                               color: IGNITE_TEXT_ACTIVE,
                               boxShadow: IGNITE_GLOW_BUTTON,
                             }
-                          : undefined
+                          : inherited
+                            ? {
+                                borderColor: IGNITE_BORDER_ACTIVE,
+                                color: IGNITE_TEXT_ACTIVE,
+                                opacity: 0.5,
+                              }
+                            : undefined
                       }
                     >
                       {TICKER_LABELS[t]}

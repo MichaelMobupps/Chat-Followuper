@@ -101,14 +101,20 @@ export function postManualIngest(
 // Use the single-row dialog for context-seeded ingest.
 
 export interface ManualIngestBulkContact {
-  firstName: string;
+  // F-E: name is optional (phone-only seed). company/ticker are optional
+  // per row — omitted rows inherit the batch-level defaults below.
+  firstName?: string;
   phone: string;
-  company: string;
-  ticker: Ticker;
+  company?: string;
+  ticker?: Ticker;
 }
 
 export interface ManualIngestBulkInput {
   channel: ManualIngestChannel;
+  // F-E: Company + Product captured ONCE for a phone-only paste, applied
+  // to every row that doesn't carry its own.
+  defaultCompany?: string;
+  defaultTicker?: Ticker;
   contacts: ManualIngestBulkContact[];
 }
 

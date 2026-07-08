@@ -1460,17 +1460,26 @@ const MANUAL_INGEST_BULK_MAX_ROWS = 200;
 const manualIngestBulkBodySchema = z
   .object({
     channel: z.enum(MANUAL_INGEST_CHANNELS),
+    // F-E: batch-level Company + Product, captured ONCE for a phone-only
+    // paste and applied to every row that doesn't set its own. Both are
+    // optional so the pre-existing full-grid CSV flow (company/ticker per
+    // row) still validates unchanged.
+    defaultCompany: z.string().trim().min(1).max(200).optional(),
+    defaultTicker: z.enum(TICKERS).optional(),
     contacts: z
       .array(
         z
           .object({
-            firstName: z.string().trim().min(1).max(100),
+            // F-E: name is now optional — a phone-only seed leaves it blank.
+            firstName: z.string().trim().min(1).max(100).optional(),
             // Identifier — per-row format validation runs in the handler,
             // same as the single-ingest endpoint. Outer Zod just enforces
             // presence and a generous length cap.
             phone: z.string().trim().min(1).max(64),
-            company: z.string().trim().min(1).max(200),
-            ticker: z.enum(TICKERS),
+            // F-E: company/ticker optional per row — resolved from the
+            // batch-level defaults above when a row omits them.
+            company: z.string().trim().min(1).max(200).optional(),
+            ticker: z.enum(TICKERS).optional(),
             prePlatformContext: z
               .string()
               .trim()
@@ -1527,6 +1536,23 @@ router.post(
     for (let i = 0; i < body.contacts.length; i++) {
       const row = body.contacts[i]!;
       const identifier = row.phone;
+
+      // F-E: resolve company + product from the row, falling back to the
+      // batch-level defaults. Company/product drive the first-message
+      // writer (company + vertical), so both must resolve to something.
+      // The FE gates submit on this, so a miss here is a defensive backstop.
+      const companyToStore = (row.company ?? body.defaultCompany ?? "").trim();
+      const tickerToStore = row.ticker ?? body.defaultTicker;
+      if (companyToStore.length === 0 || !tickerToStore) {
+        rejected.push({
+          index: i,
+          identifier,
+          error: "invalid_identifier",
+          detail:
+            "Company and product are required — set them per row or as a batch default.",
+        });
+        continue;
+      }
 
       let phoneToStore: string | null = null;
       let handleToStore: string | null = null;
@@ -1601,9 +1627,9 @@ router.post(
             phone: phoneToStore,
             telegramHandle: handleToStore,
             sourceMode: "manual",
-            prospectName: row.firstName,
-            company: row.company,
-            vertical: tickerToCoarseVertical(row.ticker),
+            prospectName: row.firstName ?? null,
+            company: companyToStore,
+            vertical: tickerToCoarseVertical(tickerToStore),
             country,
             prePlatformContext: row.prePlatformContext ?? null,
             firstMessageChannel: body.channel,
@@ -1642,7 +1668,7 @@ router.post(
             actionStatus: "success",
             metadata: {
               channel: body.channel,
-              ticker: row.ticker,
+              ticker: tickerToStore,
               identifierKind:
                 handleToStore !== null ? "telegram_handle" : "phone",
               hasPrePlatformContext: !!row.prePlatformContext,

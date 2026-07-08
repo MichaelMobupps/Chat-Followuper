@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronDown,
@@ -57,10 +58,14 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAddManualContactsBulk } from "@/hooks/use-manual-ingest";
 import {
   TICKERS,
+  TICKER_LABELS,
+  type ManualIngestBulkContact,
+  type ManualIngestBulkInput,
   type ManualIngestChannel,
   type Ticker,
 } from "@/lib/api/manual-ingest";
@@ -119,12 +124,6 @@ function parseCsv(
     errors.push("Empty input.");
     return { rows: [], truncated: false, errors };
   }
-  if (lines.length === 1) {
-    errors.push(
-      "Need a header row plus at least one data row. Download the template for the expected format.",
-    );
-    return { rows: [], truncated: false, errors };
-  }
 
   const headerLine = lines[0]!;
   const delimiter =
@@ -166,46 +165,68 @@ function parseCsv(
   const headerToField: (keyof BulkRow | undefined)[] = rawHeaders.map(
     (h) => HEADER_ALIASES[normalizeHeader(h)],
   );
+  const hasPhoneHeader = headerToField.includes("phone");
 
-  const required: Array<keyof BulkRow> = [
-    "firstName",
-    "phone",
-    "company",
-    "ticker",
-  ];
-  const missing = required.filter((f) => !headerToField.includes(f));
-  if (missing.length > 0) {
-    errors.push(
-      `Missing required column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. Download the template for the expected format.`,
-    );
-    return { rows: [], truncated: false, errors };
+  // Build a row from one data line. Header mode maps cells by column;
+  // headerless phone-only mode takes cell[0] as phone, cell[1] as name.
+  let dataLines: string[];
+  let mapCells: (cells: string[]) => BulkRow;
+
+  if (hasPhoneHeader) {
+    // F-E: only `phone` is required now — firstName/company/ticker columns
+    // are optional (company/product can come from the batch defaults).
+    if (lines.length === 1) {
+      errors.push(
+        "Found a header row but no data rows. Add contacts below the header, or download the template.",
+      );
+      return { rows: [], truncated: false, errors };
+    }
+    dataLines = lines.slice(1);
+    mapCells = (cells) => {
+      const row = makeBlankRow();
+      for (let ci = 0; ci < cells.length; ci++) {
+        const field = headerToField[ci];
+        if (!field) continue;
+        const value = cells[ci] ?? "";
+        if (field === "ticker") {
+          const t = value.toLowerCase().trim();
+          if (t === "web" || t === "mobile") {
+            row.ticker = t as Ticker;
+          }
+          // Unrecognized ticker stays null → inherits the batch default or
+          // is flagged by the grid. We don't reject the import.
+        } else {
+          row[field] = value;
+        }
+      }
+      return row;
+    };
+  } else {
+    // F-E: headerless phone-only paste — one identifier per line, with an
+    // optional name in the second column. Only engage this mode when the
+    // first cell actually looks like a phone/handle; otherwise the paste is
+    // a malformed header and we should say so.
+    const firstCell = (parseLine(headerLine)[0] ?? "").trim();
+    const looksLikeIdentifier =
+      /^\+?\d/.test(firstCell) || /^@/.test(firstCell);
+    if (!looksLikeIdentifier) {
+      errors.push(
+        "Couldn't find a 'phone' column. Paste one phone number per line (name optional), or include a header row. Download the template for the format.",
+      );
+      return { rows: [], truncated: false, errors };
+    }
+    dataLines = lines; // no header row to skip
+    mapCells = (cells) => {
+      const row = makeBlankRow();
+      row.phone = cells[0] ?? "";
+      if (cells[1]) row.firstName = cells[1];
+      return row;
+    };
   }
 
-  const dataLines = lines.slice(1);
   const truncated = dataLines.length > MAX_ROWS;
   const slice = truncated ? dataLines.slice(0, MAX_ROWS) : dataLines;
-
-  const rows: BulkRow[] = [];
-  for (let li = 0; li < slice.length; li++) {
-    const cells = parseLine(slice[li]!);
-    const row = makeBlankRow();
-    for (let ci = 0; ci < cells.length; ci++) {
-      const field = headerToField[ci];
-      if (!field) continue;
-      const value = cells[ci] ?? "";
-      if (field === "ticker") {
-        const t = value.toLowerCase().trim();
-        if (t === "web" || t === "mobile") {
-          row.ticker = t as Ticker;
-        }
-        // Unrecognized ticker stays null → row flagged invalid by the
-        // grid until the user picks one. We don't reject the import.
-      } else {
-        row[field] = value;
-      }
-    }
-    rows.push(row);
-  }
+  const rows: BulkRow[] = slice.map((line) => mapCells(parseLine(line)));
 
   // Silently swallow channel — included in the signature so future
   // per-channel parse logic (e.g., dropping the leading @ on Telegram
@@ -258,6 +279,10 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
     Map<string, BulkRowServerError>
   >(new Map());
   const [banner, setBanner] = useState<SubmitBanner | null>(null);
+  // F-E: batch-level Company + Product, captured once and applied to every
+  // row that doesn't set its own. Lets an SDR paste bare phone numbers.
+  const [batchCompany, setBatchCompany] = useState("");
+  const [batchTicker, setBatchTicker] = useState<Ticker | null>(null);
 
   // Reset state when dialog closes. Defer the reset to the close
   // transition so the user doesn't see the grid empty out mid-animation.
@@ -273,6 +298,8 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
       setImportTruncated(false);
       setRejectedById(new Map());
       setBanner(null);
+      setBatchCompany("");
+      setBatchTicker(null);
     }, 150);
     return () => clearTimeout(t);
   }, [open]);
@@ -367,11 +394,12 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
   // scaffolding for manual entry) and requires every non-blank row to
   // be valid. Single-row dialog uses the same gate model (all required
   // fields must be set before submit enables).
+  const batchDefaults = { company: batchCompany, ticker: batchTicker };
   const submittableRows = rows.filter(
-    (r) => validateBulkRow(r, channel).state !== "blank",
+    (r) => validateBulkRow(r, channel, batchDefaults).state !== "blank",
   );
   const invalidCount = submittableRows.filter(
-    (r) => validateBulkRow(r, channel).state !== "valid",
+    (r) => validateBulkRow(r, channel, batchDefaults).state !== "valid",
   ).length;
   const canSubmit =
     submittableRows.length > 0 && invalidCount === 0 && !bulk.isPending;
@@ -383,16 +411,23 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
     // back to row.id after the response. Critical: the BE's index
     // refers to position in THIS array, not the grid.
     const submitted = submittableRows;
-    const contacts = submitted.map((r) => ({
-      firstName: r.firstName.trim(),
-      phone: r.phone.trim(),
-      company: r.company.trim(),
-      ticker: r.ticker!,
-    }));
+    // F-E: only send fields the row actually set. Missing company/ticker are
+    // filled server-side from the batch defaults below.
+    const contacts: ManualIngestBulkContact[] = submitted.map((r) => {
+      const c: ManualIngestBulkContact = { phone: r.phone.trim() };
+      const fn = r.firstName.trim();
+      const co = r.company.trim();
+      if (fn) c.firstName = fn;
+      if (co) c.company = co;
+      if (r.ticker) c.ticker = r.ticker;
+      return c;
+    });
 
-    bulk.mutate(
-      { channel, contacts },
-      {
+    const input: ManualIngestBulkInput = { channel, contacts };
+    if (batchCompany.trim()) input.defaultCompany = batchCompany.trim();
+    if (batchTicker) input.defaultTicker = batchTicker;
+
+    bulk.mutate(input, {
         onSuccess: ({ accepted, rejected }) => {
           const errorsById = new Map<string, BulkRowServerError>();
           for (const rej of rejected) {
@@ -460,12 +495,66 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Add many contacts</DialogTitle>
           <DialogDescription>
-            Paste a CSV or add rows manually. Up to {MAX_ROWS} contacts
-            per batch land in your {CHANNEL_NAME[channel]} queue.
+            Paste phone numbers (one per line) or a CSV. Set the company and
+            product once below and it applies to the whole batch — up to{" "}
+            {MAX_ROWS} contacts land in your {CHANNEL_NAME[channel]} queue.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-3 py-2">
+          {/* F-E: batch-level Company + Product. Applied to every row that
+              doesn't set its own — lets an SDR paste bare phone numbers. */}
+          <div className="rounded-md border border-border bg-muted/20 px-3 py-3 space-y-2">
+            <div className="text-xs font-medium text-muted-foreground">
+              Company &amp; product for this batch
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <Input
+                value={batchCompany}
+                onChange={(e) => setBatchCompany(e.target.value)}
+                placeholder="Company (applies to all rows)"
+                maxLength={200}
+                disabled={bulk.isPending}
+                className="sm:flex-1"
+                data-testid="bulk-batch-company"
+              />
+              <div
+                role="radiogroup"
+                aria-label="Batch product type"
+                className="flex gap-1"
+              >
+                {TICKERS.map((t) => {
+                  const active = batchTicker === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      disabled={bulk.isPending}
+                      onClick={() =>
+                        setBatchTicker((cur) => (cur === t ? null : t))
+                      }
+                      data-testid={`bulk-batch-ticker-${t}`}
+                      className={cn(
+                        "h-9 min-w-16 rounded-md border px-3 text-xs font-medium transition-all",
+                        active
+                          ? "border-[#00F5D4] bg-[rgba(0,245,212,0.08)] text-[#4FFFE3]"
+                          : "border-input bg-background text-foreground hover:border-ring",
+                      )}
+                    >
+                      {TICKER_LABELS[t]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Leave a row's company or product blank to inherit these. Names are
+              optional.
+            </p>
+          </div>
+
           {/* CSV paste disclosure */}
           <div className="space-y-2">
             <button
@@ -488,7 +577,7 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
                   placeholder={
-                    "firstName,phone,company,ticker\nYaron,+972501234567,MobUpps,mobile\nYaman,+972502345678,Acme,web"
+                    "+972501234567\n+972502345678\n\n— or with a header —\nfirstName,phone,company,ticker\nYaron,+972501234567,MobUpps,mobile"
                   }
                   rows={4}
                   className="font-mono text-xs"
@@ -615,6 +704,8 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
                 onRowsChange={handleRowsChange}
                 rejectedById={rejectedById}
                 disabled={bulk.isPending}
+                batchCompany={batchCompany}
+                batchTicker={batchTicker}
               />
             </>
           )}

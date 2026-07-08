@@ -72,7 +72,6 @@ import { StatusBadge } from "./StatusBadge";
 import { EditFollowupDialog } from "./EditFollowupDialog";
 import { BulkToolbar } from "./BulkToolbar";
 import { SequenceConfigPanel } from "./SequenceConfigPanel";
-import { ManualContactsSection } from "./ManualContactsSection";
 
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
@@ -335,17 +334,10 @@ export function ChannelFollowupPage({ channel }: Props) {
       </header>
 
       {/*
-        Manual Contacts is channel-parameterized as of ticket-2-9.
-        The section's own toggle state (per-user, per-channel) governs
-        whether the Add button shows; rendering here is unconditional.
+        F-E: manual per-channel seeding was removed from the Follow-ups page.
+        Bulk contact seeding now lives in the Contacts page (Add many → phone
+        bulk). The per-channel manual-ingest toggle endpoint is left dormant.
       */}
-      {/**
-       * Manual Contacts supports whatsapp + telegram as of ticket-2-9.
-       * Other channels do not have manual ingest yet.
-       */}
-      {(channel === "whatsapp" || channel === "telegram") && (
-        <ManualContactsSection channel={channel} />
-      )}
 
       <Tabs
         value={status}
