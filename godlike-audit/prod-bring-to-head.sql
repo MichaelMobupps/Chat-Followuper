@@ -1,6 +1,16 @@
 -- ===========================================================================
 -- Bring PRODUCTION up to date, correctly.
 -- ---------------------------------------------------------------------------
+-- ⚠ RUN ORDER (B4): this script builds UNIQUE indexes (0013 identity uniques,
+--   0014 weekly-digest unique). If prod already has DUPLICATE rows on those
+--   keys, the CREATE UNIQUE INDEX statements FAIL. Run these FIRST, in order:
+--     1. prod-state-check.sql                      (read-only; what exists)
+--     2. prod-migration-fix.sql                    (removes duplicate rows)
+--     3. prod-cancel-legacy-channel-followups.sql  (audit-2 F4/D2 zombie rows)
+--   THEN this file. It assumes prod is already at ~0007 (references
+--   oauth_nonces / conversations). "Guarded / re-runnable" below refers to the
+--   IF [NOT] EXISTS guards, NOT to duplicate-row tolerance.
+-- ---------------------------------------------------------------------------
 -- This applies exactly the same schema changes Replit's auto-generated
 -- migration intends, but:
 --   * the "weekly digest" unique index is written with CORRECT column types

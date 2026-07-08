@@ -504,9 +504,11 @@ router.post(
     // have phone = NULL and PostgreSQL allows infinite NULLs in unique
     // indexes. Without this pre-check, re-running a bulk batch on the
     // same company creates a new row per attempt (the Arushi 3-row
-    // case). Race condition: two concurrent inserts could both pass
-    // this check; future ticket adds a partial unique index on
-    // (userId, apolloPersonId) WHERE apolloPersonId IS NOT NULL.
+    // case). Race condition: two concurrent inserts could both pass this
+    // check — but migration 0013 added the partial unique index
+    // prospects_user_apollo_person_unique (userId, apolloPersonId) WHERE
+    // apolloPersonId IS NOT NULL, so the loser now 23505s → mapped to 409
+    // duplicate_apollo_person by the terminal handler (audit-2 D1).
     if (body.apolloPersonId) {
       const existing = await db
         .select({ id: prospectsTable.id })
@@ -1273,9 +1275,10 @@ router.post(
       .returning();
 
     if (inserted.length === 0) {
-      // Only reachable on the phone-path conflict (telegram_handle has
-      // no unique index, and the handle-path dedupe above already
-      // returned 409 if a match existed).
+      // Only reachable on the phone-path conflict. The handle path is deduped
+      // above (and, since migration 0013, also protected by
+      // prospects_user_telegram_unique — a concurrent handle dup now 23505s →
+      // 409 duplicate_telegram_handle via the terminal handler, audit-2 D1).
       res.status(409).json({
         error: "duplicate_phone",
         detail: "A prospect with this phone already exists for this user.",

@@ -6,7 +6,7 @@ Chat Followuper is a sales-outreach tool for SDRs: it discovers and enriches
 prospects, researches them, generates doctrine-driven first messages and
 multi-stage follow-ups in the prospect's language and channel, and nudges reps
 via email/Pushover digests. It is well past the original Phase 1 scaffold — the
-API server carries real business logic (LLM generation, Apollo discovery, four
+API server carries real business logic (LLM generation, Apollo discovery, two
 channel adapters, schedulers) and identity-only Google auth.
 
 This workspace is a pnpm monorepo (TypeScript). Each package manages its own
@@ -29,8 +29,9 @@ export target — never edit there directly; refresh with
 - **LLM**: Anthropic SDK (`@anthropic-ai/sdk`) — Opus/Sonnet for research,
   generation, critic/rewriter, and org disambiguation; Haiku for summarization
 - **Enrichment**: Apollo.io (org + people discovery, phone reveal via webhook)
-- **Channels**: WhatsApp + Telegram deep links (Teams/Slack are registered but
-  not yet implemented — return 501)
+- **Channels**: WhatsApp + Telegram deep links — the two channel adapters
+  (`ChannelCode` is `"whatsapp" | "telegram"`). Teams and Slack were removed;
+  their `teams_email` / `slack_*` columns remain in the DB but are dormant/unused
 - **Notifications**: SMTP email digests + Pushover push
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from `lib/api-spec/openapi.yaml`)
@@ -43,22 +44,26 @@ export target — never edit there directly; refresh with
   generateMessage, prepareFirstMessage, followups (+ open/fallback),
   researchStream, sequenceConfig, notificationSettings, whatsappLink,
   testChannelLink, userExtras, admin. Health at `/api/health`, `/api/healthz`.
-- `artifacts/dashboard` — Vite/React dashboard at `/` (Today, Seeder, Prospects,
-  Followups, Activity, Accounts, plus settings/admin).
+- `artifacts/dashboard` — Vite/React dashboard at `/` (Today, Contacts (bulk
+  phone seeding), Seeder, Campaigns, Prospects, Followups, Activity, Accounts,
+  plus settings/admin).
 - `artifacts/mockup-sandbox` — design canvas (template, not the app).
 
 ## Database
 
-Nine Drizzle tables in `lib/db/src/schema/` (all timestamps `timestamptz`):
+Eight Drizzle tables in `lib/db/src/schema/` (all timestamps `timestamptz`):
 `users`, `prospects`, `campaigns`, `followups`, `conversations`,
-`magic_link_tokens`, `oauth_nonces`, `daily_usage`, `action_logs`.
+`oauth_nonces`, `daily_usage`, `action_logs`.
 
-Migrations live in `lib/db/drizzle/` (currently 0000–0010).
+Migrations live in `lib/db/drizzle/` (currently 0000–0015; migration 0015
+dropped the old `magic_link_tokens` table).
 
-> ⚠️ Audit note (DB1/DB3): a dev/test DB may be behind the latest migrations,
-> and drizzle meta snapshots only cover 0000–0007 (0008–0010 hand-authored).
+> ⚠️ Audit note (DB1/DB3): a dev/test DB may be behind the latest migrations.
+> Drizzle meta snapshots cover 0000–0007 and the rebuilt head 0015; the
+> intermediate 0008–0014 snapshots are absent but benign, because 0015's
+> `prevId` chains back to 0007 so `drizzle-kit generate` stays clean.
 > Run `pnpm --filter @workspace/db run migrate` and verify the environment is at
-> 0010 before relying on `.returning()` (which selects newer columns). See
+> 0015 before relying on `.returning()` (which selects newer columns). See
 > `godlike-audit/LOG.md`.
 
 ## Key Commands
@@ -86,7 +91,7 @@ Dashboard `AuthGate` redirects unauthenticated users to `/login`.
 See `.env.example` for the full list. Beyond `SESSION_SECRET`, the app uses:
 `DATABASE_URL`, `ANTHROPIC_API_KEY` (+ optional `LLM_DAILY_SPEND_CAP_USD`),
 `APOLLO_API_KEY` (+ optional `APOLLO_MONTHLY_REVEAL_CAP`, default 100),
-`GOOGLE_OAUTH_*`, SMTP/Mailgun vars, Pushover vars, `PUBLIC_BASE_URL`,
+`GOOGLE_OAUTH_*`, SMTP vars, Pushover vars, `PUBLIC_BASE_URL`,
 `ALLOWED_LOGIN_DOMAINS`. Scheduler toggles: `FOLLOWUP_DIGEST_SCHEDULER`,
 `FOLLOWUP_DIGEST_INTERVAL_MS`.
 
