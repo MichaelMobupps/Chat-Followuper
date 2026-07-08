@@ -52,9 +52,11 @@ import { cn } from "@/lib/utils";
 // Mirrored here for client-side hint-only validation; the BE is authoritative.
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 
-// Telegram-only: a handle is 5-32 alphanumeric+underscore chars with an
-// optional leading "@". Matches TELEGRAM_HANDLE_RE in routes/prospects.ts.
-const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+// Telegram-only: a handle STARTS WITH A LETTER, then 4–31 alphanumeric+
+// underscore chars (total 5–32), with an optional leading "@". Matches
+// TELEGRAM_HANDLE_RE in routes/prospects.ts (C1: a leading digit / all-digit
+// string is a phone, not a handle).
+const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
 const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",

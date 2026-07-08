@@ -109,6 +109,12 @@ export function useAddManualContactsBulk(): UseMutationResult<
     mutationFn: (input) => postManualIngestBulk(input),
     onSuccess: (data) => {
       if (data.accepted.length > 0) {
+        // E1: BulkAddDialog now lives on the Contacts page (F-E moved it there),
+        // whose table reads ["prospects-list"]. Invalidating only ["followups"]
+        // left the Contacts list stale after a paste — it looked like a silent
+        // drop, and re-pasting then bounced off duplicate_phone. Invalidate both
+        // (the single-add hook above already does).
+        void qc.invalidateQueries({ queryKey: ["prospects-list"] });
         void qc.invalidateQueries({ queryKey: ["followups"] });
       }
     },

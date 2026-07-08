@@ -42,7 +42,10 @@ import { cn } from "@/lib/utils";
 // AddManualContactDialog (existing tech debt; deduplication is a future
 // cleanup ticket, not this one's scope).
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
-const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+// C1: Telegram usernames must start with a letter (mirror BE TELEGRAM_HANDLE_RE)
+// — the old all-alphanumeric class let a bare number (no "+") read as a valid
+// handle, so a phone-only paste showed "Ready" then stored a dead handle.
+const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
 // Beacon Ignite tokens — local copy of the values in ManualContactsSection
 // so the grid renders with consistent glow accents.

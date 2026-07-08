@@ -1112,7 +1112,13 @@ type Ticker = (typeof TICKERS)[number];
 // Telegram handle: 5-32 chars, alphanumeric + underscore, optional
 // leading "@" which the handler strips before storage. Per Telegram's
 // public username rules.
-const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+// C1: Telegram usernames must START WITH A LETTER (then 4–31 of
+// letter/digit/underscore, total 5–32). The old /^@?[a-zA-Z0-9_]{5,32}$/
+// matched all-digit strings, so a phone-only paste of bare numbers WITHOUT a
+// leading "+" (PHONE_RE fails) was silently stored in telegram_handle with
+// phone=NULL → dead t.me/<digits> links + bypassed phone dedupe. Requiring a
+// leading letter rejects those as invalid_identifier.
+const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
 const manualIngestBodySchema = z
   .object({
@@ -1203,9 +1209,13 @@ router.post(
         phoneToStore = identifier;
         country = detectCountry(identifier) ?? null;
       } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
-        handleToStore = identifier.startsWith("@")
-          ? identifier.slice(1)
-          : identifier;
+        // A6: Telegram usernames are case-insensitive — normalize to lowercase
+        // before storing AND before the dedup pre-check, so @YaronK and @yaronk
+        // resolve to the same prospect (and the partial-unique index dedups
+        // them) instead of creating a duplicate + double outreach.
+        handleToStore = (
+          identifier.startsWith("@") ? identifier.slice(1) : identifier
+        ).toLowerCase();
       } else {
         res.status(400).json({
           error: "invalid_body",
@@ -1579,9 +1589,11 @@ router.post(
           phoneToStore = identifier;
           country = detectCountry(identifier) ?? null;
         } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
-          handleToStore = identifier.startsWith("@")
-            ? identifier.slice(1)
-            : identifier;
+          // A6: lowercase-normalize (Telegram handles are case-insensitive) so
+          // dedup + the partial-unique index treat @YaronK == @yaronk.
+          handleToStore = (
+            identifier.startsWith("@") ? identifier.slice(1) : identifier
+          ).toLowerCase();
         } else {
           rejected.push({
             index: i,
