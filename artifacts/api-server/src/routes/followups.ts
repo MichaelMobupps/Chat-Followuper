@@ -842,8 +842,15 @@ router.post(
       return;
     }
 
+    // F5: snooze forward from now (or the future scheduled time, whichever is
+    // later) — never from a stale past scheduledAt. Snoozing an overdue
+    // followup by "1d" off its 5-day-old scheduledAt lands 4 days in the past,
+    // so it stays due in the very next digest tick and keeps triggering the
+    // daily priority-1 escalation — i.e. snooze appears broken.
     const previousAt = row.followup.scheduledAt;
-    const newScheduledAt = computeSnoozedAt(body.preset, previousAt);
+    const snoozeFrom =
+      previousAt.getTime() > Date.now() ? previousAt : new Date();
+    const newScheduledAt = computeSnoozedAt(body.preset, snoozeFrom);
 
     const updated = await db
       .update(followupsTable)

@@ -11,6 +11,7 @@ import {
 import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
 import { isSmtpConfigured } from "../lib/smtpConfigured";
+import { usageBucketDate } from "../lib/usageBucket";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -103,8 +104,6 @@ export async function runFollowupDigests(): Promise<DigestResult> {
     return { usersEmailed: 0, followupsListed: 0, usersFailed: 0 };
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
   const rows = (await db
     .select({
       followupId: followupsTable.id,
@@ -144,11 +143,18 @@ export async function runFollowupDigests(): Promise<DigestResult> {
 
   for (const [userId, list] of byUser) {
     let claimed = false;
+    // F2: the claim/release date MUST be the user's LOCAL calendar day, the
+    // same basis the `>=` hour-gate opens on. Keying it to UTC (as before) let
+    // the UTC date flip mid-open-window for western tz → a second claim row
+    // (userId, D+1) succeeded → a duplicate digest the same local day, and the
+    // steady state delivered at UTC-midnight-local instead of digestHourLocal.
+    let bucketDate = "";
     try {
       const sample = list[0]!;
       if (!isDigestHourNow(sample.digestHourLocal, sample.digestTimezone)) {
         continue;
       }
+      bucketDate = usageBucketDate(sample.digestTimezone);
 
       // FUP3: atomically CLAIM today's digest slot BEFORE sending. The
       // INSERT … ON CONFLICT DO UPDATE SET digest_sent=true WHERE
@@ -158,7 +164,7 @@ export async function runFollowupDigests(): Promise<DigestResult> {
       // check-then-send-then-mark TOCTOU that let two processes both send.
       const claim = await db
         .insert(dailyUsageTable)
-        .values({ userId, date: today, digestSent: true })
+        .values({ userId, date: bucketDate, digestSent: true })
         .onConflictDoUpdate({
           target: [dailyUsageTable.userId, dailyUsageTable.date],
           set: { digestSent: true },
@@ -176,29 +182,38 @@ export async function runFollowupDigests(): Promise<DigestResult> {
         renderEmail(list[0].userName, list),
       );
 
-      await db.insert(actionLogsTable).values({
-        userId,
-        actionType: ACTION_TYPES.digestSent,
-        actionStatus: "success" as const,
-        metadata: { followupCount: n },
-      });
-
       usersEmailed += 1;
       followupsListed += n;
+
+      // F6: the email is already sent — the audit-log insert must be
+      // best-effort. If it threw into the outer catch it would RELEASE the
+      // claim and a later tick would re-send the same digest (duplicate).
+      await db
+        .insert(actionLogsTable)
+        .values({
+          userId,
+          actionType: ACTION_TYPES.digestSent,
+          actionStatus: "success" as const,
+          metadata: { followupCount: n },
+        })
+        .catch((e) =>
+          console.error(`[followup-digest] audit-log failed ${userId}`, e),
+        );
     } catch (err) {
       usersFailed += 1;
-      // FUP3: if we claimed the slot but the send failed, RELEASE it so a later
+      // FUP3: if we claimed the slot but the SEND failed, RELEASE it so a later
       // tick can retry (the hour-gate is `>=`, so a missed send re-fires the
       // same day). Best-effort — a lost release just means one missed digest,
-      // never a duplicate.
-      if (claimed) {
+      // never a duplicate. Post-send bookkeeping is now outside this boundary
+      // (F6), so only a genuine send failure reaches here.
+      if (claimed && bucketDate) {
         await db
           .update(dailyUsageTable)
           .set({ digestSent: false })
           .where(
             and(
               eq(dailyUsageTable.userId, userId),
-              eq(dailyUsageTable.date, today),
+              eq(dailyUsageTable.date, bucketDate),
             ),
           )
           .catch(() => {});

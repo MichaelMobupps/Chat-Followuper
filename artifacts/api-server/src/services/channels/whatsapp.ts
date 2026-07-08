@@ -103,9 +103,16 @@ export async function recordSendIntent(
       // followupId arrives from the request body (routes/whatsappLink.ts:175);
       // without this EXISTS clause any authenticated user could stamp clickedAt
       // (and write usage/action_logs) on another tenant's follow-up (IDOR).
+      // F1: this is a manual-send tool — the click IS the send. Stamp
+      // sentAt + status='sent' here (not just clickedAt), otherwise the row
+      // stays status='scheduled' AND sent_at IS NULL forever: every due query
+      // (digest/pushover/escalation) keeps re-listing it, send-next re-serves
+      // the same stage with the same cached message (duplicate outreach), and
+      // stage rotation (previousFollowups = isNotNull(sentAt)) never engages.
+      const now = new Date();
       const updated = await tx
         .update(followupsTable)
-        .set({ clickedAt: new Date() })
+        .set({ clickedAt: now, sentAt: now, status: "sent" })
         .where(
           and(
             eq(followupsTable.id, followupId),
