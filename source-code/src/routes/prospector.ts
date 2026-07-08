@@ -23,7 +23,17 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import {
+  assertUnderDailyLlmCap,
+  recordDailyLlmSpend,
+} from "../lib/llmSpendCap";
+import { computeCost } from "../lib/pricing";
 import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";
+
+// L1: mirror companyResolver's DEFAULT_SONNET_MODEL (not exported) so prospector
+// discovery spend is priced with the model actually used for resolveCompany.
+const PROSPECTOR_SONNET_MODEL =
+  process.env.PROSPECTOR_SONNET_MODEL ?? "claude-sonnet-4-6";
 import {
   resolveCompany,
   redactSecrets,
@@ -351,6 +361,10 @@ router.post(
       return;
     }
 
+    // L1: this route bills a Sonnet call (resolveCompany) but never checked the
+    // daily cap. Uncaught → terminal 429. No-op when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
+
     let body: ResolveCompanyBody;
     try {
       body = resolveCompanyBodySchema.parse(req.body);
@@ -453,6 +467,17 @@ router.post(
     } catch {
       // Audit log failure must not break the user response.
     }
+
+    // L1: record the Sonnet spend so it counts toward the daily cap + rollups
+    // (previously only token counts hit action_logs, never USD in daily_usage).
+    await recordDailyLlmSpend(
+      user.id,
+      computeCost(
+        PROSPECTOR_SONNET_MODEL,
+        result.usage?.inputTokens ?? 0,
+        result.usage?.outputTokens ?? 0,
+      ).usd,
+    ).catch(() => {});
 
     // Audit fix F9: surface usage to the caller for cost reporting.
     res.status(200).json({
@@ -940,6 +965,11 @@ router.post(
       return;
     }
 
+    // L1: bound runaway LLM spend. This cascade bills Sonnet + (on rescue) Opus
+    // + web_search but never checked the cap. Uncaught → terminal 429. No-op
+    // when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
+
     let body: z.infer<typeof discoverSimpleBodySchema>;
     try {
       body = discoverSimpleBodySchema.parse(req.body);
@@ -1128,6 +1158,11 @@ router.post(
       return;
     }
 
+    // L1: bound runaway LLM spend before the discovery cascade (Sonnet resolve +
+    // Sonnet-5 validator + Opus-4.8 rescue w/ web_search). Uncaught → terminal
+    // 429. No-op when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
+
     let body: z.infer<typeof discoverBodySchema>;
     try {
       body = discoverBodySchema.parse(req.body);
@@ -1299,6 +1334,29 @@ router.post(
         },
       });
     } catch {}
+
+    // L1: record the full discovery LLM spend (Sonnet resolve + Sonnet-5
+    // validator + Opus-4.8 rescue) into daily_usage so it counts toward the cap
+    // and admin/weekly rollups. Priced per the model each sub-step actually
+    // used. Best-effort — accounting, not the primary flow.
+    const u = result.llmUsage;
+    const discoverSpendUsd =
+      computeCost(
+        PROSPECTOR_SONNET_MODEL,
+        u.resolveCompany?.inputTokens ?? 0,
+        u.resolveCompany?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        "claude-sonnet-5",
+        u.smartValidator?.inputTokens ?? 0,
+        u.smartValidator?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        "claude-opus-4-8",
+        u.opusRescue?.inputTokens ?? 0,
+        u.opusRescue?.outputTokens ?? 0,
+      ).usd;
+    await recordDailyLlmSpend(user.id, discoverSpendUsd).catch(() => {});
 
     res.status(200).json({
       status: result.status,

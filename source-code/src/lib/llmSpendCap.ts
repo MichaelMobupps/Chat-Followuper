@@ -18,7 +18,7 @@
  * user's midnight instead of UTC midnight (~02:00–03:00 local).
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, dailyUsageTable, usersTable } from "@workspace/db";
 import { usageBucketDate } from "./usageBucket";
 
@@ -75,6 +75,32 @@ export async function todaysLlmSpendUsd(userId: string): Promise<number> {
   const raw = rows[0]?.spend;
   const n = raw == null ? 0 : Number(raw);
   return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Record `costUsd` of Anthropic spend into the user's local-day bucket — the
+ * SAME bucket `assertUnderDailyLlmCap` reads, so spend the cap must eventually
+ * see can't land in a different row. Spend-only (does not bump
+ * messagesGenerated), so it's safe for non-message LLM work like prospector
+ * discovery / research. Best-effort by design at the non-transactional call
+ * sites (L1/L2): a failure here is an accounting under-count, never a broken
+ * user flow — callers should `.catch(log)` it.
+ */
+export async function recordDailyLlmSpend(
+  userId: string,
+  costUsd: number,
+): Promise<void> {
+  if (!(costUsd > 0)) return;
+  const bucket = await userBucketDate(userId);
+  await db
+    .insert(dailyUsageTable)
+    .values({ userId, date: bucket, anthropicSpendUsd: costUsd.toFixed(4) })
+    .onConflictDoUpdate({
+      target: [dailyUsageTable.userId, dailyUsageTable.date],
+      set: {
+        anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${costUsd.toFixed(4)} AS numeric)`,
+      },
+    });
 }
 
 /**

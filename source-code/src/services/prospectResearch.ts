@@ -326,6 +326,15 @@ function sanitizeContextNotes(notes: string | undefined): string | undefined {
     .replace(/'''/g, "")
     .replace(/\b(system|assistant|user)\s*:/gi, "")
     .replace(/^#{1,6}\s+/gm, "")
+    // L3: fence-proof like messagePrompts.neutralizeUntrusted. These notes are
+    // frequently PASTED PROSPECT-AUTHORED TEXT (F-E prePlatformContext flows
+    // here), and the research output becomes TRUSTED grounding for every
+    // writer/critic prompt AND the anti-hallucination gate — an injection-
+    // laundering channel. Collapse 3+ dashes (the research prompts fence the
+    // notes with ---), defang BEGIN/END fence keywords, strip C0 controls.
+    .replace(/-{3,}/g, "––")
+    .replace(/\b(BEGIN|END)([ \t_-]+)(SDR[ \t_-]*NOTES|NOTES|CONVERSATION)\b/gi, "$1_$3")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ")
     .trim();
   // Cap at 4000 chars — longer than that is almost certainly junk paste.
   if (sanitized.length > 4000) {

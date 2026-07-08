@@ -263,9 +263,11 @@ async function apolloFetch<T>(
 ): Promise<T> {
   const apiKey = getApiKey();
   const url = new URL(`${APOLLO_BASE_URL}${path}`);
-  url.searchParams.set("api_key", apiKey);
 
   const headers: Record<string, string> = {
+    // P3a: key is sent header-only. It used to also go in the query string,
+    // which contradicts the sibling prospector client's log-hygiene rationale
+    // (URLs leak into logs/metrics/error reports far more readily than headers).
     "X-Api-Key": apiKey,
     Accept: "application/json",
     "Cache-Control": "no-cache",
@@ -274,10 +276,18 @@ async function apolloFetch<T>(
     headers["Content-Type"] = "application/json";
   }
 
+  // P3a: harden the transport the way the prospector client already is.
+  // redirect:"error" — undici forwards a custom X-Api-Key across a 3xx to a
+  // different origin (it only strips authorization/cookie/host), so a stray
+  // Apollo redirect could exfiltrate the key; refuse redirects instead.
+  // signal timeout — without it a stalled Apollo response hangs the /apollo/*
+  // handler indefinitely (and holds the request slot through the 60s 429 wait).
   const init: RequestInit = {
     method: opts.method,
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
   };
 
   let response = await fetch(url, init);
@@ -1186,7 +1196,39 @@ export async function processPhoneRevealCallback(
     // what makes them contactable via wa.me. phoneNumber is the audit/
     // diagnostic field (always set to the raw webhook value); phone is
     // the contactable field that generateLink + whatsappLink read from.
-    const promotedPhone = prospect.phone ?? phone;
+    // P1: promoting the revealed number into prospects.phone can collide with
+    // the (user_id, phone) unique index. Apollo's pickPhone frequently falls
+    // back to a shared company/HQ number, so bulk-revealing several people at
+    // one org hands prospects 2..N the same number. A bare promote then throws
+    // 23505, rolls back the WHOLE tx (losing the arrived transition AND the
+    // correlationId burn), 500s the webhook, and Apollo retries into the same
+    // wall until the 72h sweep — 8 paid credits lost per occurrence. Guard:
+    // only promote into the contactable `phone` column when this prospect has
+    // none yet AND no other prospect of the same user already holds that
+    // number; otherwise still record arrived + phoneNumber (audit) and burn the
+    // token, but leave `phone` null (the person is reachable via the sibling
+    // prospect that owns the number). (Residual: a same-instant race between two
+    // webhooks for the same number still 23505s one, which self-heals on the
+    // Apollo retry now that this guard sees the committed sibling.)
+    let promotedPhone = prospect.phone;
+    let phonePromoteSkipped = false;
+    if (prospect.phone === null) {
+      const clash = await tx
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, prospect.userId),
+            eq(prospectsTable.phone, phone),
+          ),
+        )
+        .limit(1);
+      if (clash.length === 0) {
+        promotedPhone = phone;
+      } else {
+        phonePromoteSkipped = true;
+      }
+    }
     await tx
       .update(prospectsTable)
       .set({
@@ -1208,6 +1250,10 @@ export async function processPhoneRevealCallback(
       actionStatus: "success",
       metadata: {
         country,
+        // P1: surface when the reveal succeeded but the contactable-phone
+        // promote was skipped because the number is already on another of the
+        // user's prospects (duplicate), so `phone` stays null despite arrived.
+        ...(phonePromoteSkipped ? { phonePromoteSkipped: true } : {}),
         // Again: no phone in metadata. The phone is in prospects.phone_number;
         // logging it here would create a second copy in a less-privileged
         // table.

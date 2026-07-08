@@ -49,5 +49,9 @@ export function isPushoverScheduleNow(): boolean {
   if (process.env.PUSHOVER_SKIP_SCHEDULE_CHECK === "true") return true;
   const { hour, weekday } = pushoverClockNow();
   if (weekday === 0 || weekday === 6) return false;
-  return hour === pushoverHourLocal();
+  // F3 (FUP1's pushover half): `>=`, not `===`. A missed noon tick (deploy,
+  // restart, blocked event loop, interval drift) would otherwise skip the
+  // whole day's batch. The atomic `pushoverSent` claim in pushoverDigest
+  // guarantees at-most-once, so a later same-day tick safely re-fires.
+  return hour >= pushoverHourLocal();
 }

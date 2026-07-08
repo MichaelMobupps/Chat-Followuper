@@ -2,6 +2,7 @@ import { runFollowupDigests } from "./followupDigest";
 import { runPushoverDigests } from "./pushoverDigest";
 import { runWeeklyDigests } from "./weeklyDigest";
 import { runPushoverNudges } from "./pushoverNudges";
+import { expireStalePhoneReveals } from "./phoneRevealSweep";
 import { logger } from "../lib/logger";
 
 const DEFAULT_INTERVAL_MS = 60 * 60 * 1000; // hourly
@@ -14,12 +15,21 @@ async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const [digestResult, pushoverResult, weeklyResult, nudgeResult] =
+    // P3c: also expire stale pending phone reveals here. The standalone
+    // scripts/sweepReveals.ts has no in-repo trigger (no script alias, not
+    // wired anywhere), so every "the sweep reconciles stuck pending reveals"
+    // guarantee (APO4/APO7) silently depended on an out-of-repo cron nobody
+    // verified. Folding it into this idempotent hourly tick guarantees it runs.
+    const [digestResult, pushoverResult, weeklyResult, nudgeResult, sweepResult] =
       await Promise.all([
         runFollowupDigests(),
         runPushoverDigests(),
         runWeeklyDigests(),
         runPushoverNudges(),
+        expireStalePhoneReveals().catch((err) => {
+          logger.error({ err }, "[digest-scheduler] reveal sweep failed");
+          return null;
+        }),
       ]);
     if (
       digestResult.usersEmailed > 0 ||
@@ -30,7 +40,8 @@ async function tick(): Promise<void> {
       weeklyResult.usersFailed > 0 ||
       nudgeResult.escalationsSent > 0 ||
       nudgeResult.mondayNudgesSent > 0 ||
-      nudgeResult.errors > 0
+      nudgeResult.errors > 0 ||
+      (sweepResult?.expired ?? 0) > 0
     ) {
       logger.info(
         {
@@ -38,6 +49,7 @@ async function tick(): Promise<void> {
           pushover: pushoverResult,
           weekly: weeklyResult,
           nudges: nudgeResult,
+          sweep: sweepResult,
         },
         "[digest-scheduler] run complete",
       );

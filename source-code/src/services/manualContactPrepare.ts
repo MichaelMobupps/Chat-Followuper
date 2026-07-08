@@ -114,13 +114,12 @@ export async function prepareFirstMessage(params: {
     throw new Error("not_found");
   }
 
-  // Daily spend cap (LLM3): pre-check before any LLM work (this path runs both
-  // research and generation, each Anthropic-billed). Throws → 429 via the
-  // terminal error handler. No-op when the cap env is unset.
-  await assertUnderDailyLlmCap(userId);
-
   const channel = resolveChannel(prospect, params.channel);
 
+  // L10: the cached-message short-circuit must come BEFORE the spend-cap check.
+  // Returning an already-generated (already-paid) message does no LLM work, so
+  // a capped user should still be able to fetch it. (followupMessageService
+  // already orders it this way.)
   if (prospect.firstMessageBody?.trim()) {
     let deepLinkUrl: string | null = null;
     try {
@@ -135,6 +134,11 @@ export async function prepareFirstMessage(params: {
       deepLinkUrl,
     };
   }
+
+  // Daily spend cap (LLM3): pre-check before any LLM work (this path runs both
+  // research and generation, each Anthropic-billed). Throws → 429 via the
+  // terminal error handler. No-op when the cap env is unset.
+  await assertUnderDailyLlmCap(userId);
 
   const country = prospect.country ?? "";
   const language =
@@ -217,39 +221,42 @@ export async function prepareFirstMessage(params: {
   // DB7: user's local-day bucket so LLM spend lands in the same row the cap reads.
   const today = usageBucketDate(userTimezone);
 
-  await db
-    .update(prospectsTable)
-    .set({
-      firstMessageBody: finalMessage,
-      firstMessageChannel: channel,
-      language,
-      subVertical,
-      product,
-    })
-    .where(
-      and(
-        eq(prospectsTable.id, prospectId),
-        eq(prospectsTable.userId, userId),
-      ),
-    );
+  // L8: message body + spend must be one atomic unit (like generateMessage).
+  // Two separate awaits let a failure between them either save the message but
+  // lose the spend (cap under-counts) or charge without persisting.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(prospectsTable)
+      .set({
+        firstMessageBody: finalMessage,
+        firstMessageChannel: channel,
+        language,
+        subVertical,
+        product,
+      })
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      );
 
-  await db
-    .insert(dailyUsageTable)
-    .values({
-      userId,
-      date: today,
-      messagesGenerated: 1,
-      anthropicSpendUsd: (
-        researchCostUsd + generationCostUsd
-      ).toFixed(4),
-    })
-    .onConflictDoUpdate({
-      target: [dailyUsageTable.userId, dailyUsageTable.date],
-      set: {
-        messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-        anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
-      },
-    });
+    await tx
+      .insert(dailyUsageTable)
+      .values({
+        userId,
+        date: today,
+        messagesGenerated: 1,
+        anthropicSpendUsd: (researchCostUsd + generationCostUsd).toFixed(4),
+      })
+      .onConflictDoUpdate({
+        target: [dailyUsageTable.userId, dailyUsageTable.date],
+        set: {
+          messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
+          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
+        },
+      });
+  });
 
   try {
     await db.insert(actionLogsTable).values({

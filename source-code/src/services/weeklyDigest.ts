@@ -191,16 +191,23 @@ export async function runWeeklyDigests(): Promise<WeeklyDigestResult> {
         renderWeeklyEmail(user.name, stats, label),
       );
 
-        // Enrich the claim marker with the stats now that the send succeeded.
+        result.usersEmailed += 1;
+
+        // F6: the email is sent — enriching the claim marker with stats is
+        // best-effort and must be OUTSIDE the release boundary. Previously a
+        // failure here threw into the catch below, deleted the claim, and the
+        // next Friday run re-sent the same weekly summary (duplicate).
         await db
           .update(actionLogsTable)
           .set({ metadata: { weekKey, ...stats } })
-          .where(eq(actionLogsTable.id, claimId));
-
-        result.usersEmailed += 1;
+          .where(eq(actionLogsTable.id, claimId))
+          .catch((e) =>
+            console.error(`[weekly-digest] marker enrich failed ${user.id}`, e),
+          );
       } catch (sendErr) {
-        // Send/stats failed after we claimed the week — release the claim so a
-        // later run retries this user (delete is best-effort).
+        // The stats query or the SEND itself failed after we claimed the week
+        // — release the claim so a later run retries this user (delete is
+        // best-effort). Post-send bookkeeping no longer reaches here (F6).
         await db
           .delete(actionLogsTable)
           .where(eq(actionLogsTable.id, claimId))

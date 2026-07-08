@@ -7,7 +7,9 @@ import { generateLink as generateTelegramLink } from "../services/channels/teleg
 const router: IRouter = Router();
 
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
-const HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+// C1: Telegram usernames must start with a letter (mirrors TELEGRAM_HANDLE_RE
+// in routes/prospects.ts) — the old all-alphanumeric class matched bare digits.
+const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
 const bodySchema = z
   .object({

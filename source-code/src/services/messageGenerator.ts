@@ -426,15 +426,26 @@ function detectUngroundedClaims(
   // when the brief merely says "2000", which lets a fabricated "200" slip
   // through the gate (LLM6). A normalized digit-string set closes that
   // false-negative: "200" is only grounded if "200" appears as its own token.
+  // L6: collapse in-number thousands separators (comma / space / NBSP between
+  // two digits) on BOTH sides before tokenizing. Otherwise a brief volume of
+  // "1,200" tokenizes to {1, 200} while a drafted "1200" checks "1200" →
+  // flagged as a hallucination every iteration, burning the whole heal loop
+  // (validateVolumeFormat explicitly permits comma-formatted volumes). Applied
+  // identically to grounded text and draft, so membership stays consistent.
+  const collapseThousands = (s: string): string =>
+    s.replace(/(?<=\d)[, \s](?=\d)/g, "");
   const numericTokenRe = /\d+(?:\.\d+)?/g;
-  const groundedNums = new Set<string>(groundText.match(numericTokenRe) ?? []);
+  const groundedNums = new Set<string>(
+    collapseThousands(groundText).match(numericTokenRe) ?? [],
+  );
   const isGrounded = (n: string): boolean => groundedNums.has(n);
+  const nText = collapseThousands(text);
 
   // 1. Percentages: "12%", "12.5%", "0.7%". Most common hallucination
   // surface ("14% first-order completion" with no 14% in brief). Compare
   // the numeric part against the grounded token set.
   const percentRe = /\d+(?:\.\d+)?%/g;
-  for (const m of text.match(percentRe) ?? []) {
+  for (const m of nText.match(percentRe) ?? []) {
     const bare = m.slice(0, -1); // drop the trailing "%"
     if (!isGrounded(bare)) matches.push(`Percentage \`${m}\` not in brief or conversation`);
   }
@@ -444,7 +455,7 @@ function detectUngroundedClaims(
   // ("Day 7"), stage numbers ("Stage 1"), and conventional figures.
   const largeNumRe = /\b\d{3,}(?:\+|k|K|M)?\b/g;
   const seenLargeNum = new Set<string>();
-  for (const m of text.match(largeNumRe) ?? []) {
+  for (const m of nText.match(largeNumRe) ?? []) {
     if (seenLargeNum.has(m)) continue;
     seenLargeNum.add(m);
     // Strip trailing modifiers for the membership check (so "400+" matches a
@@ -460,7 +471,7 @@ function detectUngroundedClaims(
   // if the bare number is in the brief, the BOUND ("above") may be a
   // hallucination, but for now we just check the number matches (by token).
   const boundedRe = /(?:above|over|under|below|less than|more than|around|approximately|roughly)\s+\d+(?:\.\d+)?(?:%|\+)?/gi;
-  for (const m of text.match(boundedRe) ?? []) {
+  for (const m of nText.match(boundedRe) ?? []) {
     const numMatch = m.match(/\d+(?:\.\d+)?/);
     if (numMatch && !isGrounded(numMatch[0])) {
       matches.push(`Bounded claim \`${m}\` with number not in brief or conversation`);
@@ -1178,6 +1189,17 @@ export async function generateChatMessage(
         },
         costEstimate: sumCosts(allCosts),
       };
+    }
+
+    // L7: on the LAST iteration a rewrite is pure waste — it's never critiqued
+    // and the loop returns `best` (not `current`), so this Sonnet call's output
+    // can never be selected or improve the result. Stop here and finalize best.
+    if (iteration === maxHealingIterations) {
+      logger.info(
+        { prospect: ctx.prospect_name, iteration },
+        "Final iteration still needs rewrite — skipping the unusable (never-critiqued) rewrite; returning best draft",
+      );
+      break;
     }
 
     logger.info(

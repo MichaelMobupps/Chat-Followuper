@@ -93,8 +93,8 @@ export interface RecordSendIntentInput {
  *   2. Upsert daily_usage for (userId, today) with messages_sent + 1.
  *   3. Insert action_logs row with action_type telegram.send_intent.
  *
- * Does NOT touch followups.sent_at; sentAt is reserved for the worker
- * dispatch path. The click event lives in clickedAt.
+ * For a followup, stamps sentAt + status='sent' (Mode-A: the click is the
+ * send) alongside clickedAt, so the row leaves the due/escalation queues.
  */
 export async function recordSendIntent(
   input: RecordSendIntentInput,
@@ -123,9 +123,12 @@ export async function recordSendIntent(
       // Ownership scoping via the owning prospect — see whatsapp.ts for the
       // full rationale. Prevents a body-supplied followupId from stamping
       // another tenant's follow-up (IDOR).
+      // F1: stamp sentAt + status='sent' too (the click is the send) — see
+      // whatsapp.ts for why clickedAt alone leaves the row eternally "due".
+      const now = new Date();
       const updated = await tx
         .update(followupsTable)
-        .set({ clickedAt: new Date() })
+        .set({ clickedAt: now, sentAt: now, status: "sent" })
         .where(
           and(
             eq(followupsTable.id, followupId),

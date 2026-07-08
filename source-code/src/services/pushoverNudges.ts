@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -109,6 +109,9 @@ export async function sendOverdueEscalations(): Promise<number> {
     .where(
       and(
         eq(followupsTable.status, "scheduled"),
+        // F4/D2: exclude removed-channel (teams/slack) zombie rows from the
+        // priority-1 overdue escalation.
+        inArray(followupsTable.channel, ["whatsapp", "telegram"]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, cutoff),
         eq(prospectsTable.followupPaused, false),
@@ -231,6 +234,8 @@ export async function sendMondayQueueClearNudges(): Promise<number> {
         and(
           eq(prospectsTable.userId, user.id),
           eq(followupsTable.status, "scheduled"),
+          // F4/D2: exclude removed-channel (teams/slack) zombie rows.
+          inArray(followupsTable.channel, ["whatsapp", "telegram"]),
           isNull(followupsTable.sentAt),
           lte(followupsTable.scheduledAt, new Date()),
           eq(prospectsTable.followupPaused, false),

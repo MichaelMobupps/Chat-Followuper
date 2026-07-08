@@ -196,28 +196,33 @@ export async function generateAndPersistFollowupMessage(params: {
 
   const costUsd = generated.costEstimate.usd;
 
-  await db
-    .update(followupsTable)
-    .set({ generatedMessage: generated.message })
-    .where(eq(followupsTable.id, followupId));
-
   // DB7: user's local-day bucket so LLM spend lands in the same row the cap reads.
   const today = usageBucketDate(row.digestTimezone);
-  await db
-    .insert(dailyUsageTable)
-    .values({
-      userId,
-      date: today,
-      messagesGenerated: 1,
-      anthropicSpendUsd: costUsd.toFixed(4),
-    })
-    .onConflictDoUpdate({
-      target: [dailyUsageTable.userId, dailyUsageTable.date],
-      set: {
-        messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-        anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${costUsd.toFixed(4)} AS numeric)`,
-      },
-    });
+  // L8: persist the generated message + its spend atomically (like
+  // generateMessage), so a failure between them can't charge without saving or
+  // save without charging.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(followupsTable)
+      .set({ generatedMessage: generated.message })
+      .where(eq(followupsTable.id, followupId));
+
+    await tx
+      .insert(dailyUsageTable)
+      .values({
+        userId,
+        date: today,
+        messagesGenerated: 1,
+        anthropicSpendUsd: costUsd.toFixed(4),
+      })
+      .onConflictDoUpdate({
+        target: [dailyUsageTable.userId, dailyUsageTable.date],
+        set: {
+          messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
+          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${costUsd.toFixed(4)} AS numeric)`,
+        },
+      });
+  });
 
   try {
     await db.insert(actionLogsTable).values({
