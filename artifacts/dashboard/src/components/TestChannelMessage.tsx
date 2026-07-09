@@ -28,6 +28,21 @@ const CHANNEL_LABEL: Record<TestChannel, string> = {
   linkedin: "LinkedIn",
 };
 
+// Loose shape checks — the BE stays authoritative; these only catch
+// obvious wrong-channel input (e.g. a phone number in the LinkedIn field)
+// with a helpful message instead of an invalid_identifier 400.
+const IDENTIFIER_SHAPE: Record<TestChannel, RegExp> = {
+  whatsapp: /^\+?[\d\s()-]{7,20}$/,
+  telegram: /^(@?[A-Za-z][A-Za-z0-9_]{3,}|\+?[\d\s()-]{7,20})$/,
+  linkedin: /linkedin\.com\//i,
+};
+
+const IDENTIFIER_HINT: Record<TestChannel, string> = {
+  whatsapp: "Enter your phone number in international format, e.g. +972501234567.",
+  telegram: "Enter your @handle (e.g. @you) or phone number, e.g. +972501234567.",
+  linkedin: "Enter your LinkedIn profile URL, e.g. https://www.linkedin.com/in/you — a phone number belongs in the WhatsApp tab.",
+};
+
 interface Props {
   /** Compact layout for sidebar-style placement */
   compact?: boolean;
@@ -40,8 +55,12 @@ export function TestChannelMessage({ compact = false }: Props) {
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
 
   useEffect(() => {
+    // Always reset on channel switch: load that channel's saved identifier or
+    // CLEAR the field. Previously a missing saved value left the prior
+    // channel's identifier in place — a WhatsApp phone number silently carried
+    // into the LinkedIn tab and 400'd as invalid_identifier on submit.
     const saved = localStorage.getItem(STORAGE_KEY[channel]);
-    if (saved) setIdentifier(saved);
+    setIdentifier(saved ?? "");
   }, [channel]);
 
   const test = useMutation({
@@ -72,9 +91,11 @@ export function TestChannelMessage({ compact = false }: Props) {
       });
     },
     onError: (err: ApiError) => {
+      const code = err.code ?? err.message;
       toast({
         title: "Could not open test chat",
-        description: err.code ?? err.message,
+        description:
+          code === "invalid_identifier" ? IDENTIFIER_HINT[channel] : code,
         variant: "destructive",
       });
     },
@@ -83,6 +104,16 @@ export function TestChannelMessage({ compact = false }: Props) {
   function handleOpenTestChat() {
     const id = identifier.trim();
     if (!id) return;
+    // Cheap client-side shape check so a wrong-channel identifier gets a
+    // helpful message instead of a round-trip to a 400.
+    if (!IDENTIFIER_SHAPE[channel].test(id)) {
+      toast({
+        title: `That doesn't look like a ${CHANNEL_LABEL[channel]} identifier`,
+        description: IDENTIFIER_HINT[channel],
+        variant: "destructive",
+      });
+      return;
+    }
     test.mutate({ channel, identifier: id, message: message.trim() });
   }
 
