@@ -901,6 +901,24 @@ async function rewriteDraft(
 // Final cleanup pipeline (applied to whatever we ship)
 // ─────────────────────────────────────────────────────────────────
 
+
+/**
+ * Pre-clean a draft BEFORE critique (bench 2026-07-09). finalizeMessage
+ * already strips subject leaks / bracketed notes / em dashes / spelled-out
+ * percents / markdown deterministically — but it ran only AFTER the healing
+ * loop, so the critic kept flagging (and the rewriter kept re-fixing)
+ * cosmetics that were going to be auto-fixed anyway, burning paid healing
+ * iterations. Running the same idempotent sanitizers on every draft as it
+ * enters the loop lets the critic spend its scoring budget on substance
+ * (grounding, register, language) instead.
+ */
+function preCleanDraft(d: { subject: string; message: string }): { subject: string; message: string } {
+  let message = stripSubjectFromBody(d.message);
+  message = stripBracketedNotes(message);
+  message = applyDeterministicFixes(message);
+  return { subject: d.subject, message };
+}
+
 function finalizeMessage(
   msg: { subject: string; message: string },
   subVertical: string | null,
@@ -1039,7 +1057,8 @@ export async function generateChatMessage(
 
   // ── Stage 1: Draft ──
   // If draft fails after retries, bubble up. No template fallback.
-  const { draft: initialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx);
+  const { draft: rawInitialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx);
+  const initialDraft = preCleanDraft(rawInitialDraft);
   draftModelUsed = draftModel;
   const allCosts: CostBreakdown[] = [draftCost];
 
@@ -1205,7 +1224,8 @@ export async function generateChatMessage(
     );
 
     try {
-      const { rewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique);
+      const { rewrite: rawRewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique);
+      const rewrite = preCleanDraft(rawRewrite);
       allCosts.push(rewriteCost);
       rewriterModelUsed = rewriteModel;
       current = rewrite;
