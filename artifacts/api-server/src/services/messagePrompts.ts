@@ -466,7 +466,9 @@ DOCTRINE PRINCIPLES (apply across every message — these are non-negotiable):
    we let the VALIDATION+HOW sentence carry it implicitly through specific
    revenue-event language. Do NOT write "What is special about MobUpps is..."
    in chat — that's a corporate-deck phrase that breaks the conversational
-   register.
+   register. NEVER name internal systems in the message: "MAFO" (or "our
+   MAFO engine") must not appear in any message — describe the outcome,
+   never the tool.
 
 OUTPUT FORMAT:
 Return ONLY a JSON object with two fields:
@@ -539,7 +541,8 @@ ${nativenessBlock ? `\n${nativenessBlock}\n` : ""}${translationBlock ? `\n${tran
 Write the message now. Begin with the greeting form specified above, then the WHY (prospect-led), then VALIDATION+HOW (one specific number, one vertical-native mechanic, one peer reference if natural), then a soft CTA. 5-7 sentences total.
 
 GROUNDING: every number and every brand name must come from the brief above. Do not invent peers, client names, percentages, or market events.
-PHRASING: keep the message result-led — at most ONE sentence in the whole message may start with a we-form ("We/Our/Podemos/Conseguimos/Nous/Wir" etc.). Phrase validation around the outcome ("Similar accounts see...", "That model is delivering...") rather than around us.`;
+PHRASING: keep the message result-led — at most ONE sentence in the whole message may start with a we-form ("We/Our/Podemos/Conseguimos/Nous/Wir" etc.). Phrase validation around the outcome ("Similar accounts see...", "That model is delivering...") rather than around us.
+FORM: the greeting sits on its own line. Exactly ONE question in the entire message — the final CTA. Never two consecutive questions.`;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -582,6 +585,8 @@ CARRY-OVER PRINCIPLES from the doctrine (these still apply, even compressed):
 5. NO ADMIN-LEAKED ARTIFACTS. No snake_case, no brackets, no markdown.
 
 6. NO SELF-REINTRODUCTION. The first message did the introducing. The follow-up acts like an ongoing colleague text.
+
+7. NO INTERNAL SYSTEM NAMES. "MAFO" must never appear in a message — describe outcomes, never the tooling.
 
 OUTPUT FORMAT:
 Return ONLY a JSON object with two fields:

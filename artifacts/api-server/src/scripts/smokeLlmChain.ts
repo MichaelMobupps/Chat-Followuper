@@ -212,13 +212,18 @@ async function main(): Promise<void> {
     // during the run (observed for 3-flash-preview), and that fallback is
     // correct policy behavior, not a routing bug. Only an off-chain model
     // (or one UPSTREAM of a tier the probe says is dead) fails.
+    // Gemini weather varies BETWEEN the generation and the probe, in both
+    // directions (a tier can fail the probe yet serve the run, and vice
+    // versa). The only assertion that is stable under live weather is CHAIN
+    // MEMBERSHIP: the writer must be one of the three configured tiers.
+    // Which tier it landed on (vs the probe's prediction) is reported as a
+    // note, not a failure.
     const fullChain = [GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL, ANTHROPIC_FALLBACK_MODEL];
-    const validFrom = fullChain.slice(fullChain.indexOf(expectedWriter));
     const draftModel = normal.modelMetadata.draftModel;
-    assert("normal writer model matches policy (given live Gemini chain state)", validFrom.includes(draftModel),
-      `got ${draftModel}, expected one of [${validFrom.join(", ")}] — ${geminiProbeNote}`);
-    if (draftModel !== expectedWriter && validFrom.includes(draftModel)) {
-      results.push(`   ℹ writer landed downstream of the probed tier (${expectedWriter} → ${draftModel}) — transient tier failure during the run`);
+    assert("normal writer model is a configured chain tier", fullChain.includes(draftModel),
+      `got ${draftModel}, chain [${fullChain.join(", ")}] — ${geminiProbeNote}`);
+    if (draftModel !== expectedWriter) {
+      results.push(`   ℹ writer landed on ${draftModel}; probe predicted ${expectedWriter} (live weather differed between samples)`);
     }
     if (isGeminiConfigured() && expectedWriter === ANTHROPIC_FALLBACK_MODEL) {
       results.push(`   ⚠ COST-SAVINGS INACTIVE: no Gemini tier servable (${geminiProbeNote}). Writer/lint run on ${ANTHROPIC_FALLBACK_MODEL} (pricier).`);
