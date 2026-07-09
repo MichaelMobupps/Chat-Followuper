@@ -10,6 +10,18 @@ result; when you start something, note it under IN PROGRESS with the exact next 
 
 ---
 
+## ⭐ SESSION 10/11 — LLM COST REFRAME (2026-07-09). Full log: `LLM-COST-REFRAME.md`.
+Phases A–H BUILT + smoke-verified + godlike-audited (3 auditors, 3 High + 5 Med/Low fixed, residuals
+documented in the log). Exemplar library (947 chat-adapted, email-isms scrubbed across all scripts),
+Gemini client + role router (writer/lint=gemini, critic=sonnet-5, grey→sonnet-4-6) with circuit breaker,
+cache-aware pricing, F1 cache fix (research brief moved system→user prompt), Contacts auto-generate +
+staged progress bar (FE polling bugs fixed). **All green:** build exit 0; smokeLlmChain PASS (default +
+LLM_GEMINI_MODEL=gemini-3.1-flash-lite live-Gemini modes); smokePrepareProgress PASS both channels.
+**KNOWN:** default gemini-3.5-flash 503s on this key (user decision: keep default, env-overridable) →
+savings INACTIVE until user sets LLM_GEMINI_MODEL=gemini-3.1-flash-lite or provisions 3.5-flash.
+gemini-2.5-flash was RETIRED by Google mid-session — don't use. **Phase I NOT started** (follow-up
+section progress bars + edit-before-send; scoped in the log). **ALL OF IT UNCOMMITTED — awaiting user.**
+
 ## ⭐ SESSION 9 — THIRD GODLIKE PASS + built F-A & F-B (2026-07-08). Ledger: `PASS3-LEDGER.md`.
 Audited the pass-2 FIXES adversarially (5 auditors): 0 Crit/High regressions; caught + fixed 3
 self-inflicted issues (apolloFetch retry signal, incomplete L5 brief guard, F-B maxFollowups FE) +
