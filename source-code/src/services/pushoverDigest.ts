@@ -10,10 +10,8 @@ import {
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
-import {
-  isPushoverScheduleNow,
-  todayInPushoverTimezone,
-} from "../lib/pushoverSchedule";
+import { isUserPushoverScheduleNow } from "../lib/pushoverSchedule";
+import { usageBucketDate } from "../lib/usageBucket";
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { CHANNEL_CODES } from "../lib/channelRegister";
@@ -37,6 +35,9 @@ interface DueRow {
   pushoverQuietHourStart: number;
   pushoverQuietHourEnd: number;
   digestTimezone: string;
+  // Reminders & schedule (2026-07-09): per-user reminder hour + days.
+  pushoverHourLocal: number;
+  pushoverDays: number[];
 }
 
 function shortPushoverMessage(row: DueRow): string {
@@ -45,10 +46,11 @@ function shortPushoverMessage(row: DueRow): string {
 }
 
 /**
- * Weekday midday (GMT+2) Pushover batch for due follow-ups.
- * Independent of the email digest hour — one notification per due
- * follow-up, at most once per rep per calendar day (GMT+2).
- * Respects per-rep quiet hours; escalations run after the batch.
+ * Pushover batch for due follow-ups. Reminders & schedule (2026-07-09): the
+ * fire time is PER-USER — the rep's configured local hour + days in their
+ * own digestTimezone (previously a global weekday-midday-GMT+2 gate).
+ * One notification per due follow-up, at most once per rep per LOCAL
+ * calendar day. Respects per-rep quiet hours; escalations run after the batch.
  */
 export async function runPushoverDigests(): Promise<PushoverDigestResult> {
   const empty: PushoverDigestResult = {
@@ -62,12 +64,6 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
     return empty;
   }
 
-  if (!isPushoverScheduleNow()) {
-    return empty;
-  }
-
-  const today = todayInPushoverTimezone();
-
   const rows = (await db
     .select({
       followupId: followupsTable.id,
@@ -80,6 +76,8 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
       pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
       pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
       digestTimezone: usersTable.digestTimezone,
+      pushoverHourLocal: usersTable.pushoverHourLocal,
+      pushoverDays: usersTable.pushoverDays,
     })
     .from(followupsTable)
     .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
@@ -113,6 +111,18 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
   for (const [userId, list] of byUser) {
     try {
       const sample = list[0]!;
+      // Reminders & schedule: per-user fire time (hour + days in the user's
+      // own timezone) replaces the old global pre-gate.
+      if (
+        !isUserPushoverScheduleNow({
+          pushoverHourLocal: sample.pushoverHourLocal,
+          pushoverDays: sample.pushoverDays,
+          digestTimezone: sample.digestTimezone,
+        })
+      ) {
+        usersSkipped += 1;
+        continue;
+      }
       if (
         isPushoverQuietNow({
           pushoverQuietHourStart: sample.pushoverQuietHourStart,
@@ -123,6 +133,11 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
         usersSkipped += 1;
         continue;
       }
+
+      // At-most-once per the user's LOCAL calendar day (mirrors the email
+      // digest's F2 fix — the old global-GMT+2 date could flip mid-window
+      // for far-west timezones).
+      const today = usageBucketDate(sample.digestTimezone);
 
       // FUP3: atomically CLAIM today's pushover slot BEFORE the send loop, so a
       // co-running scheduler + cron can't both blast the quiet-hours-bypassing
@@ -189,7 +204,7 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
         userId,
         actionType: ACTION_TYPES.pushoverDigestSent,
         actionStatus: "success" as const,
-        metadata: { followupCount: pushSent, schedule: "weekday_midday_gmt2" },
+        metadata: { followupCount: pushSent, schedule: "per_user_local" },
       });
 
       usersNotified += 1;

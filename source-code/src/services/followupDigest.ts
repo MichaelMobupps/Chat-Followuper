@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
+import { isUserDigestDayNow } from "../lib/pushoverSchedule";
 import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { usageBucketDate } from "../lib/usageBucket";
 import { CHANNEL_CODES } from "../lib/channelRegister";
@@ -21,7 +22,7 @@ export interface DigestResult {
   usersFailed: number;
 }
 
-interface DueRow {
+export interface DueRow {
   followupId: number;
   stage: number;
   channel: string;
@@ -32,6 +33,8 @@ interface DueRow {
   company: string | null;
   digestHourLocal: number;
   digestTimezone: string;
+  // Reminders & schedule (2026-07-09): weekdays the digest may send.
+  digestDays: number[];
 }
 
 /** True when the user's configured local digest hour has arrived. */
@@ -65,16 +68,31 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => map[c]);
 }
 
-function renderEmail(name: string | null, rows: DueRow[]): string {
+/**
+ * Render the digest email body. Exported so the test-digest route can send
+ * the REAL template (previously it sent a static placeholder that never
+ * exercised the per-row buttons — a preview stub, not a dry-run).
+ *
+ * Each row carries TWO links:
+ *  - "Follow up"  → the token-gated open endpoint (generates if needed and
+ *    302s into the chat app with the message prefilled).
+ *  - "Review in dashboard" → the channel's follow-up page, where the rep can
+ *    read/EDIT the message (EditFollowupDialog) before sending — the email
+ *    previously offered no path into the dashboard at all.
+ */
+export function renderDigestEmail(name: string | null, rows: DueRow[]): string {
   const base = appPublicUrl();
   const items = rows
     .map((r) => {
       const token = mintOpenToken(r.followupId, r.userId);
       const url = `${base}/api/followups/open/${r.followupId}?t=${token}`;
+      const dashUrl = `${base}/followup/${encodeURIComponent(r.channel)}`;
       const who = escapeHtml(r.prospectName ?? "this prospect");
       const co = r.company ? ` at ${escapeHtml(r.company)}` : "";
       return `<tr>
-  <td style="padding:8px 0;">${who}${co} &mdash; stage ${r.stage} (${escapeHtml(r.channel)})</td>
+  <td style="padding:8px 0;">${who}${co} &mdash; stage ${r.stage} (${escapeHtml(r.channel)})<br/>
+    <a href="${dashUrl}" style="color:#6b7280;font-size:12px;text-decoration:underline;">Review in dashboard</a>
+  </td>
   <td style="padding:8px 0;text-align:right;">
     <a href="${url}" style="background:#10b981;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">Follow up</a>
   </td>
@@ -84,10 +102,51 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
   const n = rows.length;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
   <p>Hi ${escapeHtml(name ?? "there")},</p>
-  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message, you review it in WhatsApp/Telegram, and press send.</p>
+  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message, you review it in WhatsApp/Telegram, and press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
   <table style="width:100%;border-collapse:collapse;">${items}</table>
   <p style="color:#6b7280;font-size:12px;margin-top:16px;">Sent by Chat Followuper. You send each message yourself.</p>
 </div>`;
+}
+
+/**
+ * The digest's due-rows query, optionally scoped to one user. Shared by the
+ * hourly digest run and the test-digest preview so the preview can never
+ * drift from what production would actually send.
+ */
+export async function fetchDueRows(userId?: string): Promise<DueRow[]> {
+  const conditions = [
+    eq(followupsTable.status, "scheduled"),
+    // F4/D2: exclude removed-channel rows. A followup sequenced on
+    // teams/slack before those channels were deleted can never complete
+    // (generation throws invalid_channel) and is invisible in the
+    // whatsapp|telegram-only management UI, so without this guard it would
+    // be re-emailed in every digest with a dead link, forever.
+    inArray(followupsTable.channel, [...CHANNEL_CODES]),
+    isNull(followupsTable.sentAt),
+    lte(followupsTable.scheduledAt, new Date()),
+    eq(prospectsTable.followupPaused, false),
+    eq(prospectsTable.replied, 0),
+  ];
+  if (userId) conditions.push(eq(prospectsTable.userId, userId));
+
+  return (await db
+    .select({
+      followupId: followupsTable.id,
+      stage: followupsTable.stage,
+      channel: followupsTable.channel,
+      userId: prospectsTable.userId,
+      userEmail: usersTable.email,
+      userName: usersTable.name,
+      prospectName: prospectsTable.prospectName,
+      company: prospectsTable.company,
+      digestHourLocal: usersTable.digestHourLocal,
+      digestTimezone: usersTable.digestTimezone,
+      digestDays: usersTable.digestDays,
+    })
+    .from(followupsTable)
+    .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
+    .innerJoin(usersTable, eq(prospectsTable.userId, usersTable.id))
+    .where(and(...conditions))) as DueRow[];
 }
 
 /**
@@ -105,37 +164,7 @@ export async function runFollowupDigests(): Promise<DigestResult> {
     return { usersEmailed: 0, followupsListed: 0, usersFailed: 0 };
   }
 
-  const rows = (await db
-    .select({
-      followupId: followupsTable.id,
-      stage: followupsTable.stage,
-      channel: followupsTable.channel,
-      userId: prospectsTable.userId,
-      userEmail: usersTable.email,
-      userName: usersTable.name,
-      prospectName: prospectsTable.prospectName,
-      company: prospectsTable.company,
-      digestHourLocal: usersTable.digestHourLocal,
-      digestTimezone: usersTable.digestTimezone,
-    })
-    .from(followupsTable)
-    .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
-    .innerJoin(usersTable, eq(prospectsTable.userId, usersTable.id))
-    .where(
-      and(
-        eq(followupsTable.status, "scheduled"),
-        // F4/D2: exclude removed-channel rows. A followup sequenced on
-        // teams/slack before those channels were deleted can never complete
-        // (generation throws invalid_channel) and is invisible in the
-        // whatsapp|telegram-only management UI, so without this guard it would
-        // be re-emailed in every digest with a dead link, forever.
-        inArray(followupsTable.channel, [...CHANNEL_CODES]),
-        isNull(followupsTable.sentAt),
-        lte(followupsTable.scheduledAt, new Date()),
-        eq(prospectsTable.followupPaused, false),
-        eq(prospectsTable.replied, 0),
-      ),
-    )) as DueRow[];
+  const rows = await fetchDueRows();
 
   const byUser = new Map<string, DueRow[]>();
   for (const r of rows) {
@@ -158,6 +187,16 @@ export async function runFollowupDigests(): Promise<DigestResult> {
     let bucketDate = "";
     try {
       const sample = list[0]!;
+      // Reminders & schedule (2026-07-09): per-user day-of-week gate — the
+      // digest previously sent every day regardless of preference.
+      if (
+        !isUserDigestDayNow({
+          digestDays: sample.digestDays,
+          digestTimezone: sample.digestTimezone,
+        })
+      ) {
+        continue;
+      }
       if (!isDigestHourNow(sample.digestHourLocal, sample.digestTimezone)) {
         continue;
       }
@@ -186,7 +225,7 @@ export async function runFollowupDigests(): Promise<DigestResult> {
       await sendMail(
         list[0].userEmail,
         `${n} follow-up${n === 1 ? "" : "s"} ready to send`,
-        renderEmail(list[0].userName, list),
+        renderDigestEmail(list[0].userName, list),
       );
 
       usersEmailed += 1;

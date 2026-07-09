@@ -18,6 +18,7 @@ import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { isPushoverAppConfigured } from "../services/pushover";
 import { appPublicUrl } from "../lib/appPublicUrl";
 import { sendMail } from "../services/mailer";
+import { fetchDueRows, renderDigestEmail } from "../services/followupDigest";
 
 const router: IRouter = Router();
 
@@ -169,23 +170,67 @@ router.post(
       return;
     }
 
-    let baseUrl: string;
-    try {
-      baseUrl = appPublicUrl();
-    } catch {
-      baseUrl = "";
+    // Render the REAL digest template (previously a static placeholder that
+    // never exercised the per-row buttons). Prefer the user's actual due
+    // rows — a true dry-run with working Follow-up links. When nothing is
+    // due, fall back to clearly-labelled sample rows so the layout and both
+    // buttons still preview (the sample Follow-up link is intentionally
+    // dead: followupId 0 fails token validation on click).
+    let dueRows = await fetchDueRows(user.id);
+    let usedSamples = false;
+    if (dueRows.length === 0) {
+      usedSamples = true;
+      dueRows = [
+        {
+          followupId: 0,
+          stage: 1,
+          channel: "whatsapp",
+          userId: user.id,
+          userEmail: row.email,
+          userName: row.name,
+          prospectName: "Jane Sample (example)",
+          company: "Acme Corp",
+          digestHourLocal: 9,
+          digestTimezone: "UTC",
+          digestDays: [0, 1, 2, 3, 4, 5, 6],
+        },
+        {
+          followupId: 0,
+          stage: 2,
+          channel: "telegram",
+          userId: user.id,
+          userEmail: row.email,
+          userName: row.name,
+          prospectName: "Sam Sample (example)",
+          company: "Globex",
+          digestHourLocal: 9,
+          digestTimezone: "UTC",
+          digestDays: [0, 1, 2, 3, 4, 5, 6],
+        },
+      ];
     }
 
-    const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
-  <p>Hi ${row.name ?? "there"},</p>
-  <p>This is a <strong>test</strong> follow-up digest from Chat Followuper. When real follow-ups are due, you'll get a similar email with one <strong>Follow up</strong> button per prospect.</p>
-  <p style="color:#6b7280;font-size:12px;">App URL: ${baseUrl || "(not configured)"}</p>
-</div>`;
+    let html: string;
+    try {
+      html = renderDigestEmail(row.name, dueRows);
+    } catch {
+      // appPublicUrl() throws when PUBLIC_BASE_URL is unset — surface that
+      // as config error rather than a 500.
+      res.status(503).json({ error: "public_base_url_not_configured" });
+      return;
+    }
+    if (usedSamples) {
+      html =
+        `<p style="font-family:system-ui,-apple-system,sans-serif;background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;max-width:560px;font-size:13px;">TEST PREVIEW — no follow-ups are currently due, so the rows below are samples. Buttons in sample rows are inactive.</p>` +
+        html;
+    }
 
     try {
       await sendMail(
         row.email,
-        "[Test] Follow-up digest preview",
+        usedSamples
+          ? "[Test] Follow-up digest preview (sample rows)"
+          : `[Test] Follow-up digest preview — ${dueRows.length} actually due`,
         html,
       );
     } catch (err) {
