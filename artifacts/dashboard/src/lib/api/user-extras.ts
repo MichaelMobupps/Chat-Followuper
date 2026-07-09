@@ -48,7 +48,10 @@ export interface TestDigestResponse {
 }
 
 export function postTestDigest(): Promise<TestDigestResponse> {
-  return apiFetch<TestDigestResponse>("/api/users/me/test-digest", {
+  // Path must match the BE route (routes/userExtras.ts) — it is
+  // "/users/me/test-digest-email", not "/test-digest". The mismatch was the
+  // HTTP 404 on the accounts-page "Send test digest email" button.
+  return apiFetch<TestDigestResponse>("/api/users/me/test-digest-email", {
     method: "POST",
   });
 }
