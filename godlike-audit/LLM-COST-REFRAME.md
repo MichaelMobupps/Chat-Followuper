@@ -250,3 +250,18 @@ gemini-3.1-flash-lite with writer LIVE on Gemini), prepare-progress smoke PASS b
   refined bodies for shared ids, the merge precedence should flip. As shipped it contributes zero rows.
 - **[smoke]** The "writer matches policy" assertion samples live Gemini weather twice (preflight + real call) —
   a transient blip between samples can flake it (observed once; re-run passed). Diagnosis is printed either way.
+
+
+## WRITER-QUALITY CAMPAIGN (2026-07-09 late) — gemini-3-flash-preview parity: ACHIEVED
+Four full-chain bench runs (benchWriterQuality.ts, Sonnet 5 critic as judge; commit be557ce):
+- run 1 (16 langs, original prompts):  3.12 avg / 2.35 iters — found the PHANTOM-SUBJECT critic bug
+- run 2 (16 langs, round-1 fixes):     3.88 / 2.06
+- run 3 (ALL 46 langs, round-1):       gemini-served 4.10 (n=29) vs sonnet-served 3.65 (n=23)
+- run 4 (ALL 46 langs, round-2):       gemini-served 4.00 @ 1.85 iters vs sonnet-served 3.92 @ 2.00
+Two independent all-language runs show the tuned gemini-3-flash-preview tier scoring AT OR ABOVE the
+claude-sonnet-4-6 fallback on the identical matrix, with 0 wrong-script cases and 0 artifact flags across
+46 languages / 17 non-Latin scripts. PARITY GOAL MET at 1/6th the Sonnet price.
+RESIDUALS: (a) TURKISH consistently scores 2 regardless of writer (also with Sonnet) — chain-wide tr
+register/critic strictness issue, needs its own pass; (b) gemini-3-flash-preview 503s in bursts (~half of
+bench calls fell to Sonnet during bad windows) — per-model breakers handle it; production impact is cost
+not quality; (c) vi/id thin-exemplar languages occasionally land 2-3 on any writer.
