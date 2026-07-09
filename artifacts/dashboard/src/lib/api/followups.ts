@@ -17,10 +17,15 @@
  * surfacing stay consistent across modules. Don't reinvent the helper.
  */
 import { apiFetch } from "@/lib/api";
+import type { PrepareProgress } from "@/lib/api/manual-ingest";
 
 // ─────────────────────────────────────────────────────────────────
 // Shared types — mirror the BE wire format
 // ─────────────────────────────────────────────────────────────────
+
+// Phase I: the followup progress endpoint speaks the exact same wire shape
+// as prepare-progress, so the FE reuses the type (and PrepareProgressBar).
+export type FollowupProgress = PrepareProgress;
 
 export const SUPPORTED_CHANNELS = [
   "whatsapp",
@@ -213,6 +218,15 @@ export function patchFollowup(
   input: PatchFollowupInput,
 ): Promise<{ followup: Followup }> {
   return req("PATCH", `/api/followups/${followupId}`, input);
+}
+
+// Phase I: staged progress of an in-flight on-demand follow-up generation.
+// Same shape as the Contacts prepare-progress endpoint (stage/pct/error);
+// unknown, foreign, or expired ids return {stage:"idle"} — never an error.
+export function getFollowupProgress(
+  followupId: number,
+): Promise<FollowupProgress> {
+  return req("GET", `/api/followups/${followupId}/progress`);
 }
 
 export type SnoozePreset = "1d" | "3d" | "next_monday";

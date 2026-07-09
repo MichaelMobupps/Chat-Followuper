@@ -17,6 +17,7 @@ import {
   archiveProspect,
   bulkArchiveFollowups,
   bulkPauseProspects,
+  getFollowupProgress,
   listFollowups,
   markProspectReplied,
   patchFollowup,
@@ -30,6 +31,7 @@ import {
   type BulkPauseResponse,
   type Followup,
   type FollowupListResponse,
+  type FollowupProgress,
   type ListFollowupsArgs,
   type ListStatus,
   type MarkRepliedResponse,
@@ -81,6 +83,37 @@ export function useSendNextFollowup(): UseMutationResult<
     onSuccess: () => {
       void invalidate();
     },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase I — followup generation progress polling.
+//
+// Mirrors usePrepareProgress (use-manual-ingest.ts), including its audit
+// hardening: polling stops on terminal stages, after repeated fetch errors,
+// and after a bounded run of "idle" reads (a failed POST, a mid-run server
+// restart, or a TTL-expired entry must not poll forever).
+// ─────────────────────────────────────────────────────────────────
+
+export function useFollowupProgress(
+  followupId: number | null,
+): UseQueryResult<FollowupProgress, ApiError> {
+  return useQuery<FollowupProgress, ApiError>({
+    queryKey: ["followup-progress", followupId],
+    queryFn: () => getFollowupProgress(followupId!),
+    enabled: followupId !== null,
+    refetchInterval: (query) => {
+      const stage = query.state.data?.stage;
+      if (stage === "ready" || stage === "error") return false;
+      if (query.state.errorUpdateCount >= 3) return false;
+      // Grace window for the POST→"queued" race, then stop on persistent idle.
+      if (stage === "idle" && query.state.dataUpdateCount >= 10) return false;
+      return 1200;
+    },
+    // Progress is instantaneous state — never serve a stale cache entry
+    // from a previous run of the same followup.
+    gcTime: 0,
+    staleTime: 0,
   });
 }
 

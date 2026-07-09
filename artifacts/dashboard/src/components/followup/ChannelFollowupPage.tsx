@@ -10,6 +10,7 @@
  * can't.
  */
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
   ArrowRight,
@@ -58,6 +59,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useArchiveProspect,
   useBulkPauseProspects,
+  useFollowupProgress,
   useListFollowups,
   useMarkProspectReplied,
   useSendNextFollowup,
@@ -66,6 +68,7 @@ import {
   LIST_STATUSES,
   type Followup,
   type FollowupListItem,
+  type FollowupProgress,
   type ListStatus,
   type SupportedChannel,
 } from "@/lib/api/followups";
@@ -73,6 +76,7 @@ import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { EditFollowupDialog } from "./EditFollowupDialog";
+import { PrepareProgressBar } from "./PrepareProgressBar";
 import { BulkToolbar } from "./BulkToolbar";
 import { SequenceConfigPanel } from "./SequenceConfigPanel";
 
@@ -111,14 +115,25 @@ interface Props {
 
 export function ChannelFollowupPage({ channel }: Props) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<ListStatus>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Followup | null>(null);
   const [editingOpen, setEditingOpen] = useState(false);
   const [rowConfirm, setRowConfirm] = useState<RowConfirm | null>(null);
+  // Phase I: the followup row whose message is being generated right now —
+  // drives the staged progress bar. send-next is single-flight (the whole
+  // table's actions share `busy`), so one slot is enough.
+  const [generatingFollowup, setGeneratingFollowup] = useState<{
+    prospectId: string;
+    followupId: number;
+  } | null>(null);
 
   const query = useListFollowups({ channel, status, perPage: 50 });
   const sendNext = useSendNextFollowup();
+  const followupProgress = useFollowupProgress(
+    generatingFollowup?.followupId ?? null,
+  );
   const markReplied = useMarkProspectReplied();
   const archive = useArchiveProspect();
   const pauseOne = useBulkPauseProspects();
@@ -159,10 +174,31 @@ export function ChannelFollowupPage({ channel }: Props) {
     setEditingOpen(true);
   }
 
-  function handleSendNext(prospectId: string, prospectName: string) {
+  function handleSendNext(item: FollowupListItem) {
+    const prospectId = item.prospect.id;
+    const prospectName = item.prospect.prospectName ?? "(no name)";
+    // Phase I: the BE resolves "next" as the lowest scheduled unsent stage —
+    // the list response already carries that row (derived.nextScheduled), so
+    // we know which followupId to poll BEFORE the request returns. Only poll
+    // when generation will actually run (no message stored yet); a cached
+    // message returns in one round-trip with nothing to watch.
+    const next = item.derived.nextScheduled;
+    if (next && !next.generatedMessage?.trim()) {
+      // A previous run may have parked this query on a terminal ready/error
+      // entry, which stops its refetch interval for good — reset restarts it.
+      void queryClient.resetQueries({
+        queryKey: ["followup-progress", next.id],
+      });
+      setGeneratingFollowup({ prospectId, followupId: next.id });
+    }
     sendNext.mutate(
       { prospectId, channel },
       {
+        onSettled: () => {
+          // Request finished (chat opened or toast shown) — stop polling.
+          // The disabled query drops its interval; state clears the bar.
+          setGeneratingFollowup(null);
+        },
         onSuccess: (data) => {
           // Open the deep link in a new tab. The BE doesn't mark sentAt
           // here; the send-intent endpoint (or a future click-observer
@@ -433,11 +469,11 @@ export function ChannelFollowupPage({ channel }: Props) {
                   item={item}
                   checked={selected.has(item.prospect.id)}
                   onToggle={() => toggleOne(item.prospect.id)}
-                  onSendNext={() =>
-                    handleSendNext(
-                      item.prospect.id,
-                      item.prospect.prospectName ?? "(no name)",
-                    )
+                  onSendNext={() => handleSendNext(item)}
+                  progress={
+                    generatingFollowup?.prospectId === item.prospect.id
+                      ? followupProgress.data
+                      : undefined
                   }
                   onEdit={() => {
                     const target =
@@ -544,6 +580,8 @@ interface RowProps {
   onTogglePause: () => void;
   onArchive: () => void;
   busy: boolean;
+  /** Phase I: staged progress of this row's in-flight generation (if any). */
+  progress?: FollowupProgress;
 }
 
 function FollowupRow({
@@ -556,6 +594,7 @@ function FollowupRow({
   onTogglePause,
   onArchive,
   busy,
+  progress,
 }: RowProps) {
   const { prospect, derived } = item;
   // F-B: the list response already carries every stage row per prospect, so we
@@ -592,6 +631,10 @@ function FollowupRow({
           {[prospect.title, prospect.company].filter(Boolean).join(" · ") ||
             "—"}
         </div>
+        {/* Phase I: staged progress while this row's follow-up generates. */}
+        {progress ? (
+          <PrepareProgressBar progress={progress} className="mt-2 max-w-md" />
+        ) : null}
         {/* F-B: compact expandable per-stage schedule. */}
         {stageRows.length > 0 ? (
           <div className="mt-1">
