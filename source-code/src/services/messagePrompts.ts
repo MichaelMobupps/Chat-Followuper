@@ -240,6 +240,20 @@ const GREETING_TABLE: Record<string, { withName: string; withoutName: string; no
   "vi-VN": { withName: "Kính gửi anh/chị {NAME},", withoutName: "Kính gửi anh/chị,", note: "Vietnam. Vietnamese B2B uses kinship-based pronoun register (Vietnamese has no neutral 'you' — pronouns reflect relative age/status). For cold outreach the safe-respectful form is anh (older brother, addressing a male prospect) / chị (older sister, addressing a female prospect), with the speaker using em (younger sibling, self-reference). Never use tôi (formal-cold 'I') as the default — it reads distant; em is warmer and standard for B2B outreach where the speaker positions themselves as junior-respectful. 'Kính gửi anh/chị {Name},' is the most formal email opener (Kính gửi = 'respectfully addressed to'); 'Chào anh/chị {Name},' is the standard chat / WhatsApp opener; 'Anh/chị {Name} thân mến,' is warm-formal ('dear'). NEVER use mày (rude you), bạn (peer-friend, too casual for cold B2B), or just first name alone. Currency VND (đồng, ₫): '1.234.567 đồng' or '1.234.567 VND' (period thousands, decimals rare). Because VND amounts are large, B2B contexts commonly quote in triệu (million) or tỷ (billion): '500 triệu đồng' = 500M VND (~$20K USD), '5 tỷ đồng' = 5B VND (~$200K USD). 'tỷ' is the most common scaling word in B2B. Cities: Thành phố Hồ Chí Minh / TP.HCM (Ho Chi Minh City / Saigon, ~9M, the dominant commercial center; Quận 1 / District 1 for traditional finance, Quận 7 / Phú Mỹ Hưng for expat business and tech, Quận 2 / Thủ Đức for the new tech hub and startup scene), Hà Nội (Hanoi, ~8M, political capital + state-owned enterprise HQs + tech), Đà Nẵng (Da Nang, ~1.2M, central Vietnam, the growing tech outsourcing hub), Hải Phòng (Hai Phong, ~2M, northern port), Cần Thơ (Can Tho, ~1.3M, Mekong Delta commercial hub), Biên Hòa (Bien Hoa, ~1.2M, industrial near Ho Chi Minh City). Peer brands - banking tier: Vietcombank (the largest Vietnamese bank by various metrics, state-influenced, listed HOSE VCB), VietinBank (state-influenced, HOSE CTG), BIDV (state, HOSE BID), Agribank (state, agriculture), Techcombank (the largest private bank, HOSE TCB — Masan Group affiliated), VPBank (HOSE VPB), MB Bank (military-affiliated, HOSE MBB), ACB (Asia Commercial Bank, HOSE ACB). State-owned and state-influenced banks dominate Vietnamese finance. Conglomerates: Vingroup (the dominant Vietnamese conglomerate, Pham Nhat Vuong family, HOSE VIC — VinFast EV / Vinhomes real estate / Vinpearl tourism; the most internationally recognizable Vietnamese name), Masan Group (FMCG + retail post-VinCommerce acquisition, HOSE MSN), FPT Corporation (the largest Vietnamese tech / IT outsourcing company, HOSE FPT — competes with Indian outsourcers globally; FPT Software, FPT Telecom, FPT Retail), Hoa Phat Group (steel, HOSE HPG), Hoang Anh Gia Lai / HAGL (agriculture + sport). Telco: Viettel (military-owned, the dominant Vietnamese telco; also operates internationally in Cambodia / Laos / Myanmar / Africa), Vinaphone (state, part of VNPT), Mobifone (state). E-commerce: Shopee Vietnam (Sea Group, the dominant by GMV), Lazada Vietnam (Alibaba), Tiki (Vietnamese-founded, the largest domestic e-commerce — competing with Shopee/Lazada), Sendo (Vietnamese-founded, struggling post-acquisition discussions), TikTok Shop growing rapidly. Tech / digital-native: VNG Corporation (Vietnamese tech major — Zalo messaging dominant ~75M users, gaming, payments; the Vietnamese digital reference), FPT Software (outsourcing global), MoMo (Vietnamese e-wallet dominant, ~30M users), ZaloPay (VNG), VPBank's Cake by VPBank (digital bank), Tima (P2P), Topica/Edupia (edtech). Mobility / delivery: Grab Vietnam (Singapore, the dominant), Be Group (Vietnamese-founded mobility), Gojek Vietnam (Indonesian, exited 2024), ShopeeFood (Sea Group), Baemin Vietnam (Delivery Hero, exited 2023). Gaming: VNG Corporation (gaming + Zalo, the Vietnamese digital reference), Garena Vietnam (Sea Group, Free Fire), Funtap, NCSoft Vietnam, Tencent / Riot Games Vietnam presence. Match peer tier: state-influenced banks for finance, Vingroup/Masan/FPT for conglomerate, Viettel for telco, Shopee/Tiki for e-commerce, VNG/MoMo for tech. TONE: warm-respectful, hierarchical-via-kinship, family-pronoun-based. Vietnamese business culture values: explicit kinship register (anh/chị/em throughout), saving face (never directly criticize), relationship-first (B2B in Vietnam expects relationship-warming before transactional ask — meeting in person at coffee or meal is normal, faster than Thai but slower than Anglo-Saxon), explicit acknowledgment of mutual contacts and prior context. NEVER use direct criticism, NEVER use 'tôi' as default I-pronoun (too cold), NEVER use 'bạn' for cold B2B (too peer-friend). Sign-offs: 'Trân trọng' (most formal, 'with respect / sincerely', the standard B2B email close), 'Kính thư' (very formal, archaic email close), 'Cảm ơn anh/chị' (thank you, warmer). Adtech vocabulary stays in English (CPI, ROAS, DSP, retention, install, conversion, etc.) per existing bare vi guidance; structural Vietnamese grammar wraps the English terms — 'Em đang giúp một số DSP tăng ROAS' (I'm helping several DSPs increase ROAS) is the natural mixed register." },
 };
 
+
+/**
+ * Non-English writer guardrail (bench 2026-07-09): smaller writer models mix
+ * untranslated English marketing vocabulary into non-English messages
+ * ("confirmed purchase" mid-Hebrew, ad-hoc transliterations in Russian).
+ * Spell out exactly what may stay English; everything else must be native.
+ */
+function buildTranslationDisciplineBlock(language: string): string {
+  const lang = (language || "").trim().split(/[-_]/)[0].toLowerCase();
+  if (!lang || lang === "en") return "";
+  const display = languageDisplay(language);
+  return `TRANSLATION DISCIPLINE (critical for ${display}): write ALL generic marketing and business vocabulary in natural ${display} — conversion events, funnel terms, value propositions, mechanics. The ONLY things that may stay in English are: brand names (never translate or transliterate a brand), and universally-used metric acronyms (ROAS, CAC, CPI, CPA, KYC, IAP, D7, AOV). If a term has a natural ${display} equivalent a native sales rep would use in chat, use that equivalent — do not transliterate English words and do not drop English noun phrases into a ${display} sentence. The research brief's values (conversion events, volume descriptions) may arrive in English — TRANSLATE them into ${display} when you write (digits stay digits): e.g. "confirmed purchases" becomes the natural ${display} term, never a verbatim English phrase inside a ${display} sentence.`;
+}
+
 function buildGreetingBlock(language: string, hasName: boolean): string {
   // B-locale-plumbing: full tag first, fall back to primary subtag.
   const tag = (language || "").trim();
@@ -358,7 +372,11 @@ function buildResearchBriefBlock(brief: ProspectBrief | undefined, language: str
 - Calibrated daily volume MobUpps can deliver: ${s(brief.calibratedDailyVolume)} per day
 - Primary conversion event: ${s(brief.primaryEvent)}
 - Alternative events that may be referenced: ${arr(brief.alternativeEvents).join(", ")}
-- Peer brands in the same market (use ONE if natural — these are the ONLY peers you may name): ${peers}
+- Peer brands in the same market: ${peers}
+  (These are the prospect's market peers/competitors, for market-context or
+  peer-behavior references ONLY. They are NOT our clients — NEVER write "we
+  help/serve brands like X" about them. These are the ONLY peer names you may
+  use; do not introduce any other brand.)
 - Subsidiary check: ${s(brief.subsidiaryCheckNote)}
 - Market context: ${s(brief.marketContext)}
 - Prospect-specific hook: ${s(brief.prospectSpecificHook)}
@@ -457,6 +475,12 @@ Return ONLY a JSON object with two fields:
   "message": "the full message body including greeting"
 }
 
+The "subject" value is an internal tracking tag that the prospect never sees.
+The "message" value must contain ONLY the chat message itself — never a
+subject line, never a title, never a topic header, and never the subject
+tag's text repeated as an opening line. The message starts directly with the
+greeting.
+
 Do not include any other text, markdown, or explanation.`;
 }
 
@@ -479,6 +503,7 @@ export function getProspectorUserPrompt(ctx: MessageContext): string {
 
   const greetingBlock = buildGreetingBlock(ctx.language, hasName);
   const nativenessBlock = buildNativenessBlock(ctx.language);
+  const translationBlock = buildTranslationDisciplineBlock(ctx.language);
 
   const verticalLine = ctx.sub_vertical
     ? `VERTICAL: ${ctx.vertical} / ${ctx.sub_vertical}`
@@ -510,8 +535,11 @@ ${researchBlock ? `\n${researchBlock}\n` : ""}${contextBlock}${competitorBlock}
 ${greetingBlock}
 
 SENDER NAME (used internally; do NOT sign off with this — chat shows sender automatically): ${ctx.sender_name}
-${nativenessBlock ? `\n${nativenessBlock}\n` : ""}
-Write the message now. Begin with the greeting form specified above, then the WHY (prospect-led), then VALIDATION+HOW (one specific number, one vertical-native mechanic, one peer reference if natural), then a soft CTA. 5-7 sentences total.`;
+${nativenessBlock ? `\n${nativenessBlock}\n` : ""}${translationBlock ? `\n${translationBlock}\n` : ""}
+Write the message now. Begin with the greeting form specified above, then the WHY (prospect-led), then VALIDATION+HOW (one specific number, one vertical-native mechanic, one peer reference if natural), then a soft CTA. 5-7 sentences total.
+
+GROUNDING: every number and every brand name must come from the brief above. Do not invent peers, client names, percentages, or market events.
+PHRASING: keep the message result-led — at most ONE sentence in the whole message may start with a we-form ("We/Our/Podemos/Conseguimos/Nous/Wir" etc.). Phrase validation around the outcome ("Similar accounts see...", "That model is delivering...") rather than around us.`;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -561,6 +589,11 @@ Return ONLY a JSON object with two fields:
   "subject": "short topic tag, 3-5 words, internal use only",
   "message": "the full follow-up message body"
 }
+
+The "subject" value is an internal tracking tag that the prospect never sees.
+The "message" value must contain ONLY the chat message itself — never a
+subject line, never a title, and never the subject tag's text repeated as an
+opening line.
 
 Do not include any other text, markdown, or explanation.`;
 }
@@ -620,6 +653,7 @@ export function getFollowuperUserPrompt(ctx: MessageContext): string {
   const days = ctx.days_since_first ?? 0;
 
   const nativenessBlock = buildNativenessBlock(ctx.language);
+  const translationBlock = buildTranslationDisciplineBlock(ctx.language);
 
   const variantBlock = ctx.doctrine_variant?.trim()
     ? `\nDOCTRINE VARIANT (required strategy for this message): ${ctx.doctrine_variant.trim()}\n`
@@ -662,7 +696,9 @@ ${topicBlock}
 ${researchBlock ? `${researchBlock}\n` : ""}${conversationBlock}${previousBlock}${notesBlock}${variantBlock}${exemplarBlock}${competitorBlock}
 
 SENDER NAME (used internally; do NOT sign off with this): ${ctx.sender_name}
-${nativenessBlock ? `\n${nativenessBlock}\n` : ""}
+${nativenessBlock ? `\n${nativenessBlock}\n` : ""}${translationBlock ? `\n${translationBlock}\n` : ""}
+GROUNDING (critical): every specific claim must already exist in the PRIOR CONVERSATION or the RESEARCH BRIEF above. Do NOT invent competitor moves ("X switched to CPS this quarter"), causal narratives, quarters, or numbers that appear in neither. If you want a fresh angle, draw it from the brief's market context or proof points — never fabricate one.
+
 Write the follow-up now. 2-3 sentences total. Sentence 1 references the prior thread by specific topic. Sentence 2-3 brings ONE new angle (rotation by stage: stage 1 = new insight, stage 2 = competitor/market move, stage 3 = direct + easy out, stage 4+ = fresh angle each time). Final sentence is a soft CTA.`;
 }
 
@@ -834,9 +870,9 @@ ${conversationBlock}
 ${briefBlock}
 ${previousFollowupsBlock}
 ${nativenessCriticBlock ? `\n${nativenessCriticBlock}\n` : ""}
-DRAFT TO EVALUATE:
-Subject (internal tag): ${draft.subject}
-Message:
+DRAFT TO EVALUATE (this is the complete chat message — there is no subject
+line anywhere; the internal topic tag is stored separately and is NOT part of
+what you evaluate):
 ${draft.message}
 
 Evaluate now.`;
@@ -924,9 +960,8 @@ ${conversationBlock}
 ${briefBlock}
 ${greetingBlock ? `\n${greetingBlock}\n` : ""}
 ${nativenessBlock ? `\n${nativenessBlock}\n` : ""}
-CURRENT DRAFT:
-Subject: ${draft.subject}
-Message:
+CURRENT DRAFT (the complete chat message — no subject line exists; the
+internal topic tag is handled separately and must NOT appear in your rewrite):
 ${draft.message}
 
 CRITIC ISSUES:
