@@ -36,6 +36,7 @@ import { TestChannelMessage } from "@/components/TestChannelMessage";
 const CHANNEL_LABEL: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  linkedin: "LinkedIn",
 };
 
 function statusLabel(status: ProspectListItem["status"]): string {
@@ -126,12 +127,20 @@ export default function ContactsPage() {
       setSendConfirmOpen(true);
 
       // C5: t.me/<handle>?text= often doesn't prefill the composer for plain
-      // user handles — copy the message so the SDR can paste it. Best-effort.
-      if (channel === "telegram" && result.message) {
+      // user handles — copy the message so the SDR can paste it. LinkedIn is
+      // clipboard-only by design (no message-prefill deep link), so it always
+      // copies too. Best-effort.
+      if (
+        (channel === "telegram" || channel === "linkedin") &&
+        result.message
+      ) {
         void navigator.clipboard.writeText(result.message).catch(() => {});
         toast({
-          title: "Opening Telegram — message copied",
-          description: `${prospect.prospectName ?? "Contact"}: Telegram may not prefill the text — paste it if the composer is empty.`,
+          title: `Opening ${CHANNEL_LABEL[channel]} — message copied`,
+          description:
+            channel === "linkedin"
+              ? `${prospect.prospectName ?? "Contact"}: LinkedIn can't prefill text — paste the copied message into the profile.`
+              : `${prospect.prospectName ?? "Contact"}: Telegram may not prefill the text — paste it if the composer is empty.`,
         });
       } else {
         toast({
@@ -200,6 +209,7 @@ export default function ContactsPage() {
           <TabsList>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
             <TabsTrigger value="telegram">Telegram</TabsTrigger>
+            <TabsTrigger value="linkedin">LinkedIn</TabsTrigger>
           </TabsList>
         </Tabs>
       </header>
@@ -229,8 +239,11 @@ export default function ContactsPage() {
             <div>
               <p className="font-medium">No {CHANNEL_LABEL[channel]} contacts yet</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Add someone with their phone number and company — we handle the
-                rest.
+                Add someone with their{" "}
+                {channel === "linkedin"
+                  ? "profile URL"
+                  : "phone number"}{" "}
+                and company — we handle the rest.
               </p>
             </div>
             <Button onClick={() => setAddOpen(true)}>
@@ -251,7 +264,11 @@ export default function ContactsPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>
-                  {channel === "telegram" ? "Handle / phone" : "Phone"}
+                  {channel === "telegram"
+                    ? "Handle / phone"
+                    : channel === "linkedin"
+                      ? "Profile"
+                      : "Phone"}
                 </TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -264,7 +281,9 @@ export default function ContactsPage() {
                 const hasId =
                   channel === "telegram"
                     ? !!(row.telegramHandle || row.phone)
-                    : !!row.phone;
+                    : channel === "linkedin"
+                      ? !!row.linkedinUrl
+                      : !!row.phone;
                 const canSend =
                   row.status !== "sent" &&
                   row.status !== "phone-pending" &&
@@ -278,7 +297,9 @@ export default function ContactsPage() {
                     <TableCell className="font-mono text-xs">
                       {channel === "telegram"
                         ? row.telegramHandle ?? row.phone ?? "—"
-                        : row.phone ?? "—"}
+                        : channel === "linkedin"
+                          ? row.linkedinUrl ?? "—"
+                          : row.phone ?? "—"}
                     </TableCell>
                     <TableCell>
                       <Badge variant={statusVariant(row.status)}>

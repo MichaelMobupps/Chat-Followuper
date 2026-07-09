@@ -74,6 +74,7 @@ import {
   BulkPreviewGrid,
   validateBulkRow,
   makeBlankRow,
+  linkedinLooksLikeUrl,
   type BulkRow,
   type BulkRowServerError,
 } from "./BulkPreviewGrid";
@@ -83,17 +84,25 @@ const MAX_ROWS = 200;
 const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  linkedin: "LinkedIn",
 };
 
 // Header alias map. Key is the normalized header (lowercase, no spaces
 // or underscores); value is the BulkRow field name. Extra headers in
-// the CSV are ignored; missing required headers fail the parse.
+// the CSV are ignored; missing required headers fail the parse. The
+// identifier column maps to `phone` for every channel (the BE routes it to
+// the right storage column) — so LinkedIn URL headers alias to `phone` too.
 const HEADER_ALIASES: Record<
   string,
   "firstName" | "phone" | "company" | "ticker"
 > = {
   firstname: "firstName",
   phone: "phone",
+  linkedin: "phone",
+  linkedinurl: "phone",
+  profile: "phone",
+  profileurl: "phone",
+  url: "phone",
   company: "company",
   ticker: "ticker",
 };
@@ -208,10 +217,16 @@ function parseCsv(
     // a malformed header and we should say so.
     const firstCell = (parseLine(headerLine)[0] ?? "").trim();
     const looksLikeIdentifier =
-      /^\+?\d/.test(firstCell) || /^@/.test(firstCell);
+      channel === "linkedin"
+        ? // Require a URL/path shape (not a bare slug) so a non-aliased header
+          // row like "Person,Link,Org" isn't silently consumed as a data row.
+          linkedinLooksLikeUrl(firstCell)
+        : /^\+?\d/.test(firstCell) || /^@/.test(firstCell);
     if (!looksLikeIdentifier) {
       errors.push(
-        "Couldn't find a 'phone' column. Paste one phone number per line (name optional), or include a header row. Download the template for the format.",
+        channel === "linkedin"
+          ? "Couldn't find a 'linkedin' column. Paste one LinkedIn profile URL per line (name optional), or include a header row. Download the template for the format."
+          : "Couldn't find a 'phone' column. Paste one phone number per line (name optional), or include a header row. Download the template for the format.",
       );
       return { rows: [], truncated: false, errors };
     }
@@ -237,6 +252,23 @@ function parseCsv(
 }
 
 function downloadTemplate(channel: ManualIngestChannel) {
+  if (channel === "linkedin") {
+    const csv = [
+      "firstName,linkedin,company,ticker",
+      "Yaron,https://www.linkedin.com/in/yaronk,MobUpps,mobile",
+      "Yaman,https://www.linkedin.com/in/yaman,Acme,web",
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `followuper-bulk-template-${channel}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return;
+  }
   const exampleId =
     channel === "whatsapp" ? "+972501234567" : "@yaronk";
   const csv = [
@@ -495,9 +527,13 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Add many contacts</DialogTitle>
           <DialogDescription>
-            Paste phone numbers (one per line) or a CSV. Set the company and
-            product once below and it applies to the whole batch — up to{" "}
-            {MAX_ROWS} contacts land in your {CHANNEL_NAME[channel]} queue.
+            Paste{" "}
+            {channel === "linkedin"
+              ? "LinkedIn profile URLs"
+              : "phone numbers"}{" "}
+            (one per line) or a CSV. Set the company and product once below and
+            it applies to the whole batch — up to {MAX_ROWS} contacts land in
+            your {CHANNEL_NAME[channel]} queue.
           </DialogDescription>
         </DialogHeader>
 
@@ -577,7 +613,9 @@ export function BulkAddDialog({ channel, open, onOpenChange }: Props) {
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
                   placeholder={
-                    "+972501234567\n+972502345678\n\n— or with a header —\nfirstName,phone,company,ticker\nYaron,+972501234567,MobUpps,mobile"
+                    channel === "linkedin"
+                      ? "https://www.linkedin.com/in/yaronk\nhttps://www.linkedin.com/in/yaman\n\n— or with a header —\nfirstName,linkedin,company,ticker\nYaron,https://www.linkedin.com/in/yaronk,MobUpps,mobile"
+                      : "+972501234567\n+972502345678\n\n— or with a header —\nfirstName,phone,company,ticker\nYaron,+972501234567,MobUpps,mobile"
                   }
                   rows={4}
                   className="font-mono text-xs"

@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 
-export type TestChannel = "whatsapp" | "telegram";
+export type TestChannel = "whatsapp" | "telegram" | "linkedin";
 
 export interface TestChannelLinkInput {
   channel: TestChannel;

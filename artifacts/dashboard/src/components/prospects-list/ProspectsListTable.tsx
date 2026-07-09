@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import type {
   ProspectListItem,
   ProspectStatus,
@@ -277,15 +278,28 @@ function ActionButton({ prospect }: { prospect: ProspectListItem }) {
   const { toast } = useToast();
   const { mutate, isPending } = useChannelLink();
 
-  const channel =
-    prospect.firstMessageChannel === "telegram" ? "telegram" : "whatsapp";
+  const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+    whatsapp: "WhatsApp",
+    telegram: "Telegram",
+    linkedin: "LinkedIn",
+  };
+  const channel: SendIntentChannel =
+    prospect.firstMessageChannel === "telegram"
+      ? "telegram"
+      : prospect.firstMessageChannel === "linkedin"
+        ? "linkedin"
+        : "whatsapp";
+  // telegram + linkedin copy the message to the clipboard (deep link can't
+  // reliably prefill / linkedin can't at all).
+  const isClipboard = channel === "telegram" || channel === "linkedin";
 
   if (
     prospect.status === "ready" &&
     (prospect.firstMessageChannel === "whatsapp" ||
-      prospect.firstMessageChannel === "telegram")
+      prospect.firstMessageChannel === "telegram" ||
+      prospect.firstMessageChannel === "linkedin")
   ) {
-    const label = channel === "telegram" ? "Telegram" : "WhatsApp";
+    const label = CHANNEL_LABEL[channel];
     return (
       <Button
         size="sm"
@@ -306,14 +320,16 @@ function ActionButton({ prospect }: { prospect: ProspectListItem }) {
                   return;
                 }
                 // C5: t.me/<handle>?text= often doesn't prefill the composer for
-                // plain user handles — copy the message so the SDR can paste it.
-                // Best-effort.
-                if (channel === "telegram" && data.body) {
+                // plain user handles, and LinkedIn can't prefill at all — copy
+                // the message so the SDR can paste it. Best-effort.
+                if (isClipboard && data.body) {
                   void navigator.clipboard.writeText(data.body).catch(() => {});
                   toast({
-                    title: "Opening Telegram — message copied",
+                    title: `Opening ${label} — message copied`,
                     description:
-                      "Telegram may not prefill the text — paste it if the composer is empty.",
+                      channel === "linkedin"
+                        ? "LinkedIn can't prefill text — paste the copied message into the profile."
+                        : "Telegram may not prefill the text — paste it if the composer is empty.",
                   });
                 }
               },

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import { ApiError } from "@/lib/api";
 import {
   getProspect,
@@ -195,14 +196,31 @@ export default function ProspectDetailPage() {
   const status = computeStatus(p);
   const displayName = p.prospectName ?? "(no name)";
 
-  const openChannel =
-    p.firstMessageChannel === "telegram" ? "telegram" : "whatsapp";
+  const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+    whatsapp: "WhatsApp",
+    telegram: "Telegram",
+    linkedin: "LinkedIn",
+  };
+  const openChannel: SendIntentChannel =
+    p.firstMessageChannel === "telegram"
+      ? "telegram"
+      : p.firstMessageChannel === "linkedin"
+        ? "linkedin"
+        : "whatsapp";
+  // telegram + linkedin are clipboard-copy channels (the deep link doesn't
+  // reliably prefill the composer, or — for linkedin — can't at all).
+  const openChannelIsClipboard =
+    openChannel === "telegram" || openChannel === "linkedin";
+  const canOpenChat =
+    p.firstMessageChannel === "whatsapp" ||
+    p.firstMessageChannel === "telegram" ||
+    p.firstMessageChannel === "linkedin";
 
   function copySummary() {
     const summary = [
       `Name: ${p.prospectName ?? "—"}`,
       `Company: ${p.company ?? "—"}`,
-      `Phone: ${p.phone ?? p.telegramHandle ?? "—"}`,
+      `Contact: ${p.phone ?? p.telegramHandle ?? p.linkedinUrl ?? "—"}`,
       `Status: ${status}`,
       `Channel: ${p.firstMessageChannel ?? "—"}`,
     ].join("\n");
@@ -229,19 +247,22 @@ export default function ProspectDetailPage() {
             return;
           }
           // C5: t.me/<handle>?text= often doesn't prefill the composer for plain
-          // user handles — copy the message so the SDR can paste it. Best-effort.
-          if (openChannel === "telegram" && data.body) {
+          // user handles, and LinkedIn can't prefill at all — copy the message
+          // so the SDR can paste it. Best-effort.
+          if (openChannelIsClipboard && data.body) {
             void navigator.clipboard.writeText(data.body).catch(() => {});
             toast({
-              title: "Opening Telegram — message copied",
+              title: `Opening ${CHANNEL_LABEL[openChannel]} — message copied`,
               description:
-                "Telegram may not prefill the text — paste it if the composer is empty.",
+                openChannel === "linkedin"
+                  ? "LinkedIn can't prefill text — paste the copied message into the profile."
+                  : "Telegram may not prefill the text — paste it if the composer is empty.",
             });
           }
         },
         onError: (err) => {
           toast({
-            title: `Could not open ${openChannel === "telegram" ? "Telegram" : "WhatsApp"} link`,
+            title: `Could not open ${CHANNEL_LABEL[openChannel]} link`,
             description: err.code ?? err.message,
             variant: "destructive",
           });
@@ -283,18 +304,16 @@ export default function ProspectDetailPage() {
 
       {/* Top action row */}
       <div className="flex flex-wrap gap-2">
-        {status === "ready" &&
-          (p.firstMessageChannel === "whatsapp" ||
-            p.firstMessageChannel === "telegram") && (
-            <Button
-              onClick={openChatLink}
-              disabled={channelLink.isPending}
-              data-testid="button-open-chat"
-            >
-              <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-              Open {p.firstMessageChannel === "telegram" ? "Telegram" : "WhatsApp"}
-            </Button>
-          )}
+        {status === "ready" && canOpenChat && (
+          <Button
+            onClick={openChatLink}
+            disabled={channelLink.isPending}
+            data-testid="button-open-chat"
+          >
+            <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+            Open {CHANNEL_LABEL[openChannel]}
+          </Button>
+        )}
         <Button
           variant="outline"
           onClick={() => regenerate.mutate(p.id)}
@@ -563,7 +582,11 @@ function computeStatus(p: Prospect): ProspectStatus {
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
   if (p.phoneRevealStatus === "expired") return "phone-expired";
-  if (!p.phone && !p.telegramHandle) return "phone-pending";
+  // linkedinUrl is a valid identity too (LinkedIn is clipboard-only). Mirrors
+  // the BE computeProspectStatus (routes/prospects.ts) — without the linkedinUrl
+  // check a linkedin prospect was stuck "phone-pending", so status never became
+  // "ready" and the "Open LinkedIn" button never rendered on this page.
+  if (!p.phone && !p.telegramHandle && !p.linkedinUrl) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
 }

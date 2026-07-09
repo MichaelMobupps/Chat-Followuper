@@ -339,8 +339,21 @@ export default function SeederPage() {
   }
 
   async function handleOpenInChannel(prospect: Prospect) {
-    const channel =
-      prospect.firstMessageChannel === "telegram" ? "telegram" : "whatsapp";
+    const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+      whatsapp: "WhatsApp",
+      telegram: "Telegram",
+      linkedin: "LinkedIn",
+    };
+    const channel: SendIntentChannel =
+      prospect.firstMessageChannel === "telegram"
+        ? "telegram"
+        : prospect.firstMessageChannel === "linkedin"
+          ? "linkedin"
+          : "whatsapp";
+    // LinkedIn is clipboard-only (its deep link can't prefill the composer), so
+    // the message MUST be copied or the SDR opens an empty profile. Telegram's
+    // t.me?text= is also unreliable for plain handles.
+    const isClipboard = channel === "telegram" || channel === "linkedin";
 
     try {
       const result = await prepareFirst.mutateAsync({
@@ -349,16 +362,22 @@ export default function SeederPage() {
       });
 
       if (result.deepLinkUrl) {
+        if (isClipboard && result.message) {
+          void navigator.clipboard.writeText(result.message).catch(() => {});
+        }
         window.open(result.deepLinkUrl, "_blank", "noopener,noreferrer");
         setPendingSend({
           prospectId: prospect.id,
           followupId: null,
-          channel: channel as SendIntentChannel,
+          channel,
         });
         setSendConfirmOpen(true);
         toast({
-          title: `Opening ${channel === "telegram" ? "Telegram" : "WhatsApp"}`,
-          description: "Review the message and press Send in the app.",
+          title: `Opening ${CHANNEL_LABEL[channel]}${isClipboard ? " — message copied" : ""}`,
+          description:
+            channel === "linkedin"
+              ? "LinkedIn can't prefill text — paste the copied message into the profile."
+              : "Review the message and press Send in the app.",
         });
         return;
       }
@@ -367,9 +386,12 @@ export default function SeederPage() {
         { prospectId: prospect.id, channel },
         {
           onSuccess: (data) => {
+            if (isClipboard && data.body) {
+              void navigator.clipboard.writeText(data.body).catch(() => {});
+            }
             window.open(data.url, "_blank", "noopener,noreferrer");
             toast({
-              title: `Opening ${channel === "telegram" ? "Telegram" : "WhatsApp"}`,
+              title: `Opening ${CHANNEL_LABEL[channel]}${isClipboard ? " — message copied" : ""}`,
             });
           },
           onError: (err) => {

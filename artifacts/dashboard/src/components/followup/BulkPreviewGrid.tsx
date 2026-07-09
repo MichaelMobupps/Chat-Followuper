@@ -46,6 +46,24 @@ const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 // — the old all-alphanumeric class let a bare number (no "+") read as a valid
 // handle, so a phone-only paste showed "Ready" then stored a dead handle.
 const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+// LinkedIn: profile URL, "/in/<slug>" path, or a bare slug/handle. Mirrors
+// normalizeLinkedinIdentifier in routes/prospects.ts (BE is authoritative).
+const LINKEDIN_URL_RE = /^(https?:\/\/)?([\w-]+\.)*linkedin\.com\//i;
+const LINKEDIN_PATH_RE = /^\/?in\/[\w%-]+\/?$/i;
+const LINKEDIN_SLUG_RE = /^@?[a-zA-Z0-9][\w-]{2,99}$/;
+export function linkedinLooksValid(id: string): boolean {
+  return (
+    LINKEDIN_URL_RE.test(id) ||
+    LINKEDIN_PATH_RE.test(id) ||
+    LINKEDIN_SLUG_RE.test(id)
+  );
+}
+// Stricter check for CSV headerless-paste detection: only a URL/path shape (NOT
+// a bare slug). A bare slug matches almost any word, so using linkedinLooksValid
+// there caused a header row like "Person,Link,Org" to be consumed as data.
+export function linkedinLooksLikeUrl(id: string): boolean {
+  return LINKEDIN_URL_RE.test(id.trim()) || LINKEDIN_PATH_RE.test(id.trim());
+}
 
 // Beacon Ignite tokens — local copy of the values in ManualContactsSection
 // so the grid renders with consistent glow accents.
@@ -74,6 +92,8 @@ export interface BulkRowServerError {
     | "invalid_identifier"
     | "duplicate_phone"
     | "duplicate_telegram_handle"
+    | "duplicate_linkedin_url"
+    | "missing_company_product"
     | "insert_failed";
   detail?: string;
 }
@@ -156,17 +176,23 @@ export function validateBulkRow(
     reasons.phone =
       channel === "whatsapp"
         ? "Phone required."
-        : "Phone or @handle required.";
+        : channel === "linkedin"
+          ? "LinkedIn profile URL required."
+          : "Phone or @handle required.";
   } else {
     const looksValid =
       channel === "whatsapp"
         ? PHONE_RE.test(ph)
-        : PHONE_RE.test(ph) || HANDLE_RE.test(ph);
+        : channel === "linkedin"
+          ? linkedinLooksValid(ph)
+          : PHONE_RE.test(ph) || HANDLE_RE.test(ph);
     if (!looksValid) {
       reasons.phone =
         channel === "whatsapp"
           ? "Start with + and country code, e.g. +972501234567."
-          : "Use +country-code phone OR @handle (5-32 chars).";
+          : channel === "linkedin"
+            ? "Use a LinkedIn profile URL (linkedin.com/in/…) or handle."
+            : "Use +country-code phone OR @handle (5-32 chars).";
     }
   }
 
@@ -198,6 +224,10 @@ function serverErrorCopy(err: BulkRowServerError): string {
       return "Already exists with this phone.";
     case "duplicate_telegram_handle":
       return "Already exists with this Telegram handle.";
+    case "duplicate_linkedin_url":
+      return "Already exists with this LinkedIn profile.";
+    case "missing_company_product":
+      return err.detail ?? "Company and product are required.";
     case "insert_failed":
       return err.detail ?? "Save failed. Try again.";
     default:
@@ -239,9 +269,17 @@ export function BulkPreviewGrid({
   }
 
   const identifierPlaceholder =
-    channel === "whatsapp" ? "+972501234567" : "+972... or @yaronk";
+    channel === "whatsapp"
+      ? "+972501234567"
+      : channel === "linkedin"
+        ? "linkedin.com/in/yaronk"
+        : "+972... or @yaronk";
   const identifierHeader =
-    channel === "whatsapp" ? "Phone" : "Phone or @handle";
+    channel === "whatsapp"
+      ? "Phone"
+      : channel === "linkedin"
+        ? "LinkedIn URL"
+        : "Phone or @handle";
 
   return (
     <div
@@ -318,7 +356,7 @@ export function BulkPreviewGrid({
                   updateRow(row.id, { phone: e.target.value })
                 }
                 placeholder={identifierPlaceholder}
-                maxLength={64}
+                maxLength={300}
                 disabled={disabled}
                 aria-invalid={!!v.reasons.phone}
                 className={cn(

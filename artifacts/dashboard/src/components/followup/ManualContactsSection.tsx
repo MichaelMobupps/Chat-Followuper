@@ -63,6 +63,7 @@ const IGNITE = {
 const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  linkedin: "LinkedIn",
 };
 
 export function ManualContactsSection({ channel }: Props) {

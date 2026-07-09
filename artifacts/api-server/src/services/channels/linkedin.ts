@@ -23,21 +23,86 @@ import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
  * prospect's `linkedin_url`.
  */
 
+const LINKEDIN_FALLBACK_URL = "https://www.linkedin.com/";
+
+/** decodeURIComponent that never throws (malformed %-sequences → raw). */
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 /**
- * Build the LinkedIn profile URL to open. Accepts either a full LinkedIn URL
- * (returned normalized) or a bare profile slug (wrapped into a /in/ URL). The
- * `body` is intentionally ignored — LinkedIn cannot prefill message text.
+ * Canonicalize a LinkedIn identifier to a stable, safe profile URL, or return
+ * null if it can't be resolved to a linkedin.com URL.
+ *
+ * Accepts: a full http(s) LinkedIn URL, a scheme-less "linkedin.com/…", an
+ * "/in/<slug>" path, a bare slug, or an "@handle". Produces a canonical string
+ * so cosmetically-different inputs for the same profile collapse to ONE value —
+ * critical because prospects.linkedin_url is deduped by exact string (the
+ * partial-unique index prospects_user_linkedin_unique) and reused verbatim as
+ * the outreach deep link. Without this, "…/in/x", "…/in/x/", "…/in/X",
+ * "il.linkedin.com/in/x", and "…/in/x?trk=…" all created SEPARATE prospects →
+ * duplicate + double outreach (audit C1), and "/in/x/" round-tripped to a
+ * broken "…/in/x%2F" (audit C2).
+ *
+ * SECURITY: enforces the linkedin.com host. generateLink's output is fed to a
+ * server-side res.redirect(302) in followupOpen.ts and to window.open() on the
+ * dashboard, so returning a non-linkedin URL verbatim would be an open-redirect
+ * gadget on the trusted origin (audit S1). Non-linkedin hosts → null → caller
+ * falls back to the bare linkedin.com domain.
+ */
+export function canonicalizeLinkedinUrl(identifier: string): string | null {
+  let raw = identifier.trim();
+  if (!raw) return null;
+
+  if (!/^https?:\/\//i.test(raw)) {
+    if (/^([\w-]+\.)*linkedin\.com\//i.test(raw)) {
+      // Scheme-less "linkedin.com/…" / "www.linkedin.com/…" — add the scheme
+      // and fall through to the URL branch for host enforcement + canonicalize.
+      raw = `https://${raw}`;
+    } else {
+      // Bare slug or "/in/<slug>" / "@handle" → canonical profile URL.
+      const slug = raw
+        .replace(/^@/, "")
+        .replace(/^\/?in\//i, "")
+        .replace(/\/+$/, "");
+      if (!slug) return null;
+      // decode-then-encode is idempotent and avoids double-encoding a slug that
+      // was pasted already percent-encoded. Lowercase: LinkedIn vanity slugs are
+      // case-insensitive, so this is safe and makes dedup case-insensitive.
+      return `https://www.linkedin.com/in/${encodeURIComponent(
+        safeDecode(slug),
+      ).toLowerCase()}`;
+    }
+  }
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) {
+    return null; // host enforcement — neutralizes the open-redirect sink
+  }
+  // Canonical host, drop query/fragment, strip trailing slash, lowercase path.
+  const path = url.pathname.replace(/\/+$/, "").toLowerCase() || "/";
+  return `https://www.linkedin.com${path}`;
+}
+
+/**
+ * Build the LinkedIn profile URL to open. Delegates to canonicalizeLinkedinUrl;
+ * a value that can't be resolved to a linkedin.com URL (e.g. a poisoned
+ * linkedin_url from some other write path) falls back to the bare linkedin.com
+ * domain rather than being redirected/opened verbatim. The `body` is ignored —
+ * LinkedIn cannot prefill message text.
  */
 export function generateLink(identifier: string, _body: string): string {
-  const trimmed = identifier.trim();
-  if (/^https?:\/\//i.test(trimmed)) {
-    // Already a URL. Return as-is (the value came from prospects.linkedin_url,
-    // which the create/patch route validates with z.string().url()).
-    return trimmed;
-  }
-  // Bare slug/handle → canonical profile URL. Strip a leading "@" or "/in/".
-  const slug = trimmed.replace(/^@/, "").replace(/^\/?in\//i, "");
-  return `https://www.linkedin.com/in/${encodeURIComponent(slug)}`;
+  return canonicalizeLinkedinUrl(identifier) ?? LINKEDIN_FALLBACK_URL;
 }
 
 export interface RecordSendIntentInput {

@@ -12,7 +12,10 @@ import {
   generateLink as generateTelegramLink,
   recordSendIntent as recordTelegramSendIntent,
 } from "../services/channels/telegram";
-import { recordSendIntent as recordLinkedinSendIntent } from "../services/channels/linkedin";
+import {
+  generateLink as generateLinkedinLink,
+  recordSendIntent as recordLinkedinSendIntent,
+} from "../services/channels/linkedin";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 
 const router: IRouter = Router();
@@ -152,6 +155,56 @@ router.get(
     }
 
     const url = generateTelegramLink(identifier, prospect.firstMessageBody);
+    res.status(200).json({ url, body: prospect.firstMessageBody });
+  },
+);
+
+router.get(
+  "/prospects/:id/linkedin-link",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+
+    const rows = await db
+      .select({
+        linkedinUrl: prospectsTable.linkedinUrl,
+        firstMessageBody: prospectsTable.firstMessageBody,
+      })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, user.id),
+        ),
+      )
+      .limit(1);
+
+    const prospect = rows[0];
+    if (!prospect) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (!prospect.firstMessageBody || prospect.firstMessageBody.length === 0) {
+      res.status(409).json({ error: "no_message_generated" });
+      return;
+    }
+
+    // Mirrors telegram-link's no-identifier guard. LinkedIn is clipboard-only:
+    // the "url" is the profile URL (no message prefill) and the FE copies the
+    // body to the clipboard, same as the telegram fallback + the Contacts page.
+    if (!prospect.linkedinUrl) {
+      res.status(409).json({ error: "no_linkedin_identifier" });
+      return;
+    }
+
+    // generateLinkedinLink canonicalizes + enforces the linkedin.com host, so
+    // a poisoned linkedin_url can't become an off-site link here.
+    const url = generateLinkedinLink(
+      prospect.linkedinUrl,
+      prospect.firstMessageBody,
+    );
     res.status(200).json({ url, body: prospect.firstMessageBody });
   },
 );

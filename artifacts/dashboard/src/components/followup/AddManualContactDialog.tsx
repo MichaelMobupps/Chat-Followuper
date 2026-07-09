@@ -58,9 +58,24 @@ const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 // string is a phone, not a handle).
 const HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
+// LinkedIn-only: a full profile URL, an "/in/<slug>" path, or a bare slug/
+// handle. Mirrors normalizeLinkedinIdentifier in routes/prospects.ts (the BE
+// is authoritative and normalizes to a canonical profile URL before storing).
+const LINKEDIN_URL_RE = /^(https?:\/\/)?([\w-]+\.)*linkedin\.com\//i;
+const LINKEDIN_PATH_RE = /^\/?in\/[\w%-]+\/?$/i;
+const LINKEDIN_SLUG_RE = /^@?[a-zA-Z0-9][\w-]{2,99}$/;
+function linkedinLooksValid(id: string): boolean {
+  return (
+    LINKEDIN_URL_RE.test(id) ||
+    LINKEDIN_PATH_RE.test(id) ||
+    LINKEDIN_SLUG_RE.test(id)
+  );
+}
+
 const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
+  linkedin: "LinkedIn",
 };
 
 interface Props {
@@ -107,7 +122,9 @@ export function AddManualContactDialog({
   const phoneLooksValid =
     channel === "whatsapp"
       ? PHONE_RE.test(phoneTrimmed)
-      : PHONE_RE.test(phoneTrimmed) || HANDLE_RE.test(phoneTrimmed);
+      : channel === "linkedin"
+        ? linkedinLooksValid(phoneTrimmed)
+        : PHONE_RE.test(phoneTrimmed) || HANDLE_RE.test(phoneTrimmed);
   const canSubmit =
     form.firstName.trim().length > 0 &&
     phoneLooksValid &&
@@ -222,7 +239,9 @@ export function AddManualContactDialog({
             <Label htmlFor="manual-phone">
               {channel === "whatsapp"
                 ? "Phone (with country code)"
-                : "Phone or Telegram handle"}
+                : channel === "linkedin"
+                  ? "LinkedIn profile URL"
+                  : "Phone or Telegram handle"}
             </Label>
             <Input
               id="manual-phone"
@@ -231,15 +250,23 @@ export function AddManualContactDialog({
               placeholder={
                 channel === "whatsapp"
                   ? "+972501234567"
-                  : "+972501234567 or @yaronk"
+                  : channel === "linkedin"
+                    ? "https://www.linkedin.com/in/yaronk"
+                    : "+972501234567 or @yaronk"
               }
+              // 300 mirrors the BE identifier cap (manualIngestBodySchema.phone).
+              // LinkedIn URLs can be long; without this a >300 paste showed valid
+              // then bounced with a 400 on submit.
+              maxLength={300}
               data-testid="manual-phone"
             />
             {form.phone.length > 0 && !phoneLooksValid && (
               <p className="text-xs text-muted-foreground">
                 {channel === "whatsapp"
                   ? "Start with + and country code. Example: +972501234567."
-                  : "Use international phone (+972...) or Telegram handle (@yaronk, 5-32 chars)."}
+                  : channel === "linkedin"
+                    ? "Paste a LinkedIn profile URL (linkedin.com/in/…) or handle."
+                    : "Use international phone (+972...) or Telegram handle (@yaronk, 5-32 chars)."}
               </p>
             )}
           </div>

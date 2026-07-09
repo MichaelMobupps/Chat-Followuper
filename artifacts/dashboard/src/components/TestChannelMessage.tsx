@@ -19,6 +19,13 @@ const DEFAULT_MESSAGE = "Test message from Chat Followuper.";
 const STORAGE_KEY: Record<TestChannel, string> = {
   whatsapp: "cf-test-whatsapp-id",
   telegram: "cf-test-telegram-id",
+  linkedin: "cf-test-linkedin-id",
+};
+
+const CHANNEL_LABEL: Record<TestChannel, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+  linkedin: "LinkedIn",
 };
 
 interface Props {
@@ -41,6 +48,11 @@ export function TestChannelMessage({ compact = false }: Props) {
     mutationFn: postTestChannelLink,
     onSuccess: (data) => {
       localStorage.setItem(STORAGE_KEY[channel], identifier.trim());
+      // LinkedIn is clipboard-only — the "link" is just the profile URL (no
+      // message prefill), so copy the message for the SDR to paste.
+      if (channel === "linkedin") {
+        void navigator.clipboard.writeText(data.message).catch(() => {});
+      }
       // E6: a blocked popup makes window.open return null — don't claim success.
       const w = window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
       if (!w) {
@@ -52,8 +64,11 @@ export function TestChannelMessage({ compact = false }: Props) {
         return;
       }
       toast({
-        title: `Opening ${channel === "whatsapp" ? "WhatsApp" : "Telegram"}`,
-        description: `Message prefilled in the chat box — press send in the app to deliver to ${data.target}.`,
+        title: `Opening ${CHANNEL_LABEL[channel]}${channel === "linkedin" ? " — message copied" : ""}`,
+        description:
+          channel === "linkedin"
+            ? `Profile opened for ${data.target} — paste the copied message into LinkedIn.`
+            : `Message prefilled in the chat box — press send in the app to deliver to ${data.target}.`,
       });
     },
     onError: (err: ApiError) => {
@@ -79,12 +94,12 @@ export function TestChannelMessage({ compact = false }: Props) {
             className={`flex items-center gap-2 font-medium ${compact ? "text-sm" : "text-base"}`}
           >
             <MessageCircle className="h-4 w-4" />
-            Test {channel === "whatsapp" ? "WhatsApp" : "Telegram"} send path
+            Test {CHANNEL_LABEL[channel]} send path
           </h2>
           <p className="text-xs text-muted-foreground">
-            Enter your own number or handle. Opens the chat with your message
-            already in the compose box — no copy-paste. Press send in the app to
-            confirm delivery works.
+            {channel === "linkedin"
+              ? "Enter your own LinkedIn profile URL. Opens your profile and copies the message — LinkedIn can't prefill text, so paste it to confirm the path works."
+              : "Enter your own number or handle. Opens the chat with your message already in the compose box — no copy-paste. Press send in the app to confirm delivery works."}
           </p>
         </div>
 
@@ -99,6 +114,9 @@ export function TestChannelMessage({ compact = false }: Props) {
             <TabsTrigger value="telegram" className="text-xs px-3">
               Telegram
             </TabsTrigger>
+            <TabsTrigger value="linkedin" className="text-xs px-3">
+              LinkedIn
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -106,12 +124,18 @@ export function TestChannelMessage({ compact = false }: Props) {
           <Label htmlFor="test-channel-id">
             {channel === "whatsapp"
               ? "Your WhatsApp number"
-              : "Your phone or @handle"}
+              : channel === "linkedin"
+                ? "Your LinkedIn profile URL"
+                : "Your phone or @handle"}
           </Label>
           <Input
             id="test-channel-id"
             placeholder={
-              channel === "whatsapp" ? "+972501234567" : "+972501234567 or @you"
+              channel === "whatsapp"
+                ? "+972501234567"
+                : channel === "linkedin"
+                  ? "https://www.linkedin.com/in/you"
+                  : "+972501234567 or @you"
             }
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}

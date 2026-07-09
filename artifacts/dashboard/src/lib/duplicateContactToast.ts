@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api";
 type ToastFn = ReturnType<typeof useToast>["toast"];
 
 /**
- * Friendly 409 handling for duplicate phone / Telegram handle.
+ * Friendly 409 handling for duplicate phone / Telegram handle / LinkedIn URL.
  * Returns true when the error was a known duplicate (toast shown).
  */
 export function toastDuplicateContactError(
@@ -25,6 +25,14 @@ export function toastDuplicateContactError(
       title: "Already in your list",
       description:
         "A contact with this Telegram handle is already saved. Check Contacts or Today.",
+    });
+    return true;
+  }
+  if (apiCode === "duplicate_linkedin_url") {
+    toast({
+      title: "Already in your list",
+      description:
+        "A contact with this LinkedIn profile is already saved. Check Contacts or Today.",
     });
     return true;
   }

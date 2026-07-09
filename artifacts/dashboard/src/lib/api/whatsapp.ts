@@ -26,13 +26,19 @@ export function getTelegramLink(prospectId: string): Promise<WhatsappLinkRespons
   );
 }
 
+export function getLinkedinLink(prospectId: string): Promise<WhatsappLinkResponse> {
+  return apiFetch<WhatsappLinkResponse>(
+    `/api/prospects/${prospectId}/linkedin-link`,
+  );
+}
+
 export function getChannelLink(
   prospectId: string,
-  channel: "whatsapp" | "telegram",
+  channel: SendIntentChannel,
 ): Promise<WhatsappLinkResponse> {
-  return channel === "telegram"
-    ? getTelegramLink(prospectId)
-    : getWhatsappLink(prospectId);
+  if (channel === "telegram") return getTelegramLink(prospectId);
+  if (channel === "linkedin") return getLinkedinLink(prospectId);
+  return getWhatsappLink(prospectId);
 }
 
 // F-A: LinkedIn added — clipboard-only send, same intent-recording flow.

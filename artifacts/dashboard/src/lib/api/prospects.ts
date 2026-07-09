@@ -192,6 +192,7 @@ export interface ProspectListItem {
   language: string | null;
   phone: string | null;
   telegramHandle: string | null;
+  linkedinUrl: string | null;
   phoneRevealStatus: string;
   /** Full message body. Null if generation hasn't run yet (e.g., for
    *  phone-pending prospects) or it failed. Used by the prospects-list

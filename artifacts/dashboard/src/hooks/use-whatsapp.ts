@@ -5,6 +5,7 @@ import {
   getWhatsappLink,
   recordSendIntent,
   type WhatsappLinkResponse,
+  type SendIntentChannel,
   type SendIntentInput,
 } from "@/lib/api/whatsapp";
 
@@ -24,7 +25,7 @@ export function useChannelLink() {
   return useMutation<
     WhatsappLinkResponse,
     ApiError,
-    { prospectId: string; channel: "whatsapp" | "telegram" }
+    { prospectId: string; channel: SendIntentChannel }
   >({
     mutationFn: ({ prospectId, channel }) => getChannelLink(prospectId, channel),
   });

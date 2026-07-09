@@ -47,6 +47,7 @@ import {
 import { requireAuth } from "../middlewares/auth";
 import { uniqueViolationCode } from "../lib/dbErrors";
 import { detectCountry } from "../lib/geoGate";
+import { canonicalizeLinkedinUrl } from "../services/channels/linkedin";
 
 const router: IRouter = Router();
 
@@ -341,7 +342,25 @@ const baseProspectFields = {
     .nullable()
     .optional(),
   telegramHandle: z.string().trim().min(1).max(100).nullable().optional(),
-  linkedinUrl: z.string().trim().url().nullable().optional(),
+  // Host-restricted: a bare .url() accepted any origin, and this value is later
+  // fed to a server-side res.redirect(302) (followupOpen.ts) + window.open() —
+  // an arbitrary host is an open-redirect gadget on the trusted origin (audit
+  // S1). Require linkedin.com. canonicalizeLinkedinUrl enforces this again at
+  // read time as defense-in-depth.
+  linkedinUrl: z
+    .string()
+    .trim()
+    .url()
+    .refine((u) => {
+      try {
+        const h = new URL(u).hostname.toLowerCase();
+        return h === "linkedin.com" || h.endsWith(".linkedin.com");
+      } catch {
+        return false;
+      }
+    }, "linkedinUrl must be a linkedin.com URL")
+    .nullable()
+    .optional(),
   apolloPersonId: z.string().trim().min(1).max(200).nullable().optional(),
   apolloOrgId: z.string().trim().min(1).max(200).nullable().optional(),
   contextNotes: z.string().trim().max(5000).nullable().optional(),
@@ -1107,7 +1126,7 @@ router.post(
 // 5-10s LLM wait on the form) and avoids new wiring against
 // classification code paths that have drifted since the 2.2 work.
 
-const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
+const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 
 const TICKERS = ["web", "mobile"] as const;
 type Ticker = (typeof TICKERS)[number];
@@ -1128,15 +1147,42 @@ type Ticker = (typeof TICKERS)[number];
 // leading letter rejects those as invalid_identifier.
 const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 
+// F-A: LinkedIn manual-ingest identifier. Accepts a full profile URL, an
+// "/in/<slug>" path, or a bare slug/handle — the same shapes the
+// test-channel-link route accepts. Unlike WhatsApp/Telegram, LinkedIn keys
+// off `prospects.linkedin_url` (clipboard-only: no prefilled deep link), so we
+// normalize every accepted shape to a canonical profile URL for storage AND
+// for the partial-unique dedupe index (prospects_user_linkedin_unique). Returns
+// null when the identifier matches none of the accepted shapes.
+function normalizeLinkedinIdentifier(raw: string): string | null {
+  const id = raw.trim();
+  const looksValid =
+    // Full or scheme-less linkedin.com URL, "/in/<slug>" path, or bare slug/
+    // @handle. Kept in sync with the FE hint validators (linkedinLooksValid in
+    // AddManualContactDialog.tsx / BulkPreviewGrid.tsx) so the client never
+    // greenlights a shape the server rejects.
+    /^(https?:\/\/)?([\w-]+\.)*linkedin\.com\//i.test(id) ||
+    /^\/?in\/[\w%-]+\/?$/i.test(id) ||
+    /^@?[a-zA-Z0-9][\w-]{2,99}$/.test(id);
+  if (!looksValid) return null;
+  // canonicalizeLinkedinUrl trims, wraps bare slugs/paths, enforces the
+  // linkedin.com host, and collapses cosmetic variants (case, trailing slash,
+  // query params) to ONE string so the dedupe index actually dedupes. Returns
+  // null for anything that isn't a resolvable linkedin.com URL.
+  return canonicalizeLinkedinUrl(id);
+}
+
 const manualIngestBodySchema = z
   .object({
     channel: z.enum(MANUAL_INGEST_CHANNELS),
     firstName: z.string().trim().min(1).max(100),
     // The "phone" field carries the identifier. For WhatsApp it must be
-    // E.164. For Telegram it can be either E.164 or a @handle. Format
-    // validation happens per-channel in the handler so we can route to
-    // the right storage column and return channel-appropriate errors.
-    phone: z.string().trim().min(1).max(64),
+    // E.164. For Telegram it can be either E.164 or a @handle. For LinkedIn
+    // it's a profile URL. Format validation happens per-channel in the
+    // handler so we can route to the right storage column and return
+    // channel-appropriate errors. Cap is generous (300) to fit LinkedIn
+    // profile URLs; the per-channel regexes bound phones/handles far tighter.
+    phone: z.string().trim().min(1).max(300),
     company: z.string().trim().min(1).max(200),
     ticker: z.enum(TICKERS),
     prePlatformContext: z.string().trim().max(5000).nullable().optional(),
@@ -1197,6 +1243,7 @@ router.post(
     // Telegram + @handle input: telegram_handle column.
     let phoneToStore: string | null = null;
     let handleToStore: string | null = null;
+    let linkedinUrlToStore: string | null = null;
     let country: string | null = null;
     const identifier = body.phone;
 
@@ -1211,6 +1258,20 @@ router.post(
       }
       phoneToStore = identifier;
       country = detectCountry(identifier) ?? null;
+    } else if (body.channel === "linkedin") {
+      // F-A: LinkedIn keys off linkedin_url, not phone. No country is derived
+      // (a profile URL carries no dialing code).
+      const normalized = normalizeLinkedinIdentifier(identifier);
+      if (normalized === null) {
+        res.status(400).json({
+          error: "invalid_body",
+          detail:
+            "Use a LinkedIn profile URL or handle, e.g. 'https://www.linkedin.com/in/yourname'.",
+          path: ["phone"],
+        });
+        return;
+      }
+      linkedinUrlToStore = normalized;
     } else {
       // channel === "telegram"
       if (PHONE_RE.test(identifier)) {
@@ -1261,12 +1322,39 @@ router.post(
       }
     }
 
+    // LinkedIn-path dedupe. Unlike the phone path (covered by the
+    // onConflictDoNothing target below), a linkedin_url conflict raises 23505 on
+    // prospects_user_linkedin_unique, which onConflictDoNothing (targeting phone)
+    // would NOT swallow — it would escape as an unhandled 500. Pre-check here so
+    // duplicates return a clean 409, matching the telegram-handle path.
+    if (linkedinUrlToStore !== null) {
+      const existingByLinkedin = await db
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, user.id),
+            eq(prospectsTable.linkedinUrl, linkedinUrlToStore),
+          ),
+        )
+        .limit(1);
+      if (existingByLinkedin.length > 0) {
+        res.status(409).json({
+          error: "duplicate_linkedin_url",
+          detail:
+            "A prospect with this LinkedIn profile already exists for this user.",
+        });
+        return;
+      }
+    }
+
     const inserted = await db
       .insert(prospectsTable)
       .values({
         userId: user.id,
         phone: phoneToStore,
         telegramHandle: handleToStore,
+        linkedinUrl: linkedinUrlToStore,
         sourceMode: "manual",
         prospectName: body.firstName,
         company: body.company,
@@ -1304,7 +1392,12 @@ router.post(
         metadata: {
           channel: body.channel,
           ticker: body.ticker,
-          identifierKind: handleToStore !== null ? "telegram_handle" : "phone",
+          identifierKind:
+            linkedinUrlToStore !== null
+              ? "linkedin_url"
+              : handleToStore !== null
+                ? "telegram_handle"
+                : "phone",
           hasPrePlatformContext: !!body.prePlatformContext,
           country: country ?? null,
         },
@@ -1491,8 +1584,8 @@ const manualIngestBulkBodySchema = z
             firstName: z.string().trim().min(1).max(100).optional(),
             // Identifier — per-row format validation runs in the handler,
             // same as the single-ingest endpoint. Outer Zod just enforces
-            // presence and a generous length cap.
-            phone: z.string().trim().min(1).max(64),
+            // presence and a generous length cap (300, to fit LinkedIn URLs).
+            phone: z.string().trim().min(1).max(300),
             // F-E: company/ticker optional per row — resolved from the
             // batch-level defaults above when a row omits them.
             company: z.string().trim().min(1).max(200).optional(),
@@ -1578,6 +1671,7 @@ router.post(
 
       let phoneToStore: string | null = null;
       let handleToStore: string | null = null;
+      let linkedinUrlToStore: string | null = null;
       let country: string | null = null;
 
       if (body.channel === "whatsapp") {
@@ -1592,6 +1686,20 @@ router.post(
         }
         phoneToStore = identifier;
         country = detectCountry(identifier) ?? null;
+      } else if (body.channel === "linkedin") {
+        // F-A: LinkedIn keys off linkedin_url (clipboard-only, no dialing code).
+        const normalized = normalizeLinkedinIdentifier(identifier);
+        if (normalized === null) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "invalid_identifier",
+            detail:
+              "Use a LinkedIn profile URL or handle, e.g. 'https://www.linkedin.com/in/yourname'.",
+          });
+          continue;
+        }
+        linkedinUrlToStore = normalized;
       } else {
         // channel === "telegram"
         if (PHONE_RE.test(identifier)) {
@@ -1643,6 +1751,33 @@ router.post(
         }
       }
 
+      // LinkedIn-path dedupe pre-check. Mirrors the telegram-handle path:
+      // sequential processing makes this also catch within-batch duplicates,
+      // and it gives a clean duplicate_linkedin_url instead of leaning on the
+      // 23505 catch below (which is the backstop for concurrent-request races).
+      if (linkedinUrlToStore !== null) {
+        const existingByLinkedin = await db
+          .select({ id: prospectsTable.id })
+          .from(prospectsTable)
+          .where(
+            and(
+              eq(prospectsTable.userId, user.id),
+              eq(prospectsTable.linkedinUrl, linkedinUrlToStore),
+            ),
+          )
+          .limit(1);
+        if (existingByLinkedin.length > 0) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "duplicate_linkedin_url",
+            detail:
+              "A prospect with this LinkedIn profile already exists for this user.",
+          });
+          continue;
+        }
+      }
+
       try {
         const insertedRows = await db
           .insert(prospectsTable)
@@ -1650,6 +1785,7 @@ router.post(
             userId: user.id,
             phone: phoneToStore,
             telegramHandle: handleToStore,
+            linkedinUrl: linkedinUrlToStore,
             sourceMode: "manual",
             prospectName: row.firstName ?? null,
             company: companyToStore,
@@ -1694,7 +1830,11 @@ router.post(
               channel: body.channel,
               ticker: tickerToStore,
               identifierKind:
-                handleToStore !== null ? "telegram_handle" : "phone",
+                linkedinUrlToStore !== null
+                  ? "linkedin_url"
+                  : handleToStore !== null
+                    ? "telegram_handle"
+                    : "phone",
               hasPrePlatformContext: !!row.prePlatformContext,
               country: country ?? null,
               viaBulk: true,

@@ -8,12 +8,18 @@
  * The toggle state is a string array of channel slugs currently enabled
  * for manual ingest. Empty array means manual ingest is off everywhere.
  *
- * Channel scope this ticket: WhatsApp only. Telegram support lands in
- * ticket-2-9 once the t.me identifier-shape decision resolves.
+ * Channels: WhatsApp (phone), Telegram (phone or @handle), and LinkedIn
+ * (profile URL — clipboard-only, keyed off linkedin_url). The `phone` field
+ * on the create/bulk shapes carries the identifier for every channel; the BE
+ * routes it to the right storage column per channel.
  */
 import { apiFetch } from "@/lib/api";
 
-export const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
+export const MANUAL_INGEST_CHANNELS = [
+  "whatsapp",
+  "telegram",
+  "linkedin",
+] as const;
 export type ManualIngestChannel = (typeof MANUAL_INGEST_CHANNELS)[number];
 
 export const TICKERS = ["web", "mobile"] as const;
@@ -122,6 +128,8 @@ export type ManualIngestBulkErrorCode =
   | "invalid_identifier"
   | "duplicate_phone"
   | "duplicate_telegram_handle"
+  | "duplicate_linkedin_url"
+  | "missing_company_product"
   | "insert_failed";
 
 export interface ManualIngestBulkRejectedRow {

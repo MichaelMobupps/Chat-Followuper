@@ -727,3 +727,92 @@ Full finding-by-finding ledger + triage + per-batch fix log: **`godlike-audit/PA
 codebase cannot reach 3-consecutive-clean-round convergence in one session, and the deferred residuals
 above are honest open items. **Confidence in the applied fixes: high** — each verified against source,
 full-workspace build-green + db-tests-green after every batch, low blast radius throughout.
+
+---
+
+## Feature audit — LinkedIn in manual ingest (scoped) — 2026-07-09
+
+**Scope:** the LinkedIn-in-manual-ingest change (12 files: `routes/prospects.ts`,
+`routes/testChannelLink.ts`, `services/channels/linkedin.ts`, + 9 dashboard files).
+Method: 4 parallel read-only auditors (correctness / security / blast-radius / FE-UX),
+triple-framed, each finding carrying severity + blast radius + fix + confidence, then
+serial auto-fix with a typecheck probe after each batch. Both packages typecheck-green.
+
+### Findings & disposition
+- **C1** [Med-High] FIXED — `channels/linkedin.ts` `generateLink` did NO canonicalization →
+  trailing-slash / `?trk=` query / case / locale-subdomain (`il.linkedin.com`) variants
+  each stored a distinct `linkedin_url`, defeating `prospects_user_linkedin_unique` →
+  **duplicate prospect + double outreach**. New `canonicalizeLinkedinUrl()` collapses all
+  cosmetic variants to one string (verified: 11 variants → 1 canonical). Blast: all linkedin
+  ingest, single + bulk + within-batch. Conf: High.
+- **C2** [Med] FIXED — `/in/<slug>/` round-tripped to a broken `…/in/slug%2F`; a pre-encoded
+  slug double-encoded. Canonicalizer strips trailing slash + decode-then-encode (idempotent).
+- **S1** [Med] FIXED — `generateLink` returned any `https?://` verbatim and generic
+  `PATCH /prospects` `linkedinUrl:.url()` accepted any host; that value flows to a server-side
+  `res.redirect(302)` (`followupOpen.ts:126`) + `window.open` → **open-redirect on trusted
+  origin**. Fix: canonicalizer enforces linkedin.com host (non-linkedin → null → safe
+  fallback); schema `.refine()` restricts host at the write door. Verified: `linkedin.com.evil.com`,
+  `linkedin.com@evil.com`, `evil.linkedin.com.attacker.com` all → null. Conf: High.
+- **U1** [Low-Med] FIXED — bulk grid placeholder `linkedin.com/in/yaronk` was itself an invalid
+  value; resolved by U3 (scheme-less now accepted).
+- **U2** [Low-Med] FIXED — LinkedIn headerless-CSV detection used a loose slug regex → a
+  non-aliased header row imported as junk data. Now requires a URL/path shape
+  (`linkedinLooksLikeUrl`).
+- **U3** [Low] FIXED — scheme-less `linkedin.com/in/x` (common paste) was rejected; FE+BE
+  validators now accept optional scheme. Added `maxLength=300` to the single-add input to
+  match the BE cap (was FE-valid / BE-400 at >300).
+
+### Verified SAFE (no action)
+Subdomain regex not bypassable; no XSS (linkedin_url rendered as escaped text only); no IDOR
+(dedupe SELECT + insert userId-scoped); no ReDoS; 64→300 cap safe (text columns, regex-gated);
+enum widening additive; downstream (computeProspectStatus / manualContactPrepare / followup
+scheduler / digest due-queries / list filter) already LinkedIn-aware.
+
+### Deferred (separate surface — NOT auto-fixed)
+- **P1** [Med] The general Prospects **list/detail** pages (`ProspectsListTable.tsx`,
+  `prospect-detail.tsx`) hardcode wa/telegram → a linkedin prospect shows a dead disabled
+  "Open (linkedin)" button. NOT a clean mirror: needs a new `GET /prospects/:id/linkedin-link`
+  BE endpoint (none exists) + `getChannelLink` wiring + clipboard-copy branches on both pages.
+  Different surface from the Contacts "menu" this change targeted; LinkedIn contacts remain
+  fully sendable from **Contacts** and **Today**. Awaiting product go-ahead.
+
+**Confidence: high** on the applied fixes (canonicalizer unit-verified for dedup/security/
+idempotency; both packages typecheck-green). Low blast radius. P1 is the one honest open item.
+
+---
+
+## P1 follow-up — LinkedIn "Open" on Prospects list/detail + audit — 2026-07-09
+
+**Change:** new BE `GET /prospects/:id/linkedin-link` (mirrors telegram-link) + FE
+`getLinkedinLink`/`getChannelLink` wiring + LinkedIn send on prospect-detail and the
+prospects-list ActionButton. Method: 2 parallel read-only auditors (correctness+blast-radius,
+security+UX-parity). Both packages typecheck-green.
+
+### Findings & disposition
+- **P1-F1** [High] FIXED — prospect-detail.tsx has its OWN frontend `computeStatus` that was
+  never made LinkedIn-aware (`!p.phone && !p.telegramHandle → "phone-pending"`), so a linkedin
+  prospect could never reach `"ready"` → the new "Open LinkedIn" button never rendered AND the
+  badge wrongly read "Phone pending", while the LIST (server status) worked. Half-wired
+  inconsistency. Fix: added `&& !p.linkedinUrl`, mirroring the BE computeProspectStatus. Conf: High.
+- **P1-F2** [Med] FIXED (scope-adjacent) — seeder.tsx `handleOpenInChannel` still hardcoded
+  telegram/whatsapp → a linkedin prospect was mis-routed to a WhatsApp deep link AND recorded a
+  **whatsapp send-intent for a linkedin prospect** (corrupt analytics, à la the original CH3), and
+  linkedin's non-prefill link opened an empty composer with no clipboard copy. Fix: linkedin-aware
+  channel + clipboard-copy of the message + correct label. Now all four "open in channel"
+  surfaces (contacts/today/detail/list) + seeder are consistent.
+- **P1-F3** [Low] NOT FIXED (parity, not a regression) — `no_linkedin_identifier`/
+  `no_message_generated` 409s surface as raw error codes in the toast, identical to the existing
+  `no_telegram_identifier` handling and unreachable on the happy path (button only renders when
+  server status is "ready"). Left as pre-existing UX debt.
+
+### Verified SAFE
+New endpoint is requireAuth + userId-scoped (no cross-tenant linkedin_url/body read; 404 on
+foreign id); returned url host-enforced via canonicalizeLinkedinUrl (poisoned linkedin_url →
+linkedin.com fallback, not off-origin/js:); url/body only reach window.open + clipboard (no XSS);
+getChannelLink/useChannelLink type widening is a pure superset — every caller (seeder, detail,
+list) still assignable, no exhaustiveness gap; route is mounted (routes/index.ts → /api).
+Post-fix sweep: zero remaining `=== "telegram" ? … : "whatsapp"` defaults or `linkedinUrl`-omitting
+status checks in the dashboard.
+
+**Confidence: high.** Both packages typecheck-green. The one High (dead detail button) is fixed
+and re-swept.
