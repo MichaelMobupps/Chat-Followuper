@@ -434,8 +434,17 @@ function detectUngroundedClaims(
   // flagged as a hallucination every iteration, burning the whole heal loop
   // (validateVolumeFormat explicitly permits comma-formatted volumes). Applied
   // identically to grounded text and draft, so membership stays consistent.
+  // Round-3 (bench 2026-07-09): also collapse DOT-thousands ("1.081" in
+  // tr/de/pt/es locales) and apostrophe-thousands ("1'081"). The dot is
+  // ambiguous with decimals, so only a dot followed by EXACTLY 3 digits is
+  // treated as a separator ("1.200" → 1200) while "12.5" stays a decimal.
+  // Without this, a writer formatting numbers correctly for its locale got
+  // flagged as hallucinating (\`081\` extracted from "1.081"), burning the
+  // whole heal loop — the single biggest Turkish score killer in the bench.
   const collapseThousands = (s: string): string =>
-    s.replace(/(?<=\d)[,\u00A0 ](?=\d)/g, "");
+    s
+      .replace(/(?<=\d)[,\u00A0\u202F '\u2019](?=\d)/g, "")
+      .replace(/(?<=\d)\.(?=\d{3}(?!\d))/g, "");
   const numericTokenRe = /\d+(?:\.\d+)?/g;
   const groundedNums = new Set<string>(
     collapseThousands(groundText).match(numericTokenRe) ?? [],
@@ -886,12 +895,16 @@ async function rewriteDraft(
   }
 
   const parsed = parseJsonResponse(result.text);
-  if (!parsed.subject || !parsed.message) {
-    throw new Error("Rewrite missing subject or message");
+  if (!parsed.message) {
+    throw new Error("Rewrite missing message");
   }
 
   return {
-    rewrite: { subject: String(parsed.subject), message: String(parsed.message) },
+    // Blast-radius hardening (round 3): the rewriter no longer SEES the old
+    // subject (it was contaminating critiques), so a small model may omit
+    // the internal tag. A missing subject must not discard a good rewrite —
+    // carry the prior draft's tag forward instead of throwing.
+    rewrite: { subject: String(parsed.subject || draft.subject), message: String(parsed.message) },
     cost,
     model: result.model,
   };

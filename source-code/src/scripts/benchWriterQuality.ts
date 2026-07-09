@@ -70,7 +70,7 @@ const LANGS: Array<{ lang: string; country: string; name: string; company: strin
   { lang: "uk", country: "Ukraine", name: "Оксана", company: "ShvydkoShop", peers: ["Rozetka", "Prom.ua"], script: /[Ѐ-ӿ]/ },
   { lang: "he", country: "Israel", name: "נועה", company: "קניון אונליין", peers: ["Wolt Market", "KSP"], script: /[֐-׿]/ },
   { lang: "ar", country: "United Arab Emirates", name: "خالد", company: "سوق الخليج", peers: ["Noon", "Amazon.ae"], script: /[؀-ۿ]/ },
-  { lang: "fa", country: "Tajikistan", name: "Roya", company: "BazarTez", peers: ["Digikala", "Snapp Market"], script: /[؀-ۿ]/ },
+  { lang: "fa", country: "Tajikistan", name: "Roya", company: "BazarTez", peers: ["Somon.tj", "Alif Shop"], script: /[؀-ۿ]/ },
   { lang: "tr", country: "Turkey", name: "Emre", company: "HızlıPazar", peers: ["Hepsiburada", "Trendyol"] },
   { lang: "hi", country: "India", name: "Priya", company: "BazaarPlus", peers: ["Flipkart", "Meesho"], script: /[ऀ-ॿ]/ },
   { lang: "bn", country: "Bangladesh", name: "Anika", company: "DhakaBazar", peers: ["Daraz", "Chaldal"], script: new RegExp("[\u0980-\u09FF]") },
@@ -310,10 +310,13 @@ async function pool<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): 
 }
 
 async function main(): Promise<void> {
+  // Targeted mode: BENCH_ONLY="id1,id2" runs a subset (round-3 re-tests).
+  const only = (process.env.BENCH_ONLY || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const cases = only.length ? CASES.filter((c) => only.includes(c.id)) : CASES;
   console.log(`[bench] writer model under test: ${GEMINI_DEFAULT_MODEL}`);
-  console.log(`[bench] ${CASES.length} cases, concurrency 3`);
+  console.log(`[bench] ${cases.length} cases, concurrency 3`);
 
-  const results = await pool(CASES, 3, runCase);
+  const results = await pool(cases, 3, runCase);
 
   const done = results.filter((r) => !r.error);
   const avgScore = done.reduce((a, r) => a + (r.score ?? 0), 0) / Math.max(1, done.length);
