@@ -95,6 +95,13 @@ Done after the audit-2 fix batches (all green; commits on `audit/godlike-fixes`)
 ## IN PROGRESS / OPEN
 
 ### 1. Production DB migration  ← the thing interrupted by the SSH drop (2026-07-04 ~18:11)
+> **UPDATED 2026-07-09 (session 10):** `prod-bring-to-head.sql` was REGENERATED to carry prod all
+> the way to dev head **0017** (was stale at 0015). It now (a) folds in **0016** — drops the dormant
+> Teams/Slack columns + uniques, (b) folds in **0017** — adds the LinkedIn per-user dedup unique, and
+> (c) NO LONGER creates the teams/slack uniques (0016 removes them anyway). Re-validated by running it
+> inside a `BEGIN…ROLLBACK` txn against dev head: every statement a clean no-op, psql exit 0, zero net
+> change. **Still blocked on the user** to paste it into the Replit SQL Console (prod is unreachable
+> from this workspace — `DATABASE_URL` is the dev heliumdb).
 - **Why:** Replit's auto-generated deploy migration fails — its `action_logs_weekly_digest_week_uq`
   index used the wrong operator class (`text_ops` on a `uuid` column) → deploy rejected. So prod is
   behind dev and can't self-heal via Republish until that one statement is applied correctly by hand.

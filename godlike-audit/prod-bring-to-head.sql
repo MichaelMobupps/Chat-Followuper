@@ -1,9 +1,20 @@
 -- ===========================================================================
--- Bring PRODUCTION up to date, correctly.
+-- Bring PRODUCTION up to date, correctly.  (UPDATED 2026-07-09)
+-- ---------------------------------------------------------------------------
+-- ⚠ CHANGED since the 2026-07-04 version: this now carries prod all the way to
+--   migration **0017** (dev head). The two migrations added after the SSH drop:
+--     * 0016 — DROP the dormant Teams/Slack columns + their partial-unique
+--              indexes (F-C removed those channels; columns are unreferenced).
+--     * 0017 — ADD the LinkedIn per-user dedup partial-unique index.
+--   Because 0016 drops the Teams/Slack uniques, this script NO LONGER creates
+--   them (the old version did, only for 0016 to drop them — wasteful). Net end
+--   state = dev head: apollo/telegram/LINKEDIN uniques present; teams/slack
+--   uniques + the 4 dormant columns GONE.
 -- ---------------------------------------------------------------------------
 -- ⚠ RUN ORDER (B4): this script builds UNIQUE indexes (0013 identity uniques,
---   0014 weekly-digest unique). If prod already has DUPLICATE rows on those
---   keys, the CREATE UNIQUE INDEX statements FAIL. Run these FIRST, in order:
+--   0014 weekly-digest unique, 0017 linkedin unique). If prod already has
+--   DUPLICATE rows on those keys, the CREATE UNIQUE INDEX statements FAIL. Run
+--   these FIRST, in order:
 --     1. prod-state-check.sql                      (read-only; what exists)
 --     2. prod-migration-fix.sql                    (removes duplicate rows)
 --     3. prod-cancel-legacy-channel-followups.sql  (audit-2 F4/D2 zombie rows)
@@ -47,14 +58,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS "followups_prospect_channel_stage_unique"
   ON "followups" ("prospect_id","channel","stage");
 
 -- Prospect identity uniqueness (per user) --------------------------------
+-- (0013 apollo/telegram + 0017 linkedin. Teams/Slack uniques are intentionally
+--  NOT created here — 0016 below removes them.)
 CREATE UNIQUE INDEX IF NOT EXISTS "prospects_user_apollo_person_unique"
   ON "prospects" ("user_id","apollo_person_id") WHERE "apollo_person_id" IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS "prospects_user_slack_unique"
-  ON "prospects" ("user_id","slack_user_id")   WHERE "slack_user_id"   IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS "prospects_user_teams_unique"
-  ON "prospects" ("user_id","teams_email")     WHERE "teams_email"     IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS "prospects_user_telegram_unique"
   ON "prospects" ("user_id","telegram_handle") WHERE "telegram_handle" IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "prospects_user_linkedin_unique"
+  ON "prospects" ("user_id","linkedin_url")    WHERE "linkedin_url"    IS NOT NULL;
 
 -- Weekly-digest uniqueness -- THE STATEMENT REPLIT GOT WRONG.
 -- Correct version: no operator classes, so Postgres uses the right ones for
@@ -63,5 +74,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS "action_logs_weekly_digest_week_uq"
   ON "action_logs" ("user_id", ("metadata" ->> 'weekKey'))
   WHERE "action_type" = 'digest.weekly_sent' AND ("metadata" ->> 'weekKey') IS NOT NULL;
 
--- Drop the dead, unused table --------------------------------------------
+-- Drop the dead, unused table (0015) -------------------------------------
 DROP TABLE IF EXISTS "magic_link_tokens" CASCADE;
+
+-- 0016 — drop dormant Teams/Slack columns + indexes ----------------------
+-- F-C removed the Teams/Slack channels; these have zero code references now.
+-- (Drops run AFTER the identity block above, which no longer recreates them.)
+DROP INDEX IF EXISTS "prospects_user_teams_unique";
+DROP INDEX IF EXISTS "prospects_user_slack_unique";
+ALTER TABLE "users"     DROP COLUMN IF EXISTS "microsoft_refresh_token";
+ALTER TABLE "users"     DROP COLUMN IF EXISTS "slack_bot_token";
+ALTER TABLE "prospects" DROP COLUMN IF EXISTS "teams_email";
+ALTER TABLE "prospects" DROP COLUMN IF EXISTS "slack_user_id";
