@@ -3,12 +3,12 @@
  * stage of the writer → critic → lint chain, with provider fallback and
  * prompt caching baked in.
  *
- * POLICY (user-specified, 2026-07):
+ * POLICY (user-specified, 2026-07; fallback chain added 2026-07-09):
  *
- *   ROLE     DEFAULT             GREY-AREA VERTICALS    GEMINI 503 / NO KEY
- *   writer   gemini-3.5-flash    claude-sonnet-4-6      claude-sonnet-4-6
+ *   ROLE     DEFAULT             GREY-AREA VERTICALS    ON FAILURE (per call)
+ *   writer   gemini-3.5-flash    claude-sonnet-4-6      → gemini-3-flash-preview → claude-sonnet-4-6
  *   critic   claude-sonnet-5     claude-sonnet-5        (Anthropic-only role)
- *   lint     gemini-3.5-flash    gemini-3.5-flash†      claude-sonnet-4-6
+ *   lint     gemini-3.5-flash    gemini-3.5-flash†      → gemini-3-flash-preview → claude-sonnet-4-6
  *
  * Grey-area verticals = casino/gambling, sports betting, crypto, forex —
  * Sonnet 4.6 writes those natively per policy. †The lint/rewrite stage keeps
@@ -24,12 +24,13 @@
  * The fallback itself runs through withAnthropicRetry, so "Gemini down +
  * one Anthropic blip" still produces a message.
  *
- * CIRCUIT BREAKER: after LLM_GEMINI_BREAKER_THRESHOLD (default 3) consecutive
- * INFRA failures (capacity/timeout/network — NOT content safety blocks) the
- * breaker opens for LLM_GEMINI_BREAKER_COOLDOWN_MS (default 60s): Gemini is
- * skipped entirely and writer/lint route straight to Anthropic. One success
- * closes it. This keeps generation fast during a Gemini outage instead of
- * paying a dead round-trip per call across the healing loop.
+ * CIRCUIT BREAKER (per Gemini model): after LLM_GEMINI_BREAKER_THRESHOLD
+ * (default 3) consecutive INFRA failures (capacity/timeout/network — NOT
+ * content safety blocks) that model's breaker opens for
+ * LLM_GEMINI_BREAKER_COOLDOWN_MS (default 60s) and the chain skips it without
+ * probing. One success closes it. Per-model state matters: a permanently
+ * unprovisioned primary (3.5-flash 503ing on this key) must not blind the
+ * chain to the healthy 3-flash-preview tier.
  *
  * CACHING:
  *   - Anthropic calls send `system` as a content-block array with
@@ -60,6 +61,15 @@ import { logger } from "../logger";
 // ─────────────────────────────────────────────────────────────────
 
 export const GEMINI_DEFAULT_MODEL = process.env.LLM_GEMINI_MODEL || "gemini-3.5-flash";
+// USER DECISION (2026-07-09): keep 3.5-flash as the default, but chain through
+// a cheaper same-provider sibling before paying Anthropic prices —
+//   gemini-3.5-flash → gemini-3-flash-preview → claude-sonnet-4-6.
+// gemini-3-flash-preview was live-probed HTTP 200 on this key ($0.50/$3 per
+// MTok) while 3.5-flash 503s (not provisioned on the key's tier), so today the
+// chain lands writers on 3-flash-preview; the moment Google serves 3.5-flash,
+// the primary takes over automatically.
+export const GEMINI_FALLBACK_MODEL =
+  process.env.LLM_GEMINI_FALLBACK_MODEL || "gemini-3-flash-preview";
 export const ANTHROPIC_FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "claude-sonnet-4-6";
 export const CRITIC_MODEL = process.env.LLM_CRITIC_MODEL || "claude-sonnet-5";
 
@@ -199,36 +209,54 @@ function geminiDisabled(): string | null {
 const BREAKER_THRESHOLD = Number(process.env.LLM_GEMINI_BREAKER_THRESHOLD) || 3;
 const BREAKER_COOLDOWN_MS = Number(process.env.LLM_GEMINI_BREAKER_COOLDOWN_MS) || 60_000;
 
-let geminiConsecutiveFailures = 0;
-let geminiBreakerOpenUntil = 0;
-
-function geminiBreakerOpen(): boolean {
-  return Date.now() < geminiBreakerOpenUntil;
+// PER-MODEL breaker state (the writer/lint chain now spans two Gemini
+// models): a permanently-503ing primary must not poison the healthy
+// fallback tier — its breaker opens independently and the chain skips
+// straight to the next tier without a dead round-trip.
+interface BreakerState {
+  consecutiveFailures: number;
+  openUntil: number;
 }
 
-function recordGeminiSuccess(): void {
-  if (geminiConsecutiveFailures > 0 || geminiBreakerOpenUntil > 0) {
-    logger.info("[llm-router] Gemini recovered — circuit breaker reset");
+const breakers = new Map<string, BreakerState>();
+
+function breakerFor(model: string): BreakerState {
+  let state = breakers.get(model);
+  if (!state) {
+    state = { consecutiveFailures: 0, openUntil: 0 };
+    breakers.set(model, state);
   }
-  geminiConsecutiveFailures = 0;
-  geminiBreakerOpenUntil = 0;
+  return state;
 }
 
-function recordGeminiInfraFailure(): void {
-  geminiConsecutiveFailures += 1;
-  if (geminiConsecutiveFailures >= BREAKER_THRESHOLD && !geminiBreakerOpen()) {
-    geminiBreakerOpenUntil = Date.now() + BREAKER_COOLDOWN_MS;
+function geminiBreakerOpen(model: string): boolean {
+  return Date.now() < breakerFor(model).openUntil;
+}
+
+function recordGeminiSuccess(model: string): void {
+  const state = breakerFor(model);
+  if (state.consecutiveFailures > 0 || state.openUntil > 0) {
+    logger.info({ model }, "[llm-router] Gemini model recovered — circuit breaker reset");
+  }
+  state.consecutiveFailures = 0;
+  state.openUntil = 0;
+}
+
+function recordGeminiInfraFailure(model: string): void {
+  const state = breakerFor(model);
+  state.consecutiveFailures += 1;
+  if (state.consecutiveFailures >= BREAKER_THRESHOLD && !geminiBreakerOpen(model)) {
+    state.openUntil = Date.now() + BREAKER_COOLDOWN_MS;
     logger.warn(
-      { failures: geminiConsecutiveFailures, cooldownMs: BREAKER_COOLDOWN_MS, fallbackModel: ANTHROPIC_FALLBACK_MODEL },
-      "[llm-router] Gemini circuit breaker OPEN — routing writer/lint straight to Anthropic during cooldown",
+      { model, failures: state.consecutiveFailures, cooldownMs: BREAKER_COOLDOWN_MS },
+      "[llm-router] Gemini model circuit breaker OPEN — skipping this tier during cooldown",
     );
   }
 }
 
 /** Test hook — reset breaker state between smoke scenarios. */
 export function __resetGeminiBreakerForTests(): void {
-  geminiConsecutiveFailures = 0;
-  geminiBreakerOpenUntil = 0;
+  breakers.clear();
 }
 
 async function callGeminiWithFallback(input: LlmCallInput): Promise<LlmCallResult> {
@@ -243,80 +271,98 @@ async function callGeminiWithFallback(input: LlmCallInput): Promise<LlmCallResul
     return { ...result, fallback: true };
   }
 
-  // Circuit breaker open — Gemini is in a known-bad window; don't pay the
-  // round-trip, go straight to Anthropic.
-  if (geminiBreakerOpen()) {
-    logger.debug(
-      { label: input.label },
-      "[llm-router] Gemini circuit breaker open — using Anthropic fallback without probing Gemini",
-    );
-    const result = await callAnthropic(ANTHROPIC_FALLBACK_MODEL, input);
-    return { ...result, fallback: true };
-  }
-
-  const attemptGemini = async (): Promise<LlmCallResult> => {
+  const attemptGemini = async (model: string): Promise<LlmCallResult> => {
     const res = await geminiGenerate({
-      model: GEMINI_DEFAULT_MODEL,
+      model,
       system: input.system,
       user: input.user,
       maxTokens: input.maxTokens,
       json: true, // every chain role outputs a JSON object
       label: input.label,
     });
-    const cost = computeCost(GEMINI_DEFAULT_MODEL, res.usage.inputTokens, res.usage.outputTokens, {
+    const cost = computeCost(model, res.usage.inputTokens, res.usage.outputTokens, {
       cachedInputTokens: res.usage.cachedInputTokens,
     });
     return {
       text: res.text,
-      model: GEMINI_DEFAULT_MODEL,
+      model,
       provider: "gemini",
-      fallback: false,
+      // fallback=true whenever the primary Gemini model didn't serve this call.
+      fallback: model !== GEMINI_DEFAULT_MODEL,
       cost,
     };
   };
 
-  const fallbackToAnthropic = async (reason: string): Promise<LlmCallResult> => {
-    logger.warn(
-      { label: input.label, reason, fallbackModel: ANTHROPIC_FALLBACK_MODEL },
-      "[llm-router] Gemini path failed — falling back to Anthropic",
-    );
-    const result = await callAnthropic(ANTHROPIC_FALLBACK_MODEL, input);
-    return { ...result, fallback: true };
-  };
+  // USER DECISION (2026-07-09): tiered chain — try the primary Gemini model,
+  // then the cheaper Gemini sibling, then Anthropic. Per-model breakers mean
+  // a hard-down primary (e.g. 3.5-flash not provisioned on this key) costs
+  // ONE probe per cooldown window while the healthy tier keeps serving.
+  const geminiTiers =
+    GEMINI_FALLBACK_MODEL && GEMINI_FALLBACK_MODEL !== GEMINI_DEFAULT_MODEL
+      ? [GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL]
+      : [GEMINI_DEFAULT_MODEL];
 
-  try {
-    const res = await attemptGemini();
-    recordGeminiSuccess();
-    return res;
-  } catch (err) {
-    // Safety blocks are content-specific (grey-vertical text tripping Gemini's
-    // filters), NOT a health signal — fall back immediately WITHOUT counting
-    // toward the breaker.
-    if (err instanceof GeminiSafetyBlockError) {
-      return fallbackToAnthropic(String(err));
+  let lastReason = "";
+  for (const model of geminiTiers) {
+    if (geminiBreakerOpen(model)) {
+      logger.debug(
+        { label: input.label, model },
+        "[llm-router] Gemini tier breaker open — skipping without probing",
+      );
+      lastReason = `breaker open for ${model}`;
+      continue;
     }
-    // Capacity (503/429) or a vanished key: infra failure → count it, fall back.
-    if (err instanceof GeminiCapacityError || err instanceof GeminiMissingKeyError) {
-      recordGeminiInfraFailure();
-      return fallbackToAnthropic(String(err));
-    }
-    // Anything else (transient network, 500, timeout, malformed response): count
-    // it ONCE for this invocation (a failed retry below must not double-count —
-    // with threshold 3 that would open the breaker after ~2 unhealthy calls),
-    // give one more Gemini attempt, then fall back.
-    recordGeminiInfraFailure();
-    logger.warn(
-      { label: input.label, err: String(err) },
-      "[llm-router] Gemini error — one retry before fallback",
-    );
+
     try {
-      const res = await attemptGemini();
-      recordGeminiSuccess();
+      const res = await attemptGemini(model);
+      recordGeminiSuccess(model);
       return res;
-    } catch (retryErr) {
-      return fallbackToAnthropic(String(retryErr));
+    } catch (err) {
+      // Safety blocks are content-specific (grey-vertical text tripping
+      // Gemini's filters), NOT a health signal — and the sibling tier shares
+      // the same provider-level filters, so don't pay another Gemini
+      // round-trip for the same content: skip straight to Anthropic. Does
+      // not count toward any breaker.
+      if (err instanceof GeminiSafetyBlockError) {
+        lastReason = String(err);
+        break;
+      }
+      // Capacity (503/429) or a vanished key: infra failure → count it
+      // against THIS tier, move to the next.
+      if (err instanceof GeminiCapacityError || err instanceof GeminiMissingKeyError) {
+        recordGeminiInfraFailure(model);
+        lastReason = String(err);
+        continue;
+      }
+      // Anything else (transient network, 500, timeout, malformed response):
+      // count it ONCE for this invocation per tier (a failed retry must not
+      // double-count — with threshold 3 that would open the breaker after ~2
+      // unhealthy calls), give this tier one more attempt, then move on.
+      recordGeminiInfraFailure(model);
+      logger.warn(
+        { label: input.label, model, err: String(err) },
+        "[llm-router] Gemini tier error — one retry before next tier",
+      );
+      try {
+        const res = await attemptGemini(model);
+        recordGeminiSuccess(model);
+        return res;
+      } catch (retryErr) {
+        if (retryErr instanceof GeminiSafetyBlockError) {
+          lastReason = String(retryErr);
+          break;
+        }
+        lastReason = String(retryErr);
+      }
     }
   }
+
+  logger.warn(
+    { label: input.label, reason: lastReason, fallbackModel: ANTHROPIC_FALLBACK_MODEL },
+    "[llm-router] All Gemini tiers failed — falling back to Anthropic",
+  );
+  const result = await callAnthropic(ANTHROPIC_FALLBACK_MODEL, input);
+  return { ...result, fallback: true };
 }
 
 // ─────────────────────────────────────────────────────────────────

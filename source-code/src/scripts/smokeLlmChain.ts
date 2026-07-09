@@ -21,7 +21,7 @@ import {
 } from "../lib/exemplars/loader";
 import { selectExemplars, buildExemplarBlock } from "../lib/exemplars/select";
 import { lookupCompetitors, buildCompetitorBlock } from "../lib/exemplars/competitors";
-import { isGreyAreaVertical, callLLMRole, GEMINI_DEFAULT_MODEL, ANTHROPIC_FALLBACK_MODEL, CRITIC_MODEL } from "../lib/llm/router";
+import { isGreyAreaVertical, callLLMRole, GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL, ANTHROPIC_FALLBACK_MODEL, CRITIC_MODEL } from "../lib/llm/router";
 import { geminiGenerate, isGeminiConfigured } from "../lib/llm/gemini";
 import { computeCost } from "../lib/pricing";
 import { generateChatMessage } from "../services/messageGenerator";
@@ -159,8 +159,7 @@ async function main(): Promise<void> {
 
   console.log("[smoke] config:", {
     geminiConfigured: isGeminiConfigured(),
-    writerDefault: GEMINI_DEFAULT_MODEL,
-    fallback: ANTHROPIC_FALLBACK_MODEL,
+    writerChain: [GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL, ANTHROPIC_FALLBACK_MODEL],
     critic: CRITIC_MODEL,
   });
 
@@ -176,33 +175,55 @@ async function main(): Promise<void> {
     assert("normal-vertical generation produced a message", normal.message.trim().length > 0, `len=${normal.message.length}`);
     assert("critic model is sonnet-5", normal.modelMetadata.criticModel === "claude-sonnet-5", normal.modelMetadata.criticModel);
 
-    // The policy is "try Gemini, fall back to Sonnet 4.6 on capacity/safety".
-    // Whether the writer SHOULD be Gemini depends on live conditions, not just
-    // the presence of a key: GEMINI_DEFAULT_MODEL can return HTTP 503 when it
-    // isn't provisioned for this key's tier (observed 2026-07-09 for
-    // gemini-3.5-flash). So probe the actual model once and assert the outcome
-    // the policy REQUIRES given that probe — a correct fallback is a PASS, not
-    // a failure — while loudly flagging that savings are inactive.
-    let geminiLiveOk = false;
-    let geminiProbeNote = "gemini not configured";
+    // The policy is a tiered chain: GEMINI_DEFAULT_MODEL →
+    // GEMINI_FALLBACK_MODEL → Anthropic. Whether the writer SHOULD be a given
+    // tier depends on live conditions, not just key presence: a model can 503
+    // when not provisioned for this key's tier (observed 2026-07-09 for
+    // gemini-3.5-flash). Probe each Gemini tier once and assert the outcome
+    // the policy REQUIRES given those probes — a correct fallback is a PASS,
+    // not a failure — while loudly flagging when the pricier Anthropic tier
+    // is doing writer duty.
+    const probeNotes: string[] = [];
+    let expectedWriter = ANTHROPIC_FALLBACK_MODEL;
     if (isGeminiConfigured()) {
-      try {
-        // maxTokens must be generous: Gemini 2.5+/3.x are thinking models and
-        // will spend a tiny budget entirely on thinking, returning empty text
-        // (finishReason=MAX_TOKENS) — a false "unusable" signal. The real chain
-        // roles run at 2048; 256 is enough to clear thinking + a short reply.
-        await geminiGenerate({ model: GEMINI_DEFAULT_MODEL, system: "Reply with the word ok.", user: "ok", maxTokens: 256, json: false, label: "preflight" });
-        geminiLiveOk = true;
-        geminiProbeNote = `${GEMINI_DEFAULT_MODEL} live (HTTP 200)`;
-      } catch (err) {
-        geminiProbeNote = `${GEMINI_DEFAULT_MODEL} unusable → ${String(err).slice(0, 120)}`;
+      const tiers = GEMINI_FALLBACK_MODEL && GEMINI_FALLBACK_MODEL !== GEMINI_DEFAULT_MODEL
+        ? [GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL]
+        : [GEMINI_DEFAULT_MODEL];
+      for (const tier of tiers) {
+        try {
+          // maxTokens must be generous: Gemini 3.x models think by default in
+          // some configs and can return empty text at tiny budgets — a false
+          // "unusable" signal. The real chain roles run at 2048.
+          await geminiGenerate({ model: tier, system: "Reply with the word ok.", user: "ok", maxTokens: 256, json: false, label: "preflight" });
+          probeNotes.push(`${tier} live (HTTP 200)`);
+          if (expectedWriter === ANTHROPIC_FALLBACK_MODEL) expectedWriter = tier;
+          break; // first servable tier is where the chain lands
+        } catch (err) {
+          probeNotes.push(`${tier} unusable → ${String(err).slice(0, 100)}`);
+        }
       }
+    } else {
+      probeNotes.push("gemini not configured");
     }
-    const expectedWriter = geminiLiveOk ? GEMINI_DEFAULT_MODEL : ANTHROPIC_FALLBACK_MODEL;
-    assert("normal writer model matches policy (given live Gemini state)", normal.modelMetadata.draftModel === expectedWriter,
-      `got ${normal.modelMetadata.draftModel}, expected ${expectedWriter} — ${geminiProbeNote}`);
-    if (isGeminiConfigured() && !geminiLiveOk) {
-      results.push(`   ⚠ COST-SAVINGS INACTIVE: ${geminiProbeNote}. Writer/lint run on ${ANTHROPIC_FALLBACK_MODEL} (pricier). Set LLM_GEMINI_MODEL to a servable model to activate.`);
+    const geminiProbeNote = probeNotes.join(" | ");
+    // Valid outcomes = the expected tier or anything DOWNSTREAM of it in the
+    // chain. The generation and the probe sample live Gemini weather at
+    // different moments — a tier that probes healthy can transiently fail
+    // during the run (observed for 3-flash-preview), and that fallback is
+    // correct policy behavior, not a routing bug. Only an off-chain model
+    // (or one UPSTREAM of a tier the probe says is dead) fails.
+    const fullChain = [GEMINI_DEFAULT_MODEL, GEMINI_FALLBACK_MODEL, ANTHROPIC_FALLBACK_MODEL];
+    const validFrom = fullChain.slice(fullChain.indexOf(expectedWriter));
+    const draftModel = normal.modelMetadata.draftModel;
+    assert("normal writer model matches policy (given live Gemini chain state)", validFrom.includes(draftModel),
+      `got ${draftModel}, expected one of [${validFrom.join(", ")}] — ${geminiProbeNote}`);
+    if (draftModel !== expectedWriter && validFrom.includes(draftModel)) {
+      results.push(`   ℹ writer landed downstream of the probed tier (${expectedWriter} → ${draftModel}) — transient tier failure during the run`);
+    }
+    if (isGeminiConfigured() && expectedWriter === ANTHROPIC_FALLBACK_MODEL) {
+      results.push(`   ⚠ COST-SAVINGS INACTIVE: no Gemini tier servable (${geminiProbeNote}). Writer/lint run on ${ANTHROPIC_FALLBACK_MODEL} (pricier).`);
+    } else if (isGeminiConfigured() && expectedWriter !== GEMINI_DEFAULT_MODEL) {
+      results.push(`   ℹ chain landed on the Gemini fallback tier: ${geminiProbeNote}`);
     }
     console.log("[smoke] normal metadata:", normal.modelMetadata, "cost=$" + normal.costEstimate.usd.toFixed(4), "| gemini:", geminiProbeNote);
 
