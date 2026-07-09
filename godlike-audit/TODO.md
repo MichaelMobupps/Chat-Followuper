@@ -118,7 +118,17 @@ Done after the audit-2 fix batches (all green; commits on `audit/godlike-fixes`)
 
 ## IN PROGRESS / OPEN
 
-### 1. Production DB migration  ← the thing interrupted by the SSH drop (2026-07-04 ~18:11)
+### 1. Production DB migration — ✅ DONE 2026-07-09 ~22:00 (verified)
+> Applied via the chunked console-safe scripts (prod-chunk-1..6.sql) after the full-file batch
+> tripped the Replit SQL driver and a read-only-mode toggle masqueraded as a lock stall
+> (prod-diagnose-locks.sql showed a clean lock table; Enable Editing was simply off).
+> **prod-verify-state.sql: 27/27 ok=true** — prod matches dev head (0018). Remaining: user
+> Republishes (auto-migration now finds nothing to do), and optionally runs
+> prod-cancel-legacy-channel-followups.sql once (F4/D2 zombie-row DATA cleanup; the app-side
+> guard already excludes those rows, so this is belt-and-suspenders).
+> Historical detail below kept for the record.
+
+### 1-historical. Production DB migration  ← the thing interrupted by the SSH drop (2026-07-04 ~18:11)
 > **UPDATED 2026-07-09 (session 10):** `prod-bring-to-head.sql` was REGENERATED to carry prod all
 > the way to dev head **0017** (was stale at 0015). It now (a) folds in **0016** — drops the dormant
 > Teams/Slack columns + uniques, (b) folds in **0017** — adds the LinkedIn per-user dedup unique, and
