@@ -129,12 +129,15 @@ cache_read_input_tokens > 0.
 - **`GEMINI_API_KEY` is now SET** — but the configured default model **`gemini-3.5-flash` returns HTTP 503**
   ("UNAVAILABLE") for this key's tier (verified 2026-07-09: probed gemini-2.5-flash→200, gemini-2.5-pro→200,
   gemini-2.0-flash→404, gemini-3.5-flash & gemini-flash-latest→503). So **cost savings are INACTIVE** — every
-  writer/lint call falls back to Sonnet 4.6 (correct, but pricier). DECISION (user, this session): **keep
-  gemini-3.5-flash as the default, make it env-overridable.** Two ways to activate savings:
-  (a) provision gemini-3.5-flash on the Google account tier, OR
-  (b) set `LLM_GEMINI_MODEL=gemini-3.1-flash-lite` (live-probed HTTP 200 on this key with the chain's real
-      request shape; $0.25/$1.50 per MTok, priced in pricing.ts). Alternate: `gemini-3-flash-preview`
-      ($0.50/$3.00, also 200). No deploy needed; documented in `.env.example`.
+  writer/lint call falls back through the chain. DECISION (user, 2026-07-09 evening — supersedes the earlier
+  env-override-only decision): **tiered writer/lint chain** `gemini-3.5-flash → gemini-3-flash-preview →
+  claude-sonnet-4-6` with PER-MODEL circuit breakers (commit below). Since 3-flash-preview is servable on
+  this key ($0.50/$3.00), **SAVINGS ARE NOW ACTIVE** — writers land on the Gemini fallback tier today and
+  will auto-upgrade to 3.5-flash the moment Google provisions it. Env knobs: LLM_GEMINI_MODEL,
+  LLM_GEMINI_FALLBACK_MODEL, LLM_FALLBACK_MODEL. Model-choice comparison (benchmarks+pricing, web-verified
+  2026-07): 3-flash-preview ≈ one generation behind 3.5-flash at 1/3 the price; 3.1-flash-lite cheaper but
+  lite-tier; Sonnet 5 intro $2/$10 ≈ 3.5-flash price at higher power (expires 2026-08-31); OpenAI minis
+  price-competitive but would need a whole new provider integration.
   ⚠ **`gemini-2.5-flash` was RETIRED by Google DURING this session** (returned 200 at ~18:45, then 404
   "no longer available" by ~19:3x — earlier smoke data showing writer→gemini-2.5-flash at $0.028/gen used
   the deprecation-window fluke). 2.5-flash-lite and 2.0-flash* are retired too. Model-availability weather
