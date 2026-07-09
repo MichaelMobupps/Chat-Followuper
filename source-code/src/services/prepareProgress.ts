@@ -15,9 +15,17 @@
  *   - worst case after a process restart the FE simply sees "no progress"
  *     and falls back to its request-in-flight spinner state.
  *
- * Keys are `${userId}:${prospectId}` so a tenant can never read another
+ * Keys are `${userId}:${scope}:${id}` so a tenant can never read another
  * tenant's progress even if a route-level ownership check regressed.
  * Entries expire after TTL_MS via lazy sweep on every read/write.
+ *
+ * Phase I generalized the store to two keyspaces sharing one Map + stage
+ * vocabulary:
+ *   - scope "prospect" — prepare-first-message runs, keyed by prospectId
+ *     (the original Phase H surface; public API unchanged).
+ *   - scope "followup" — on-demand follow-up generation
+ *     (generateAndPersistFollowupMessage), keyed by followupId. Follow-ups
+ *     skip "researching" (they reuse the persisted research brief).
  */
 
 export type PrepareStage =
@@ -27,6 +35,8 @@ export type PrepareStage =
   | "finalizing"   // persisting message + usage, building deep link
   | "ready"        // done — message available
   | "error";       // failed — `error` carries a short reason code
+
+type ProgressScope = "prospect" | "followup";
 
 export interface PrepareProgressEntry {
   stage: PrepareStage;
@@ -51,8 +61,8 @@ const TTL_MS = 15 * 60 * 1000;
 
 const progress = new Map<string, PrepareProgressEntry>();
 
-function key(userId: string, prospectId: string): string {
-  return `${userId}:${prospectId}`;
+function key(userId: string, scope: ProgressScope, id: string | number): string {
+  return `${userId}:${scope}:${id}`;
 }
 
 function sweep(): void {
@@ -62,14 +72,15 @@ function sweep(): void {
   }
 }
 
-export function setPrepareProgress(
+function setProgress(
   userId: string,
-  prospectId: string,
+  scope: ProgressScope,
+  id: string | number,
   stage: PrepareStage,
   error?: string,
 ): void {
   sweep();
-  const k = key(userId, prospectId);
+  const k = key(userId, scope, id);
   const existing = progress.get(k);
   const now = Date.now();
   progress.set(k, {
@@ -83,12 +94,49 @@ export function setPrepareProgress(
   });
 }
 
+function getProgress(
+  userId: string,
+  scope: ProgressScope,
+  id: string | number,
+): PrepareProgressEntry | null {
+  sweep();
+  return progress.get(key(userId, scope, id)) ?? null;
+}
+
+// ── Prospect scope (prepare-first-message; original Phase H API) ──
+
+export function setPrepareProgress(
+  userId: string,
+  prospectId: string,
+  stage: PrepareStage,
+  error?: string,
+): void {
+  setProgress(userId, "prospect", prospectId, stage, error);
+}
+
 export function getPrepareProgress(
   userId: string,
   prospectId: string,
 ): PrepareProgressEntry | null {
-  sweep();
-  return progress.get(key(userId, prospectId)) ?? null;
+  return getProgress(userId, "prospect", prospectId);
+}
+
+// ── Followup scope (on-demand follow-up generation; Phase I) ──
+
+export function setFollowupProgress(
+  userId: string,
+  followupId: number,
+  stage: PrepareStage,
+  error?: string,
+): void {
+  setProgress(userId, "followup", followupId, stage, error);
+}
+
+export function getFollowupProgress(
+  userId: string,
+  followupId: number,
+): PrepareProgressEntry | null {
+  return getProgress(userId, "followup", followupId);
 }
 
 /** Test hook. */

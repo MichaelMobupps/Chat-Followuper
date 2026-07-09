@@ -22,6 +22,7 @@ import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import { usageBucketDate } from "../lib/usageBucket";
 import { logger } from "../lib/logger";
+import { setFollowupProgress } from "./prepareProgress";
 
 
 function buildConversation(
@@ -110,6 +111,8 @@ export async function generateAndPersistFollowupMessage(params: {
   const { followup, prospect } = row;
 
   if (followup.generatedMessage?.trim()) {
+    // Progress (Phase I): cached message — the run is instantly done.
+    setFollowupProgress(userId, followupId, "ready");
     return { message: followup.generatedMessage, costUsd: 0 };
   }
 
@@ -181,6 +184,10 @@ export async function generateAndPersistFollowupMessage(params: {
   const variant = resolveDoctrineVariant(row.stageTiming, followup.stage);
   const variantInstruction = doctrineVariantInstruction(variant);
 
+  // Progress (Phase I): writer chain starting. No "researching" stage here —
+  // follow-ups reuse the persisted research brief (guarded above).
+  setFollowupProgress(userId, followupId, "writing");
+
   const start = Date.now();
   const generated = await generateChatMessage({
     prospect: prospectInput,
@@ -195,6 +202,9 @@ export async function generateAndPersistFollowupMessage(params: {
   });
 
   const costUsd = generated.costEstimate.usd;
+
+  // Progress (Phase I): message generated — persisting body + spend.
+  setFollowupProgress(userId, followupId, "finalizing");
 
   // DB7: user's local-day bucket so LLM spend lands in the same row the cap reads.
   const today = usageBucketDate(row.digestTimezone);
@@ -242,6 +252,9 @@ export async function generateAndPersistFollowupMessage(params: {
   } catch (err) {
     logger.warn({ err }, "followup generate: audit log failed");
   }
+
+  // Progress (Phase I): done — the FE stops polling on "ready".
+  setFollowupProgress(userId, followupId, "ready");
 
   return { message: generated.message, costUsd };
 }

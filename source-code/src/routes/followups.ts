@@ -53,6 +53,10 @@ import {
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
 import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
+import {
+  getFollowupProgress,
+  setFollowupProgress,
+} from "../services/prepareProgress";
 import { DailyLlmCapExceededError } from "../lib/llmSpendCap";
 
 const router: IRouter = Router();
@@ -532,6 +536,10 @@ router.post(
         user.email.split("@")[0] ??
         "there";
       try {
+        // Progress (Phase I): mark queued as soon as the target row is known;
+        // the service reports writing → finalizing → ready. The FE polls
+        // GET /api/followups/:id/progress while this request is in flight.
+        setFollowupProgress(user.id, next.id, "queued");
         const generated = await generateAndPersistFollowupMessage({
           followupId: next.id,
           userId: user.id,
@@ -544,8 +552,21 @@ router.post(
         // codes generateAndPersistFollowupMessage throws are safe to echo as a
         // 409; any other error is an internal fault → 500 with a generic code
         // (never echo a raw exception message as if it were an error code).
-        if (genErr instanceof DailyLlmCapExceededError) throw genErr;
+        // Progress (Phase I): terminal error state so the FE bar stops with a
+        // reason instead of polling a run that will never finish.
         const msg = genErr instanceof Error ? genErr.message : "";
+        setFollowupProgress(
+          user.id,
+          next.id,
+          "error",
+          (genErr instanceof DailyLlmCapExceededError
+            ? "llm_daily_cap_exceeded"
+            : CURATED_GENERATION_CODES.has(msg)
+              ? msg
+              : "generation_failed"
+          ).slice(0, 120),
+        );
+        if (genErr instanceof DailyLlmCapExceededError) throw genErr;
         if (CURATED_GENERATION_CODES.has(msg)) {
           res.status(409).json({
             error: msg,
@@ -632,6 +653,40 @@ router.post(
       // Defensive — should be impossible given the SEND_IMPLEMENTED guard above.
       res.status(501).json({ error: "channel_send_not_implemented" });
     }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/followups/:id/progress — Phase I staged progress polling
+// ─────────────────────────────────────────────────────────────────
+//
+// Mirrors GET /api/prospects/:id/prepare-progress: the store key embeds the
+// authenticated userId, so a foreign or unknown followup id computes a key
+// that cannot exist for this tenant → {stage:"idle"} at 200. No DB read, no
+// existence oracle, no cross-tenant leak.
+
+router.get(
+  "/followups/:id/progress",
+  requireAuth,
+  (req: Request, res: Response): void => {
+    const user = req.user!;
+    const followupId = Number(req.params.id);
+    if (!Number.isInteger(followupId) || followupId <= 0) {
+      res.status(200).json({ stage: "idle", pct: 0 });
+      return;
+    }
+    const entry = getFollowupProgress(user.id, followupId);
+    if (!entry) {
+      res.status(200).json({ stage: "idle", pct: 0 });
+      return;
+    }
+    res.status(200).json({
+      stage: entry.stage,
+      pct: entry.pct,
+      startedAt: entry.startedAt,
+      updatedAt: entry.updatedAt,
+      ...(entry.error ? { error: entry.error } : {}),
+    });
   },
 );
 
