@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, Plus, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,9 +18,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useProspectsList } from "@/hooks/use-prospects-list";
 import {
   usePrepareFirstMessage,
+  usePrepareProgress,
 } from "@/hooks/use-manual-ingest";
 import { AddManualContactDialog } from "@/components/followup/AddManualContactDialog";
 import { BulkAddDialog } from "@/components/followup/BulkAddDialog";
+import { PrepareProgressBar } from "@/components/followup/PrepareProgressBar";
+import { Sparkles as SparklesIcon } from "lucide-react";
 import {
   type ManualIngestChannel,
 } from "@/lib/api/manual-ingest";
@@ -65,11 +69,13 @@ function statusVariant(
 
 export default function ContactsPage() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [channel, setChannel] = useState<ManualIngestChannel>("whatsapp");
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [preparingId, setPreparingId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const [pendingSend, setPendingSend] = useState<PendingSendConfirm | null>(
     null,
@@ -83,6 +89,47 @@ export default function ContactsPage() {
     sortDir: "desc",
   });
   const prepare = usePrepareFirstMessage();
+  // Phase H: poll staged progress for the row currently being generated.
+  const generateProgress = usePrepareProgress(generatingId);
+
+  // Auto-generate the first message WITHOUT opening the chat (channel-agnostic
+  // — works from the WhatsApp/Telegram/LinkedIn tabs alike). The staged
+  // progress bar tracks the real backend pipeline while this runs.
+  async function handleGenerate(prospect: ProspectListItem) {
+    // A previous run of this same row may have parked the progress query on a
+    // terminal ready/error entry, which stops its refetch interval for good —
+    // a retry would then show a frozen bar while the server dutifully runs.
+    // Reset restores initial state and restarts the polling loop.
+    void queryClient.resetQueries({
+      queryKey: ["prepare-progress", prospect.id],
+    });
+    setGeneratingId(prospect.id);
+    try {
+      await prepare.mutateAsync({
+        prospectId: prospect.id,
+        input: { channel },
+      });
+      // List refetch flips the row status to "ready"; the bar shows its
+      // final "Ready" state until the SDR triggers another action.
+      toast({
+        title: "Message ready",
+        description: `${prospect.prospectName ?? "Contact"} — click ${CHANNEL_LABEL[channel]} send when you're ready.`,
+      });
+    } catch (err) {
+      // The POST never succeeded — there is no server-side run to poll (the
+      // progress entry is either absent or terminal-error). Clear the id so
+      // the disabled query stops polling instead of reading "idle" forever.
+      setGeneratingId(null);
+      if (!toastDuplicateContactError(err, toast)) {
+        toast({
+          title: "Could not generate message",
+          description:
+            err instanceof ApiError ? err.code ?? err.message : String(err),
+          variant: "destructive",
+        });
+      }
+    }
+  }
 
   async function handlePrepareAndSend(prospect: ProspectListItem) {
     setPreparingId(prospect.id);
@@ -276,8 +323,18 @@ export default function ContactsPage() {
             </TableHeader>
             <TableBody>
               {rows.map((row) => {
+                const generating =
+                  generatingId === row.id && prepare.isPending;
+                // Single-flight for the message-only Generate: there is ONE
+                // generatingId + ONE progress poller, so a second row's click
+                // mid-run would overwrite the first row's id and silently
+                // hide its progress bar. Gate other rows until the run ends.
+                const generateElsewhere =
+                  generatingId !== null &&
+                  generatingId !== row.id &&
+                  prepare.isPending;
                 const busy =
-                  preparingId === row.id || sendingId === row.id;
+                  preparingId === row.id || sendingId === row.id || generating;
                 const hasId =
                   channel === "telegram"
                     ? !!(row.telegramHandle || row.phone)
@@ -288,10 +345,21 @@ export default function ContactsPage() {
                   row.status !== "sent" &&
                   row.status !== "phone-pending" &&
                   hasId;
+                // "Generate" (message-only) is offered while the row still
+                // needs a message. Once ready/sent, the send button takes over.
+                const canGenerate =
+                  row.status === "draft" && !busy && !generateElsewhere;
+                const showProgress = generatingId === row.id;
                 return (
                   <TableRow key={row.id}>
                     <TableCell className="font-medium">
                       {row.prospectName ?? "—"}
+                      {showProgress ? (
+                        <PrepareProgressBar
+                          progress={generateProgress.data}
+                          className="mt-2 max-w-md"
+                        />
+                      ) : null}
                     </TableCell>
                     <TableCell>{row.company ?? "—"}</TableCell>
                     <TableCell className="font-mono text-xs">
@@ -312,20 +380,38 @@ export default function ContactsPage() {
                           In follow-up queue
                         </span>
                       ) : (
-                        <Button
-                          size="sm"
-                          disabled={!canSend || busy}
-                          onClick={() => handlePrepareAndSend(row)}
-                        >
-                          {busy ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4 mr-1" />
-                          )}
-                          {row.status === "ready"
-                            ? "Send follow-up"
-                            : "Generate & send"}
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          {canGenerate ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => handleGenerate(row)}
+                              data-testid={`contacts-generate-${row.id}`}
+                            >
+                              {generating ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <SparklesIcon className="h-4 w-4 mr-1" />
+                              )}
+                              Generate
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            disabled={!canSend || busy}
+                            onClick={() => handlePrepareAndSend(row)}
+                          >
+                            {busy ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4 mr-1" />
+                            )}
+                            {row.status === "ready"
+                              ? "Send follow-up"
+                              : "Generate & send"}
+                          </Button>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>

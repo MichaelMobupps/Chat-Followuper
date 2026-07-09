@@ -170,6 +170,40 @@ export function postPrepareFirstMessage(
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Phase H — prepare progress (staged progress bar on the Contacts page)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// GET /api/prospects/:id/prepare-progress — polled ~1.2s while a prepare
+// run is in flight. Stages are REAL backend checkpoints (queued →
+// researching → writing → finalizing → ready | error); "idle" means no
+// (recent) run is known for this prospect.
+
+export type PrepareProgressStage =
+  | "idle"
+  | "queued"
+  | "researching"
+  | "writing"
+  | "finalizing"
+  | "ready"
+  | "error";
+
+export interface PrepareProgress {
+  stage: PrepareProgressStage;
+  pct: number;
+  startedAt?: number;
+  updatedAt?: number;
+  error?: string;
+}
+
+export function getPrepareProgress(
+  prospectId: string,
+): Promise<PrepareProgress> {
+  return apiFetch<PrepareProgress>(
+    `/api/prospects/${prospectId}/prepare-progress`,
+  );
+}
+
 export function postManualIngestBulk(
   input: ManualIngestBulkInput,
 ): Promise<ManualIngestBulkResponse> {

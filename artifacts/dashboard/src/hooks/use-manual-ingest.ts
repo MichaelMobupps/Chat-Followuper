@@ -15,6 +15,7 @@ import {
 } from "@tanstack/react-query";
 import {
   getManualIngestSettings,
+  getPrepareProgress,
   patchManualIngestSettings,
   postManualIngest,
   postManualIngestBulk,
@@ -27,6 +28,7 @@ import {
   type ManualIngestToggleInput,
   type PrepareFirstMessageInput,
   type PrepareFirstMessageResult,
+  type PrepareProgress,
 } from "@/lib/api/manual-ingest";
 import { ApiError } from "@/lib/api";
 
@@ -96,6 +98,42 @@ export function usePrepareFirstMessage(): UseMutationResult<
       void qc.invalidateQueries({ queryKey: ["prospects-list"] });
       void qc.invalidateQueries({ queryKey: ["followups"] });
     },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase H — prepare-progress polling.
+//
+// Polls while `prospectId` is set AND the run hasn't reached a terminal
+// stage (ready/error). Pass null to stop polling entirely (query disabled).
+// 1.2s interval: fast enough for a live-feeling bar, slow enough to be
+// negligible load (the endpoint is an in-memory map read).
+// ─────────────────────────────────────────────────────────────────────────
+
+export function usePrepareProgress(
+  prospectId: string | null,
+): UseQueryResult<PrepareProgress, ApiError> {
+  return useQuery<PrepareProgress, ApiError>({
+    queryKey: ["prepare-progress", prospectId],
+    queryFn: () => getPrepareProgress(prospectId!),
+    enabled: prospectId !== null,
+    refetchInterval: (query) => {
+      const stage = query.state.data?.stage;
+      if (stage === "ready" || stage === "error") return false;
+      // Repeated fetch failures — stop rather than hammer a broken endpoint.
+      if (query.state.errorUpdateCount >= 3) return false;
+      // "idle" = no run registered server-side. Allow a grace window for the
+      // just-fired POST to write its "queued" entry (the first GET can race
+      // it), then stop: a rejected POST, a mid-run server restart (in-memory
+      // store wiped), or a TTL-expired entry would otherwise leave this
+      // polling every 1.2s for as long as the page stays mounted.
+      if (stage === "idle" && query.state.dataUpdateCount >= 10) return false;
+      return 1200;
+    },
+    // Progress is instantaneous state — never serve a stale cache entry
+    // from a previous run of the same prospect.
+    gcTime: 0,
+    staleTime: 0,
   });
 }
 

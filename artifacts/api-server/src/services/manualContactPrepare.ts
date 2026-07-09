@@ -24,6 +24,7 @@ import { GeoGateBlockedError } from "./channels/whatsapp";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { logger } from "../lib/logger";
 import { appendMessageTemplate } from "../lib/messageTemplate";
+import { setPrepareProgress } from "./prepareProgress";
 
 export type PrepareStatus =
   | "ready"
@@ -138,6 +139,8 @@ export async function prepareFirstMessage(params: {
     } catch {
       deepLinkUrl = null;
     }
+    // Progress (Phase H): cached message — the run is instantly done.
+    setPrepareProgress(userId, prospectId, "ready");
     return {
       status: "already_ready",
       prospectId,
@@ -171,6 +174,9 @@ export async function prepareFirstMessage(params: {
     if (!prospect.company?.trim()) {
       throw new Error("missing_company");
     }
+
+    // Progress (Phase H): entering the research phase.
+    setPrepareProgress(userId, prospectId, "researching");
 
     const researchResult = await researchProspect(
       {
@@ -216,6 +222,9 @@ export async function prepareFirstMessage(params: {
       undefined,
   };
 
+  // Progress (Phase H): research done (or cached) — writer chain starting.
+  setPrepareProgress(userId, prospectId, "writing");
+
   const generated = await generateChatMessage({
     prospect: prospectInput,
     channel,
@@ -223,6 +232,9 @@ export async function prepareFirstMessage(params: {
     senderName,
     researchBrief: brief,
   });
+
+  // Progress (Phase H): message generated — persisting + building link.
+  setPrepareProgress(userId, prospectId, "finalizing");
 
   const generationCostUsd = generated.costEstimate.usd;
   const finalMessage = appendMessageTemplate(
@@ -298,6 +310,9 @@ export async function prepareFirstMessage(params: {
     }
     throw err;
   }
+
+  // Progress (Phase H): done — the FE stops polling on "ready".
+  setPrepareProgress(userId, prospectId, "ready");
 
   return {
     status: "ready",

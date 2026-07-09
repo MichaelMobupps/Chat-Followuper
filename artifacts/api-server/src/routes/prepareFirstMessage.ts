@@ -2,6 +2,10 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z, ZodError } from "zod/v4";
 import { requireAuth } from "../middlewares/auth";
 import { prepareFirstMessage } from "../services/manualContactPrepare";
+import {
+  setPrepareProgress,
+  getPrepareProgress,
+} from "../services/prepareProgress";
 import { GeoGateBlockedError } from "../services/channels/whatsapp";
 import { isChannelCode } from "../lib/channelRegister";
 
@@ -49,6 +53,10 @@ router.post(
     const channel =
       body.channel && isChannelCode(body.channel) ? body.channel : undefined;
 
+    // Progress (Phase H): mark the run as accepted before any pipeline work
+    // so the FE's first poll already sees a live entry.
+    setPrepareProgress(user.id, prospectId, "queued");
+
     try {
       const result = await prepareFirstMessage({
         prospectId,
@@ -59,6 +67,9 @@ router.post(
       res.status(200).json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Progress (Phase H): surface the failure to the polling FE with a
+      // short reason code, then keep the existing error contract unchanged.
+      setPrepareProgress(user.id, prospectId, "error", msg.slice(0, 120));
       if (msg === "not_found") {
         res.status(404).json({ error: "not_found" });
         return;
@@ -77,6 +88,35 @@ router.post(
       }
       throw err;
     }
+  },
+);
+
+/**
+ * GET /api/prospects/:id/prepare-progress
+ *
+ * Poll endpoint for the Contacts progress bar (Phase H). Returns the
+ * current stage of an in-flight (or recently finished) prepare run.
+ * Progress entries are keyed by (userId, prospectId), so a caller can only
+ * ever see their own runs; an unknown/expired run returns stage "idle".
+ */
+router.get(
+  "/prospects/:id/prepare-progress",
+  requireAuth,
+  (req: Request, res: Response): void => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+    const entry = getPrepareProgress(user.id, prospectId);
+    if (!entry) {
+      res.status(200).json({ stage: "idle", pct: 0 });
+      return;
+    }
+    res.status(200).json({
+      stage: entry.stage,
+      pct: entry.pct,
+      startedAt: entry.startedAt,
+      updatedAt: entry.updatedAt,
+      ...(entry.error ? { error: entry.error } : {}),
+    });
   },
 );
 
