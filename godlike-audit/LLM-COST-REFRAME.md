@@ -120,7 +120,10 @@ cache_read_input_tokens > 0.
 - [x] Phase H Contacts auto-generate + progress bar — **GREEN** (prepare-progress smoke full lifecycle; circuit breaker added).
 - [x] Phase F godlike audit + auto-fix — DONE (3 parallel auditors; 3 High + 5 Med/Low fixed, all re-verified green; residuals below).
 - [x] Phase G residuals + final log — this file. **Work is UNCOMMITTED — commit pending user go-ahead.**
-- [ ] Phase I progress bars in follow-up sections + edit-before-send — NOT started (scoped in the section above).
+- [x] Phase I progress bars in follow-up sections + edit-before-send — DONE (commit d31a7dc): progress
+  store generalized (prospect|followup scopes), send-next checkpoints + GET /api/followups/:id/progress,
+  useFollowupProgress + bar in the sending row; edit-before-send verified end-to-end (edited body is what
+  send-next serves + embeds in the deep link). smokeFollowupProgress 16/16 PASS.
 
 ## Open items for user
 - **`GEMINI_API_KEY` is now SET** — but the configured default model **`gemini-3.5-flash` returns HTTP 503**

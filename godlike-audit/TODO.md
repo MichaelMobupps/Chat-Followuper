@@ -19,8 +19,20 @@ staged progress bar (FE polling bugs fixed). **All green:** build exit 0; smokeL
 LLM_GEMINI_MODEL=gemini-3.1-flash-lite live-Gemini modes); smokePrepareProgress PASS both channels.
 **KNOWN:** default gemini-3.5-flash 503s on this key (user decision: keep default, env-overridable) →
 savings INACTIVE until user sets LLM_GEMINI_MODEL=gemini-3.1-flash-lite or provisions 3.5-flash.
-gemini-2.5-flash was RETIRED by Google mid-session — don't use. **Phase I NOT started** (follow-up
-section progress bars + edit-before-send; scoped in the log). **ALL OF IT UNCOMMITTED — awaiting user.**
+gemini-2.5-flash was RETIRED by Google mid-session — don't use. COMMITTED as 290f295/a15a1f9/ff37db5/0c9001d (+mirror b31bbbd).
+
+## ⭐ SESSION 11 cont. (2026-07-09 evening) — Phase I + investigation items BUILT + COMMITTED
+- **Phase I DONE** (d31a7dc): follow-up send-next shows the staged progress bar (progress store
+  generalized to userId:scope:id keys; followup checkpoints; GET /api/followups/:id/progress;
+  useFollowupProgress hook; bar in the sending row). Edit-before-send VERIFIED end-to-end
+  (PATCH → send-next serves the EDITED body, deep link embeds it). smokeFollowupProgress 16/16 PASS.
+- **Investigation items 1/3/4 DONE** (d703a98): test-digest renders the REAL digest (real due rows
+  or banner'd samples via shared fetchDueRows); per-row "Review in dashboard" links in the digest;
+  **migration 0018** (pushover_hour_local/pushover_days/digest_days) + per-user pushover fire time
+  (own hour+days+timezone; was env-global noon-GMT+2-weekdays) + digest day-of-week gate +
+  notificationSettings fields; NEW /reminders consolidated page + nav; Accounts panels de-duped
+  (UserPreferencesPanel → message-template only). smokeReminders 17/17 PASS. Migrations now 0000–0018.
+- **prod-bring-to-head.sql extended through 0018** — prod migration STILL pending user (SQL Console).
 
 ## ⭐ SESSION 9 — THIRD GODLIKE PASS + built F-A & F-B (2026-07-08). Ledger: `PASS3-LEDGER.md`.
 Audited the pass-2 FIXES adversarially (5 auditors): 0 Crit/High regressions; caught + fixed 3
