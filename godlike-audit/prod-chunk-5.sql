@@ -4,6 +4,12 @@
 -- Idempotent — safe to re-run even if a prior attempt partially applied.
 -- If THIS chunk still errors, run its statements ONE at a time.
 -- Run order: 1 → 6, then prod-verify-state.sql (every row ok = true).
+--
+-- FAIL-FAST: if a lock can't be acquired in 5s this errors instead of
+-- stalling (a WAITING ALTER also blocks live app queries queued behind it —
+-- never let it sit). On "lock timeout": run prod-diagnose-locks.sql, then
+-- prod-unblock.sql, then re-run this chunk.
+SET lock_timeout = '5s';
 
 DROP TABLE IF EXISTS "magic_link_tokens" CASCADE;
 DROP INDEX IF EXISTS "prospects_user_teams_unique";
