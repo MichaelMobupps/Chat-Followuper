@@ -1,10 +1,11 @@
 /**
  * Chat message generator — three-stage doctrine pipeline.
  *
- * Pipeline:
- *   1. DRAFT     (Opus 4.7)    — initial message from prompts + context
- *   2. CRITIC    (Opus 4.7)    — scores draft against criteria, demands rewrite if low
- *   3. REWRITE   (Sonnet 4.6)  — fixes flagged issues, loop max 3 times
+ * Pipeline (models routed per-role by lib/llm/router.ts — cost reframe 2026-07):
+ *   1. DRAFT   (writer: gemini-3.5-flash; grey verticals / Gemini 503 → sonnet-4-6)
+ *   2. CRITIC  (claude-sonnet-5) — scores draft against criteria, demands rewrite if low
+ *   3. REWRITE (lint: gemini-3.5-flash; Gemini 503 → sonnet-4-6) — fixes flagged
+ *      issues, loop max 3 times
  *
  * Two modes share this pipeline:
  *   - "prospector" — first cold message, full doctrine compressed for chat
@@ -23,8 +24,7 @@
  *     bracketed-note stripper)
  */
 
-import { anthropic } from "../lib/anthropic";
-import { withAnthropicRetry } from "./anthropicRetry";
+import { callLLMRole, GEMINI_DEFAULT_MODEL } from "../lib/llm/router";
 import {
   getProspectorSystemPrompt,
   getProspectorUserPrompt,
@@ -42,7 +42,7 @@ import {
 } from "./messagePrompts";
 import { summaryLooksMeta, resanitizeStoredSummary } from "./messageSummarizer";
 import { logger } from "../lib/logger";
-import { computeCost, sumCosts, type CostBreakdown } from "../lib/pricing";
+import { sumCosts, type CostBreakdown } from "../lib/pricing";
 import type { ChannelCode, GenerationMode } from "../lib/channelRegister";
 import { applyFirewall } from "../lib/doctrine/firewall";
 import { resolveLocale } from "../lib/localeResolver";
@@ -115,10 +115,12 @@ export interface ProspectInput {
 // ─────────────────────────────────────────────────────────────────
 // Models
 // ─────────────────────────────────────────────────────────────────
-
-const DRAFT_MODEL = "claude-opus-4-7";
-const CRITIC_MODEL = "claude-opus-4-7";
-const REWRITER_MODEL = "claude-sonnet-4-6";
+//
+// Model selection moved to lib/llm/router.ts (cost reframe 2026-07):
+// writer/lint default to gemini-3.5-flash with claude-sonnet-4-6 for
+// grey-area verticals and as the 503/missing-key fallback; the critic is
+// claude-sonnet-5. The stage functions below report the ACTUAL model that
+// served each call (post-fallback) so modelMetadata reflects reality.
 
 // ─────────────────────────────────────────────────────────────────
 // Sanitizer 1: humanizer — strips AI tells from text
@@ -747,17 +749,6 @@ function parseJsonResponse(text: string): { subject?: string; message?: string; 
 // Cost rollup helper — extracts usage from Anthropic response
 // ─────────────────────────────────────────────────────────────────
 
-interface AnthropicMessage {
-  content: Array<{ type: string; text?: string }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-}
-
-function costFromResponse(model: string, response: AnthropicMessage): CostBreakdown {
-  const inputTokens = response.usage?.input_tokens ?? 0;
-  const outputTokens = response.usage?.output_tokens ?? 0;
-  return computeCost(model, inputTokens, outputTokens);
-}
-
 // ─────────────────────────────────────────────────────────────────
 // Stage 1: DRAFT
 // ─────────────────────────────────────────────────────────────────
@@ -765,7 +756,7 @@ function costFromResponse(model: string, response: AnthropicMessage): CostBreakd
 async function generateDraft(
   ctx: MessageContext,
   attempt = 1,
-): Promise<{ draft: { subject: string; message: string }; cost: CostBreakdown }> {
+): Promise<{ draft: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
   const maxAttempts = 2;
   const system = ctx.mode === "prospector"
     ? getProspectorSystemPrompt(ctx)
@@ -774,35 +765,32 @@ async function generateDraft(
     ? getProspectorUserPrompt(ctx)
     : getFollowuperUserPrompt(ctx);
 
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: DRAFT_MODEL,
-      max_tokens: 2048,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    { label: "draft" },
-  );
-
-  const cost = costFromResponse(DRAFT_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in draft response");
-  }
+  // Router: gemini-3.5-flash by default; grey-area verticals and Gemini
+  // capacity failures route to claude-sonnet-4-6. Retry/backoff and prompt
+  // caching live inside the router.
+  const result = await callLLMRole("writer", {
+    system,
+    user,
+    maxTokens: 2048,
+    label: "draft",
+    vertical: ctx.vertical,
+    subVertical: ctx.sub_vertical,
+  });
+  const cost = result.cost;
 
   try {
-    const parsed = parseJsonResponse(textBlock.text);
+    const parsed = parseJsonResponse(result.text);
     if (!parsed.subject || !parsed.message) {
       throw new Error("Draft missing subject or message");
     }
     return {
       draft: { subject: String(parsed.subject), message: String(parsed.message) },
       cost,
+      model: result.model,
     };
   } catch (err) {
     logger.warn(
-      { attempt, rawPreview: textBlock.text.slice(0, 300) },
+      { attempt, model: result.model, rawPreview: result.text.slice(0, 300) },
       "Draft JSON parse failed",
     );
     if (attempt < maxAttempts) {
@@ -811,6 +799,7 @@ async function generateDraft(
       return {
         draft: retry.draft,
         cost: sumCosts([cost, retry.cost]),
+        model: retry.model,
       };
     }
     throw err;
@@ -832,25 +821,18 @@ interface CriticResult {
 async function critiqueDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
-): Promise<{ critique: CriticResult; cost: CostBreakdown }> {
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: CRITIC_MODEL,
-      max_tokens: 2048,
-      system: getCriticSystemPrompt(ctx.mode, ctx.channel),
-      messages: [{ role: "user", content: getCriticUserPrompt(ctx, draft) }],
-    }),
-    { label: "critic" },
-  );
+): Promise<{ critique: CriticResult; cost: CostBreakdown; model: string }> {
+  // Critic is an Anthropic-only role (claude-sonnet-5) — the judge stays on
+  // the stronger model while the writer/lint stages run on the cheap one.
+  const result = await callLLMRole("critic", {
+    system: getCriticSystemPrompt(ctx.mode, ctx.channel),
+    user: getCriticUserPrompt(ctx, draft),
+    maxTokens: 2048,
+    label: "critic",
+  });
+  const cost = result.cost;
 
-  const cost = costFromResponse(CRITIC_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in critic response");
-  }
-
-  const parsed = parseJsonResponse(textBlock.text) as {
+  const parsed = parseJsonResponse(result.text) as {
     scores?: Record<string, number>;
     overall?: number;
     issues?: unknown[];
@@ -866,6 +848,7 @@ async function critiqueDraft(
       needs_rewrite: parsed.needs_rewrite ?? false,
     },
     cost,
+    model: result.model,
   };
 }
 
@@ -877,39 +860,32 @@ async function rewriteDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
   critique: CriticResult,
-): Promise<{ rewrite: { subject: string; message: string }; cost: CostBreakdown }> {
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: REWRITER_MODEL,
-      max_tokens: 2048,
-      system: getRewriterSystemPrompt(ctx.mode, ctx.channel),
-      messages: [{
-        role: "user",
-        content: getRewriterUserPrompt(ctx, draft, {
-          issues: critique.issues,
-          suggestions: critique.suggestions,
-        }),
-      }],
+): Promise<{ rewrite: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
+  // Lint/rewrite role: gemini-3.5-flash with sonnet-4-6 fallback (503,
+  // safety block, missing key). Grey-vertical text that Gemini declines to
+  // edit falls back automatically via the safety-block path.
+  const result = await callLLMRole("lint", {
+    system: getRewriterSystemPrompt(ctx.mode, ctx.channel),
+    user: getRewriterUserPrompt(ctx, draft, {
+      issues: critique.issues,
+      suggestions: critique.suggestions,
     }),
-    { label: "rewriter" },
-  );
-
-  const cost = costFromResponse(REWRITER_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in rewriter response");
-  }
+    maxTokens: 2048,
+    label: "rewriter",
+    vertical: ctx.vertical,
+    subVertical: ctx.sub_vertical,
+  });
+  const cost = result.cost;
 
   // Detect meta-commentary BEFORE parsing JSON. If the rewriter returned
   // "this message cannot be salvaged" instead of fixed JSON, keep the prior
   // draft rather than failing.
-  if (detectMetaCommentary(textBlock.text)) {
-    logger.warn({ rawPreview: textBlock.text.slice(0, 200) }, "Rewriter returned meta-commentary; keeping prior draft");
-    return { rewrite: draft, cost };
+  if (detectMetaCommentary(result.text)) {
+    logger.warn({ rawPreview: result.text.slice(0, 200), model: result.model }, "Rewriter returned meta-commentary; keeping prior draft");
+    return { rewrite: draft, cost, model: result.model };
   }
 
-  const parsed = parseJsonResponse(textBlock.text);
+  const parsed = parseJsonResponse(result.text);
   if (!parsed.subject || !parsed.message) {
     throw new Error("Rewrite missing subject or message");
   }
@@ -917,6 +893,7 @@ async function rewriteDraft(
   return {
     rewrite: { subject: String(parsed.subject), message: String(parsed.message) },
     cost,
+    model: result.model,
   };
 }
 
@@ -1045,12 +1022,25 @@ export async function generateChatMessage(
       stage: ctx.stage,
       conversationLen: ctx.conversation?.length ?? 0,
     },
-    "Stage 1: Generating initial draft (Sonnet 4.6)",
+    "Stage 1: Generating initial draft (router: writer role)",
   );
+
+  // ── Actual models used (post-fallback) — reported in modelMetadata. ──
+  // Critic/rewriter start as an explicit "(not run)" sentinel and are only
+  // assigned when the stage actually returns: initializing them to the policy
+  // defaults made no-run paths claim a model that never executed (e.g.
+  // rewriterModel:"gemini-3.5-flash" while Gemini was unreachable and the
+  // draft passed critique on iteration 1) — corrupting per-model cost
+  // attribution (audit F5). No consumer branches on these strings; they're
+  // telemetry.
+  let draftModelUsed = GEMINI_DEFAULT_MODEL; // always overwritten (draft throws otherwise)
+  let criticModelUsed = "(not run)";
+  let rewriterModelUsed = "(not run)";
 
   // ── Stage 1: Draft ──
   // If draft fails after retries, bubble up. No template fallback.
-  const { draft: initialDraft, cost: draftCost } = await generateDraft(ctx);
+  const { draft: initialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx);
+  draftModelUsed = draftModel;
   const allCosts: CostBreakdown[] = [draftCost];
 
   let current = initialDraft;
@@ -1083,7 +1073,7 @@ export async function generateChatMessage(
         claimFound: claimCheck.found,
         claimMatches: claimCheck.matches,
       },
-      `Iteration ${iteration}: Critiquing draft (Opus 4.7)`,
+      `Iteration ${iteration}: Critiquing draft (router: critic role)`,
     );
 
     let critique: CriticResult;
@@ -1092,6 +1082,7 @@ export async function generateChatMessage(
       const result = await critiqueDraft(ctx, current);
       critique = result.critique;
       criticCost = result.cost;
+      criticModelUsed = result.model;
       allCosts.push(criticCost);
     } catch (err) {
       logger.warn(
@@ -1103,9 +1094,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: bestOverall,
         },
@@ -1187,9 +1178,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: critique.overall,
         },
@@ -1210,14 +1201,15 @@ export async function generateChatMessage(
 
     logger.info(
       { prospect: ctx.prospect_name, iteration },
-      `Iteration ${iteration}: Rewriting draft (Sonnet 4.6)`,
+      `Iteration ${iteration}: Rewriting draft (router: lint role)`,
     );
 
     try {
-      const { rewrite, cost: rewriteCost } = await rewriteDraft(ctx, current, critique);
+      const { rewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique);
       allCosts.push(rewriteCost);
+      rewriterModelUsed = rewriteModel;
       current = rewrite;
-      logger.info({ prospect: ctx.prospect_name, iteration }, "Rewrite complete");
+      logger.info({ prospect: ctx.prospect_name, iteration, model: rewriteModel }, "Rewrite complete");
     } catch (err) {
       logger.warn(
         { err: String(err), prospect: ctx.prospect_name, iteration },
@@ -1228,9 +1220,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: bestOverall,
         },
@@ -1249,9 +1241,9 @@ export async function generateChatMessage(
     subject: finalized.subject,
     message: finalized.message,
     modelMetadata: {
-      draftModel: DRAFT_MODEL,
-      criticModel: CRITIC_MODEL,
-      rewriterModel: REWRITER_MODEL,
+      draftModel: draftModelUsed,
+      criticModel: criticModelUsed,
+      rewriterModel: rewriterModelUsed,
       iterations: iterationsConsumed,
       finalOverallScore: bestOverall,
     },
