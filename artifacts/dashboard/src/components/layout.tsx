@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLogout } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import {
+  BellRing,
   CalendarClock,
   Activity,
   Settings,
@@ -43,6 +44,7 @@ const SECONDARY_NAV: NavItem[] = [
   { label: "All prospects", href: "/prospects", icon: Users },
   // E4: Campaigns list/create UI existed with no nav entry to reach it.
   { label: "Campaigns", href: "/campaigns", icon: Megaphone },
+  { label: "Reminders", href: "/reminders", icon: BellRing },
   { label: "Activity", href: "/activity", icon: Activity },
   { label: "Accounts", href: "/accounts", icon: Settings },
 ];

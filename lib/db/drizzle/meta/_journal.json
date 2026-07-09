@@ -127,6 +127,13 @@
       "when": 1783546850280,
       "tag": "0017_add_linkedin_unique_index",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783626809056,
+      "tag": "0018_icy_the_enforcers",
+      "breakpoints": true
     }
   ]
 }

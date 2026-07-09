@@ -2,7 +2,7 @@
 -- Bring PRODUCTION up to date, correctly.  (UPDATED 2026-07-09)
 -- ---------------------------------------------------------------------------
 -- ⚠ CHANGED since the 2026-07-04 version: this now carries prod all the way to
---   migration **0017** (dev head). The two migrations added after the SSH drop:
+--   migration **0018** (dev head). The two migrations added after the SSH drop:
 --     * 0016 — DROP the dormant Teams/Slack columns + their partial-unique
 --              indexes (F-C removed those channels; columns are unreferenced).
 --     * 0017 — ADD the LinkedIn per-user dedup partial-unique index.
@@ -86,3 +86,10 @@ ALTER TABLE "users"     DROP COLUMN IF EXISTS "microsoft_refresh_token";
 ALTER TABLE "users"     DROP COLUMN IF EXISTS "slack_bot_token";
 ALTER TABLE "prospects" DROP COLUMN IF EXISTS "teams_email";
 ALTER TABLE "prospects" DROP COLUMN IF EXISTS "slack_user_id";
+
+-- 0018 — Reminders & schedule per-user columns (2026-07-09) ---------------
+-- Per-user Pushover reminder hour + day-of-week arrays (0=Sun..6=Sat).
+-- Idempotent: IF NOT EXISTS, defaults match lib/db/drizzle/0018_*.sql.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushover_hour_local" integer DEFAULT 12 NOT NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushover_days" jsonb DEFAULT '[1,2,3,4,5]'::jsonb NOT NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "digest_days" jsonb DEFAULT '[0,1,2,3,4,5,6]'::jsonb NOT NULL;

@@ -29,12 +29,23 @@ const PUSHOVER_KEY_SCHEMA = z
 // the API + UI were missing.
 const PREFERRED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 
+// Reminders & schedule (2026-07-09): weekday arrays are 0=Sun..6=Sat.
+// An EMPTY array is a deliberate "never" off-switch and is accepted.
+const DAYS_SCHEMA = z
+  .array(z.number().int().min(0).max(6))
+  .max(7)
+  .transform((days) => [...new Set(days)].sort((a, b) => a - b));
+
 const patchSchema = z
   .object({
     pushoverUserKey: PUSHOVER_KEY_SCHEMA.nullable().optional(),
     pushoverQuietHourStart: z.number().int().min(0).max(23).optional(),
     pushoverQuietHourEnd: z.number().int().min(0).max(23).optional(),
     preferredChannel: z.enum(PREFERRED_CHANNELS).optional(),
+    // Reminders & schedule: per-user reminder hour + day-of-week controls.
+    pushoverHourLocal: z.number().int().min(0).max(23).optional(),
+    pushoverDays: DAYS_SCHEMA.optional(),
+    digestDays: DAYS_SCHEMA.optional(),
   })
   .strict();
 
@@ -55,6 +66,9 @@ router.get(
         pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
         pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
         preferredChannel: usersTable.preferredChannel,
+        pushoverHourLocal: usersTable.pushoverHourLocal,
+        pushoverDays: usersTable.pushoverDays,
+        digestDays: usersTable.digestDays,
       })
       .from(usersTable)
       .where(eq(usersTable.id, user.id))
@@ -75,6 +89,9 @@ router.get(
       pushoverQuietHourStart: row.pushoverQuietHourStart,
       pushoverQuietHourEnd: row.pushoverQuietHourEnd,
       preferredChannel: row.preferredChannel,
+      pushoverHourLocal: row.pushoverHourLocal,
+      pushoverDays: row.pushoverDays,
+      digestDays: row.digestDays,
     });
   },
 );
@@ -101,6 +118,9 @@ router.patch(
       pushoverQuietHourStart?: number;
       pushoverQuietHourEnd?: number;
       preferredChannel?: string;
+      pushoverHourLocal?: number;
+      pushoverDays?: number[];
+      digestDays?: number[];
     } = {};
     if (body.pushoverUserKey !== undefined) {
       updates.pushoverUserKey =
@@ -117,6 +137,15 @@ router.patch(
     if (body.preferredChannel !== undefined) {
       updates.preferredChannel = body.preferredChannel;
     }
+    if (body.pushoverHourLocal !== undefined) {
+      updates.pushoverHourLocal = body.pushoverHourLocal;
+    }
+    if (body.pushoverDays !== undefined) {
+      updates.pushoverDays = body.pushoverDays;
+    }
+    if (body.digestDays !== undefined) {
+      updates.digestDays = body.digestDays;
+    }
 
     if (Object.keys(updates).length === 0) {
       res.status(400).json({ error: "empty_patch" });
@@ -132,6 +161,9 @@ router.patch(
         pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
         pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
         preferredChannel: usersTable.preferredChannel,
+        pushoverHourLocal: usersTable.pushoverHourLocal,
+        pushoverDays: usersTable.pushoverDays,
+        digestDays: usersTable.digestDays,
       });
 
     const row = updated[0];
@@ -158,6 +190,9 @@ router.patch(
       pushoverQuietHourStart: row.pushoverQuietHourStart,
       pushoverQuietHourEnd: row.pushoverQuietHourEnd,
       preferredChannel: row.preferredChannel,
+      pushoverHourLocal: row.pushoverHourLocal,
+      pushoverDays: row.pushoverDays,
+      digestDays: row.digestDays,
     });
   },
 );

@@ -1,34 +1,33 @@
+/**
+ * Message-template panel (Accounts page).
+ *
+ * DE-DUPED (Reminders & schedule, 2026-07-09): this panel used to ALSO edit
+ * preferred channel + Pushover quiet hours — the exact fields
+ * <PushoverSettings/> edits on the same page via a different endpoint, so the
+ * two forms could clobber each other's just-saved values on refetch. Those
+ * fields now have a single owner (PushoverSettings, also mounted on the new
+ * /reminders page); this panel keeps only its unique field, the message
+ * template. The /users/me/preferences PATCH still accepts the removed fields
+ * for API compatibility.
+ */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import {
   getUserPreferences,
   patchUserPreferences,
-  type PreferredChannel,
-  type UserPreferencesPatch,
 } from "@/lib/api/user-extras";
 
 export function UserPreferencesPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [preferredChannel, setPreferredChannel] = useState<string>("none");
   const [messageTemplate, setMessageTemplate] = useState("");
-  const [quietStart, setQuietStart] = useState("");
-  const [quietEnd, setQuietEnd] = useState("");
 
   const prefs = useQuery({
     queryKey: ["user-preferences"],
@@ -37,18 +36,7 @@ export function UserPreferencesPanel() {
 
   useEffect(() => {
     if (!prefs.data) return;
-    setPreferredChannel(prefs.data.preferredChannel ?? "none");
     setMessageTemplate(prefs.data.messageTemplate ?? "");
-    setQuietStart(
-      prefs.data.pushoverQuietHourStart != null
-        ? String(prefs.data.pushoverQuietHourStart)
-        : "",
-    );
-    setQuietEnd(
-      prefs.data.pushoverQuietHourEnd != null
-        ? String(prefs.data.pushoverQuietHourEnd)
-        : "",
-    );
   }, [prefs.data]);
 
   const save = useMutation({
@@ -67,34 +55,7 @@ export function UserPreferencesPanel() {
   });
 
   function handleSave() {
-    const start = quietStart.trim() === "" ? null : Number(quietStart);
-    const end = quietEnd.trim() === "" ? null : Number(quietEnd);
-    if (
-      (start != null && (start < 0 || start > 23)) ||
-      (end != null && (end < 0 || end > 23))
-    ) {
-      toast({
-        title: "Invalid quiet hours",
-        description: "Use hours 0–23.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // The api-server PATCH is .strict() and these fields are optional but NOT
-    // nullable, so only include fields that carry a real value. preferredChannel
-    // has no "unset" on the backend (enum, non-null column), so "none" simply
-    // omits it (no change) rather than sending an invalid null.
-    const patch: UserPreferencesPatch = {
-      messageTemplate: messageTemplate.trim() || null,
-    };
-    if (preferredChannel !== "none") {
-      patch.preferredChannel = preferredChannel as PreferredChannel;
-    }
-    if (start != null) patch.pushoverQuietHourStart = start;
-    if (end != null) patch.pushoverQuietHourEnd = end;
-
-    save.mutate(patch);
+    save.mutate({ messageTemplate: messageTemplate.trim() || null });
   }
 
   return (
@@ -103,29 +64,19 @@ export function UserPreferencesPanel() {
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 text-base font-medium">
             <SlidersHorizontal className="h-4 w-4" />
-            User preferences
+            Message template
           </h2>
           <p className="text-xs text-muted-foreground max-w-xl">
-            Default channel, optional message template snippet, and quiet hours
-            when reminders should not fire.
+            Optional sign-off appended to every generated message. Preferred
+            channel and reminder quiet hours moved to{" "}
+            <a href="/reminders" className="underline">
+              Reminders &amp; schedule
+            </a>
+            .
           </p>
         </div>
 
         <div className="grid gap-4 max-w-lg">
-          <div className="space-y-2">
-            <Label>Preferred channel</Label>
-            <Select value={preferredChannel} onValueChange={setPreferredChannel}>
-              <SelectTrigger data-testid="pref-channel">
-                <SelectValue placeholder="No preference" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No preference</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="telegram">Telegram</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="space-y-2">
             <Label htmlFor="message-template">Message template (optional)</Label>
             <Textarea
@@ -137,38 +88,6 @@ export function UserPreferencesPanel() {
               data-testid="pref-template"
             />
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="quiet-start">Quiet hours start</Label>
-              <Input
-                id="quiet-start"
-                type="number"
-                min={0}
-                max={23}
-                placeholder="22"
-                value={quietStart}
-                onChange={(e) => setQuietStart(e.target.value)}
-                data-testid="pref-quiet-start"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="quiet-end">Quiet hours end</Label>
-              <Input
-                id="quiet-end"
-                type="number"
-                min={0}
-                max={23}
-                placeholder="8"
-                value={quietEnd}
-                onChange={(e) => setQuietEnd(e.target.value)}
-                data-testid="pref-quiet-end"
-              />
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground -mt-2">
-            Hours in your local timezone (0–23). Leave blank to disable.
-          </p>
         </div>
 
         {prefs.isError ? (

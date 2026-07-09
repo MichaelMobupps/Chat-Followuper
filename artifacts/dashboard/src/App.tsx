@@ -21,6 +21,7 @@ import ProspectDetailPage from "@/pages/prospect-detail";
 import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
 import AccountsPage from "@/pages/accounts";
+import RemindersPage from "@/pages/reminders";
 import AdminOpsPage from "@/pages/admin-ops";
 import NotFound from "@/pages/not-found";
 
@@ -47,6 +48,7 @@ function ProtectedRoutes() {
           <Route path="/followups" component={FollowupsPage} />
           <Route path="/activity" component={ActivityPage} />
           <Route path="/accounts" component={AccountsPage} />
+          <Route path="/reminders" component={RemindersPage} />
           <Route path="/admin/ops" component={AdminOpsPage} />
           <Route component={NotFound} />
         </Switch>

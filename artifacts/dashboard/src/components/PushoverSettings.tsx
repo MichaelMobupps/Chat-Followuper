@@ -14,6 +14,7 @@ import {
   type NotificationSettingsPatch,
   type PreferredChannel,
 } from "@/lib/api/notification-settings";
+import { WeekdayPicker } from "@/components/WeekdayPicker";
 
 export function PushoverSettings() {
   const { toast } = useToast();
@@ -25,6 +26,10 @@ export function PushoverSettings() {
     useState<PreferredChannel>("whatsapp");
   const [quietStart, setQuietStart] = useState("");
   const [quietEnd, setQuietEnd] = useState("");
+  // Reminders & schedule: per-user reminder hour + days (was env-global
+  // 12:00 GMT+2 weekdays-only).
+  const [reminderHour, setReminderHour] = useState("");
+  const [reminderDays, setReminderDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   const settings = useQuery({
     queryKey: ["notification-settings"],
@@ -47,6 +52,8 @@ export function PushoverSettings() {
         ? ""
         : String(settings.data.pushoverQuietHourEnd),
     );
+    setReminderHour(String(settings.data.pushoverHourLocal ?? 12));
+    setReminderDays(settings.data.pushoverDays ?? [1, 2, 3, 4, 5]);
   }, [settings.data]);
 
   // API7: the raw key is never sent back, so the input starts (and stays) empty
@@ -95,6 +102,8 @@ export function PushoverSettings() {
   const hourValid = (n: number | null) =>
     n === null || (Number.isInteger(n) && n >= 0 && n <= 23);
   const quietValid = hourValid(quietStartNum) && hourValid(quietEndNum);
+  const reminderHourNum = reminderHour === "" ? null : Number(reminderHour);
+  const reminderHourValid = hourValid(reminderHourNum);
 
   function handleSave() {
     // FE2: never save over a key we couldn't load. A blank key field means "no
@@ -111,6 +120,10 @@ export function PushoverSettings() {
     // just means "leave unchanged" (omit it).
     if (quietStartNum !== null) patch.pushoverQuietHourStart = quietStartNum;
     if (quietEndNum !== null) patch.pushoverQuietHourEnd = quietEndNum;
+    // Reminders & schedule: hour omitted when blank (leave unchanged); days
+    // always sent — an empty selection is a deliberate "never".
+    if (reminderHourNum !== null) patch.pushoverHourLocal = reminderHourNum;
+    patch.pushoverDays = reminderDays;
     if (trimmed !== "") patch.pushoverUserKey = trimmed;
     save.mutate(patch);
   }
@@ -246,6 +259,35 @@ export function PushoverSettings() {
           </p>
         ) : null}
 
+        {/* Reminders & schedule: per-user fire time (was global 12:00 GMT+2,
+            weekdays-only). Hour is in your digest timezone. */}
+        <div className="space-y-2 max-w-md">
+          <Label htmlFor="reminder-hour">Reminder hour (your local time)</Label>
+          <Input
+            id="reminder-hour"
+            type="number"
+            min={0}
+            max={23}
+            placeholder="12"
+            value={reminderHour}
+            onChange={(e) => setReminderHour(e.target.value)}
+            data-testid="reminder-hour"
+          />
+          {!reminderHourValid ? (
+            <p className="text-xs text-destructive">
+              Reminder hour must be a whole number between 0 and 23.
+            </p>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          <Label>Reminder days</Label>
+          <WeekdayPicker
+            value={reminderDays}
+            onChange={setReminderDays}
+            data-testid="reminder-days"
+          />
+        </div>
+
         {settings.isError ? (
           <p className="text-xs text-destructive" role="alert">
             Couldn't load your Pushover settings. Saving is disabled so your
@@ -270,6 +312,7 @@ export function PushoverSettings() {
             disabled={
               !keyValid ||
               !quietValid ||
+              !reminderHourValid ||
               save.isPending ||
               settings.isLoading ||
               settings.isError ||
@@ -312,10 +355,10 @@ export function PushoverSettings() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Reminders are sent on <strong>weekdays only</strong> (Mon–Fri) at{" "}
-          <strong>12:00 midday GMT+2</strong> — separate from your email digest.
-          One notification per due follow-up. Tap → browser opens →
-          WhatsApp/Telegram with message prefilled.
+          Reminders fire on <strong>your selected days</strong> at{" "}
+          <strong>your reminder hour</strong> (in your digest timezone) —
+          separate from your email digest. One notification per due follow-up.
+          Tap → browser opens → WhatsApp/Telegram with message prefilled.
         </p>
       </CardContent>
     </Card>

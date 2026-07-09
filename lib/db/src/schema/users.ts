@@ -120,6 +120,26 @@ export const usersTable = pgTable("users", {
     .notNull()
     .default(20),
   /**
+   * Reminders & schedule (2026-07-09): per-user control of WHEN reminders
+   * fire — previously env-global (PUSHOVER_HOUR_LOCAL=12, weekdays-only
+   * hardcoded, email digest every day).
+   *
+   * pushoverHourLocal — local hour (in digestTimezone) the Pushover reminder
+   *   batch fires for this user. digestTimezone is the single per-user zone
+   *   for all reminder scheduling (the old global Etc/GMT-2 is retired).
+   * pushoverDays — weekdays (0=Sun..6=Sat) Pushover reminders may fire.
+   * digestDays — weekdays the email digest may send.
+   */
+  pushoverHourLocal: integer("pushover_hour_local").notNull().default(12),
+  pushoverDays: jsonb("pushover_days")
+    .$type<number[]>()
+    .notNull()
+    .default([1, 2, 3, 4, 5]),
+  digestDays: jsonb("digest_days")
+    .$type<number[]>()
+    .notNull()
+    .default([0, 1, 2, 3, 4, 5, 6]),
+  /**
    * Optional personal sign-off appended to every generated message.
    */
   messageTemplate: text("message_template"),

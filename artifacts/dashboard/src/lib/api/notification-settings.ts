@@ -13,6 +13,11 @@ export interface NotificationSettings {
   preferredChannel: PreferredChannel;
   pushoverQuietHourStart: number | null;
   pushoverQuietHourEnd: number | null;
+  // Reminders & schedule (2026-07-09): per-user reminder hour (in the user's
+  // digest timezone) + day-of-week arrays (0=Sun..6=Sat; empty = never).
+  pushoverHourLocal: number;
+  pushoverDays: number[];
+  digestDays: number[];
 }
 
 export interface NotificationSettingsPatch {
@@ -22,6 +27,10 @@ export interface NotificationSettingsPatch {
   preferredChannel?: PreferredChannel;
   pushoverQuietHourStart?: number;
   pushoverQuietHourEnd?: number;
+  // Reminders & schedule: omit to leave unchanged; [] is a valid "never".
+  pushoverHourLocal?: number;
+  pushoverDays?: number[];
+  digestDays?: number[];
 }
 
 export function getNotificationSettings(): Promise<NotificationSettings> {
