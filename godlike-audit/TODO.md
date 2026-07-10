@@ -10,6 +10,35 @@ result; when you start something, note it under IN PROGRESS with the exact next 
 
 ---
 
+## ⭐ SESSION 12 — MURAT'S TEST FINDINGS (2026-07-10). FE fixes + audit + smoke.
+Reviewed Murat's manual test pass (WhatsApp/Telegram/LinkedIn test-channel, follow-up tab,
+campaigns, Pushover — all OK except two). Fixed the two broken items + one stale caption, then
+2 adversarial auditors (correctness/blast-radius + security/UX) → 1 Med + Lows fixed; smoke 17/17.
+- **LinkedIn "Open test chat" did nothing** — the FE panel gate `IDENTIFIER_SHAPE.linkedin`
+  (`TestChannelMessage.tsx`) was STRICTER than the BE route (`/linkedin\.com\//` vs the BE's
+  URL|`in/slug`|handle union) → valid identifiers silently blocked before submit. Broadened the FE
+  regex to mirror the 3 BE forms; a `+`-phone still fails all → helpful hint. (The carry-over half
+  was already fixed in `c3809c8`, which sits ABOVE the last "Published your App" e300b04 → **ships on
+  next Republish**.) FE⊆BE parity proven in smoke (10-input table, FE/BE agree on all).
+- **Follow-up "Edit" (pencil) dead for not-yet-sent prospects** — no follow-up row exists until the
+  first send, so the pencil was disabled + no-op. Now (user chose edit-before-send) it opens a new
+  `EditFirstMessageDialog` that edits `prospects.firstMessageBody` via PATCH /prospects/:id +
+  invalidates `["followups"]`. **Audit M1 [Med] fixed:** gated on `followups.length === 0` (not
+  `firstMessageBody`) so a replied/cancelled prospect (cancelled rows → next/last null but
+  followups[] non-empty) keeps the pencil DISABLED and can't reopen a cancelled row / re-arm.
+  Lows: textarea `maxLength=20000`, dropped dead "already sent" copy, added "sent from Today/Contacts"
+  hint. Security auditor: XSS/open-redirect/IDOR all clean (BE canonicalize + `AND userId` are the boundary).
+- **Doctrine-variant caption was stale/WRONG** (`SequenceConfigPanel.tsx`) — said doctrineVariant is
+  "consumed in a later ticket". It's ALREADY wired (`followupMessageService.ts:184` →
+  `messagePrompts.ts:701`) and steers every follow-up (stage ≥ 1). Rewrote the caption.
+- New smoke `pnpm --filter @workspace/api-server smoke:chatfollowup` (no API key) → **17/17 PASS**.
+  Full build exit 0. **NOT yet committed as of this checkpoint / source-code mirror not yet re-synced.**
+- **Preview-before-send (answer to Murat's Q):** today the follow-up is generated lazily at send-next
+  and the deep link opens with text PREFILLED in the WhatsApp/Telegram composer (real preview/edit is
+  there); Telegram/LinkedIn copy to clipboard. In-dashboard, the pencil previews/edits an
+  already-generated row (and now the first message). No in-app "generate→preview→confirm" step exists —
+  a possible future feature if Murat wants a dashboard preview before the composer opens.
+
 ## ⭐ SESSION 10/11 — LLM COST REFRAME (2026-07-09). Full log: `LLM-COST-REFRAME.md`.
 Phases A–H BUILT + smoke-verified + godlike-audited (3 auditors, 3 High + 5 Med/Low fixed, residuals
 documented in the log). Exemplar library (947 chat-adapted, email-isms scrubbed across all scripts),

@@ -279,8 +279,9 @@ function PanelBody({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          doctrineVariant is stored now and consumed by the message generator
-          in a later ticket.
+          Each stage's doctrine variant steers how that follow-up is written —
+          the generator uses it as the required strategy for the message. You'll
+          see the result when the follow-up is generated at send time.
         </p>
         <div className="space-y-3">
           {form.stageTiming.map((stage, idx) => (

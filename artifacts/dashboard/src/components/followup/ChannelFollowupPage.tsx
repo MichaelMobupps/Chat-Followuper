@@ -68,6 +68,7 @@ import {
   LIST_STATUSES,
   type Followup,
   type FollowupListItem,
+  type FollowupListProspect,
   type FollowupProgress,
   type ListStatus,
   type SupportedChannel,
@@ -76,6 +77,7 @@ import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { EditFollowupDialog } from "./EditFollowupDialog";
+import { EditFirstMessageDialog } from "./EditFirstMessageDialog";
 import { PrepareProgressBar } from "./PrepareProgressBar";
 import { BulkToolbar } from "./BulkToolbar";
 import { SequenceConfigPanel } from "./SequenceConfigPanel";
@@ -120,6 +122,11 @@ export function ChannelFollowupPage({ channel }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Followup | null>(null);
   const [editingOpen, setEditingOpen] = useState(false);
+  // Edit-before-send: a not-yet-sent prospect has no follow-up row to edit, so
+  // the pencil edits the generated FIRST message (prospects.firstMessageBody).
+  const [editingFirstMsg, setEditingFirstMsg] =
+    useState<FollowupListProspect | null>(null);
+  const [editingFirstMsgOpen, setEditingFirstMsgOpen] = useState(false);
   const [rowConfirm, setRowConfirm] = useState<RowConfirm | null>(null);
   // Phase I: the followup row whose message is being generated right now —
   // drives the staged progress bar. send-next is single-flight (the whole
@@ -172,6 +179,11 @@ export function ChannelFollowupPage({ channel }: Props) {
   function openEdit(f: Followup) {
     setEditing(f);
     setEditingOpen(true);
+  }
+
+  function openEditFirstMessage(p: FollowupListProspect) {
+    setEditingFirstMsg(p);
+    setEditingFirstMsgOpen(true);
   }
 
   function handleSendNext(item: FollowupListItem) {
@@ -476,9 +488,22 @@ export function ChannelFollowupPage({ channel }: Props) {
                       : undefined
                   }
                   onEdit={() => {
+                    // Prefer an editable follow-up row (scheduled or sent).
+                    // NOT followups[0] — that can be a CANCELLED row (e.g. a
+                    // replied prospect whose stages were cancelled), which
+                    // must not be reopened for editing.
                     const target =
-                      item.derived.nextScheduled ?? item.followups[0];
-                    if (target) openEdit(target);
+                      item.derived.nextScheduled ?? item.derived.lastSent;
+                    if (target) {
+                      openEdit(target);
+                    } else if (
+                      item.followups.length === 0 &&
+                      item.prospect.firstMessageBody
+                    ) {
+                      // Truly not-yet-sent (no follow-up rows at all) — edit
+                      // the generated first message before it goes out.
+                      openEditFirstMessage(item.prospect);
+                    }
                   }}
                   onMarkReplied={() =>
                     setRowConfirm({
@@ -522,6 +547,15 @@ export function ChannelFollowupPage({ channel }: Props) {
           if (!o) setEditing(null);
         }}
         followup={editing}
+      />
+
+      <EditFirstMessageDialog
+        open={editingFirstMsgOpen}
+        onOpenChange={(o) => {
+          setEditingFirstMsgOpen(o);
+          if (!o) setEditingFirstMsg(null);
+        }}
+        prospect={editingFirstMsg}
       />
 
       <AlertDialog
@@ -612,6 +646,14 @@ function FollowupRow({
     derived.uiStatus !== "paused" &&
     derived.uiStatus !== "no_reply" &&
     next !== null;
+  // Edit-before-send: only when there are NO follow-up rows yet (true
+  // not-yet-sent) AND a generated first message exists. Gating on
+  // `followups.length === 0` (not just firstMessageBody) keeps the pencil
+  // disabled for a replied/cancelled prospect — whose stages are cancelled
+  // (next/last null) but whose followups[] is non-empty — so it can't reopen
+  // a cancelled row and re-arm follow-ups.
+  const canEditFirstMessage =
+    item.followups.length === 0 && !!prospect.firstMessageBody;
 
   return (
     <TableRow data-testid={`row-${prospect.id}`}>
@@ -709,9 +751,16 @@ function FollowupRow({
             size="sm"
             variant="ghost"
             onClick={onEdit}
-            disabled={busy || (next === null && last === null)}
+            disabled={
+              busy ||
+              // Enabled when there's an editable follow-up (scheduled/sent) OR
+              // it's the not-yet-sent-with-first-message case. A replied/
+              // cancelled prospect (next/last null but followups[] non-empty,
+              // canEditFirstMessage false) stays disabled — as before the fix.
+              !(next !== null || last !== null || canEditFirstMessage)
+            }
             data-testid={`row-edit-${prospect.id}`}
-            aria-label="Edit follow-up"
+            aria-label="Edit message"
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>

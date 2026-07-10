@@ -62,7 +62,7 @@ export function useListFollowups(
   });
 }
 
-function useInvalidateFollowups() {
+export function useInvalidateFollowups() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["followups"] });
 }

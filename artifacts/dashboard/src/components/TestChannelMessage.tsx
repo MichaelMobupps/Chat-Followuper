@@ -31,10 +31,18 @@ const CHANNEL_LABEL: Record<TestChannel, string> = {
 // Loose shape checks — the BE stays authoritative; these only catch
 // obvious wrong-channel input (e.g. a phone number in the LinkedIn field)
 // with a helpful message instead of an invalid_identifier 400.
+//
+// The LinkedIn shape MUST mirror the three forms the BE route accepts
+// (testChannelLink.ts): a full linkedin.com URL, an "in/<slug>" path, or a
+// bare handle. The old `/linkedin\.com\//` was STRICTER than the BE and
+// silently rejected valid identifiers like "in/you" / "@you" before the
+// request ever left the browser — so the button appeared to "do nothing". A
+// "+"-prefixed phone still fails all three branches → the helpful hint fires.
 const IDENTIFIER_SHAPE: Record<TestChannel, RegExp> = {
   whatsapp: /^\+?[\d\s()-]{7,20}$/,
   telegram: /^(@?[A-Za-z][A-Za-z0-9_]{3,}|\+?[\d\s()-]{7,20})$/,
-  linkedin: /linkedin\.com\//i,
+  linkedin:
+    /^(https?:\/\/([\w-]+\.)*linkedin\.com\/.*|\/?in\/[\w%-]+\/?|@?[a-zA-Z0-9][\w-]{2,99})$/i,
 };
 
 const IDENTIFIER_HINT: Record<TestChannel, string> = {
