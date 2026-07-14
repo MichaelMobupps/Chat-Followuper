@@ -1013,3 +1013,268 @@ convergence in one session.
 bad search; hook numbers no longer self-flag), two Med cost/correctness gaps closed (rate-limit +
 pt-BR language), FE guard added; all High/Med from the audit resolved, Lows fixed or documented.
 Full typecheck + build green.**
+
+### Contacts: generate → preview → confirm + visible progress (all channels) — 2026-07-14
+
+**User report:** *"I don't see a 'generate message' button. I need it."* (screenshot: the Add-a-contact
+dialog). Diagnosis: generation wasn't missing, it was **invisible**. `AddManualContactDialog` fired
+`prepare-first-message` itself via a `prepareAfterAdd` boolean — from a component that unmounts on
+success — so the run had no progress bar and no preview; the SDR got two toasts and the message only
+appeared, unreviewed, prefilled in the composer. The row's "Generate" button was gated on
+`status === "draft"`, i.e. it only appeared when the auto-generate had FAILED. The user then asked for
+it on **all three channels** with a **visible progress bar**. This is exactly the gap Session 12
+recorded as "no in-app generate→preview→confirm step exists — a possible future feature".
+
+**Design.** The page owns the run; the dialog renders it. `contacts.tsx` already held the single-flight
+`generatingId` and the one `usePrepareProgress` poller, so lifting generation there (via a new
+`onAdded` callback replacing `prepareAfterAdd`) lets the same staged bar drive the new row AND a new
+`FirstMessagePreviewDialog` — generating → live bar; ready → editable message + Regenerate / Save for
+later / Send; error → reason + Try again. Channel-agnostic by construction (the page is already
+channel-scoped, and `/prepare-first-message` resolves wa/tg/li).
+
+**Key BE contract discovery:** `prepareFirstMessage` short-circuits on a cached `firstMessageBody`
+(`already_ready`, zero LLM spend, deep link built from the stored body). Two consequences: (1)
+edit-then-send is inherently safe — save the PATCH first and the edited text is what ships, for every
+channel; (2) **Regenerate needs a `force` flag**, else it just returns the old message. Hence the only
+BE change: `force?: boolean`, default false, which skips the short-circuit and falls through to the
+existing spend-cap pre-check.
+
+**Godlike audit — 2 parallel read-only auditors (A: BE force/spend/contract; B: FE blast-radius/races/
+channels), then a 3rd adversarial verifier over the applied FIXES.** The verifier earned its keep: it
+read `@tanstack/query-core`'s sources and **disproved one of my own fixes** — I had reordered
+`mutateAsync` ahead of `resetQueries` claiming it put the POST on the wire first; in fact
+`Mutation.execute()` awaits `onMutate` before fetching (≥1 microtask) while `resetQueries` →
+`Query.fetch()` → `retryer.start()` is fully synchronous, so the GET goes first regardless of source
+order. The reorder changed nothing observable. Replaced with the real fix (below).
+
+**FIXED — High**
+- **force could overwrite an ALREADY-SENT message.** The short-circuit was the *only* thing protecting
+  a sent prospect's body and force walks past it; nothing else reads `firstMessageSentAt`.
+  `followupMessageService` feeds stored `firstMessageBody` + `firstMessageSentAt` to the follow-up
+  writer as "you sent X on <date>", so every later follow-up would cite a message the prospect never
+  received — and `status` keys off `firstMessageSentAt`, so the row badge wouldn't change and nothing
+  would surface the swap. Fix: guard → 409 `already_sent`. (manualContactPrepare.ts)
+- **force = new cost-DoS surface.** Pre-force, the route was O(1) to repeat, which is why it never had
+  a rate limit. `assertUnderDailyLlmCap` isn't a substitute: it's off unless `LLM_DAILY_SPEND_CAP_USD`
+  is set (`.env.example` ships it empty) and it's a read-then-check, so N concurrent calls all read the
+  same pre-increment total and all pass. Fix: 10/min per-user sliding window, **force-only** (the cached
+  path stays free, so a normal add→generate→send can't trip it), 429 + Retry-After, checked BEFORE
+  stamping progress so a rejected call can't clobber a live run's entry. (prepareFirstMessage.ts)
+- **The progress bar froze on every Regenerate and every retry** — the headline feature, broken on its
+  own paths. The server parks ready/error for a 15-min TTL; our GET reaches it before the POST does;
+  `usePrepareProgress`'s `stage === "ready" → return false` then killed the poller for the whole run
+  (frozen 100% bar under a "Writing your first message…" title; on retry, the previous run's red error
+  bar while the new run succeeded). Not fixable by ordering (see above). Fix: `usePrepareProgress(id,
+  {running})` — while the POST is in flight a terminal stage can only be stale, so keep polling; the
+  route stamps "queued" first thing and the bar self-corrects within one 1.2s interval.
+- **`prepare` is ONE shared mutation instance** across `runGenerate` and `handlePrepareAndSend`, so
+  `prepare.isPending` conflated generating with sending: every Send from the preview flipped the dialog
+  back to "Writing your first message…" over a parked 100% bar (and blocked Esc/X), and any send pinned
+  a phantom spinner + "Ready" bar on the last-generated row while hiding every other row's Generate.
+  Fix: explicit `generateRunning` + a `runSeqRef` epoch guard (`generatingId` stays sticky — it answers
+  *which* row, not *whether* it's running).
+
+**FIXED — Med/Low**
+- force persisted the new body and only *then* called `buildDeepLink`, which rethrows on a
+  channel/identifier mismatch → 409 AFTER destroying the SDR's working message and billing for the
+  rewrite. Fix: on force, degrade to `deepLinkUrl: null` (what the cached path already does);
+  first-generate still throws — no prior message to lose, and the hard error is the useful signal.
+- LinkedIn clipboard copy fired AFTER `window.open` took focus → `NotAllowedError: Document is not
+  focused`, swallowed, while the toast claimed "message copied". LinkedIn is clipboard-**only** (bare
+  profile URL, no prefill), so it genuinely dead-ended. Fix: copy before open, awaited, `Promise.race`
+  2s-bounded (the old fire-and-forget shape was immune to a hang; the critical path isn't), toast now
+  reports what actually happened. Verified the added await does NOT worsen popup-blocking: `await
+  prepare.mutateAsync()` already precedes `window.open`, and that's what spends the user activation.
+- Preview save never invalidated `["followups"]`/`["prospects-list"]` (useUpdateProspect only
+  setQueryData's the detail entry) → Today/follow-ups kept showing the pre-edit body while the toast
+  said saved. Save-then-Send double-PATCHed and closed the dialog mid-send (`canSend` ignored
+  `update.isPending`). Redundant double-invalidation on save-and-send removed.
+- Lows: research UPDATE now userId-scoped (latent IDOR shape); OpenAPI spec + generated clients now
+  carry `force` (`pnpm --filter @workspace/api-spec codegen`); stale-run toast moved inside the epoch
+  guard; "Regenerate" → "Try again" on the error state; corrected two comments that were wrong
+  (BulkAddDialog isn't the omitting caller; "writer only" isn't guaranteed).
+
+**VERIFIED CLEAN (no action)** — blast radius of dropping `prepareAfterAdd`: zero remaining refs, the
+only other caller (`ManualContactsSection`) never passed it and is dead code post-F-E, so no live flow
+lost its auto-generate. Edit-then-send correct on all 3 channels (prepare re-SELECTs from the DB, can't
+read a stale FE cache; `appendMessageTemplate` runs only on the generate path so no double-suffix).
+`.strict()` contract unbroken (optional field). Auth/IDOR intact (userId-scoped select → cross-tenant
+force 404s). Spend accounting: classify vs terminal-txn are disjoint, no double-count. Epoch guard
+correct under both interleavings of two overlapping runs. Poller can't spin forever.
+
+**RUNTIME-VERIFIED — new `scripts/smokeRegenerate.ts` (`pnpm --filter @workspace/api-server
+smoke:regenerate`): 13/13 PASS.** Mounts the real router behind the real auth chain (signed session
+cookie → `loadUser` → `requireAuth`) against the live DB, seeds + cleans up. Asserts: cached path per
+channel (wa.me / t.me / linkedin profile) returns the body verbatim; **force on a sent prospect → 409
+`already_sent` AND the stored body is unchanged**; force omitted on a sent prospect still 200 (guard
+gates only force); `.strict()` + boolean enforcement → 400; **10 force calls allowed then 429 +
+Retry-After**; a rate-limited call stamps no progress; a cached call is never rate-limited.
+**It spends ZERO LLM money by construction** — every case short-circuits or is rejected before any
+model call. A regressed guard would start burning real money and blow up the runtime: that's the alarm.
+
+**Green:** `pnpm run build` exit 0 · smoke:regenerate 13/13 · smoke:chatfollowup 17/17 ·
+smokeDeliveryFlow 5/5 · `@workspace/db` 3/3.
+
+**NOT done / accepted (documented, not defects)**
+- The React preview dialog itself is **not browser-driven** — the BE is smoke-verified at runtime, the
+  UI is reasoned + typechecked only. Same limit as the Detect button.
+- `messagesGenerated` inflates by 1 per regeneration → weekly-digest reporting noise; no quota bypass.
+- force with a cached body but NO `researchBrief` re-runs full research (~$0.39) rather than
+  writer-only; with no company at all it 409s `missing_company` where the cached path used to succeed.
+  Both unreachable from the FE (it only regenerates rows it just generated).
+- The epoch guard is defensive-only today: the preview is a modal with a close-guard while generating,
+  `generateElsewhere` gates other rows, and Regenerate unmounts mid-run — so no overlapping-run path is
+  currently reachable. Kept anyway; those are four incidental gates, not an invariant.
+
+**Confidence: high on the BE (runtime-smoked end-to-end, guards proven with real HTTP + DB asserts);
+medium-high on the FE (typecheck + build + adversarial review, but no browser drive — the progress-bar
+`running` fix in particular is reasoned from query-core's source semantics, not observed in a browser).**
+
+### Follow-up round — progress-bar stale-frame + the unfixed twin (2026-07-14, same session)
+
+A 4th verifier pass over the `running` fix confirmed it correct (traced against the installed
+query-core sources), and surfaced that the fix was **incomplete in two ways**:
+
+- **The stale frame still RENDERED.** Keeping the poller alive stopped the *freeze*, but the first GET
+  still returns the previous run's parked terminal entry, so the bar flashed a full green "Ready 100%"
+  at the start of every Regenerate and the previous failure's red "Failed — …" through every retry
+  (~1.2s each, before self-correcting). Wrong-state UI on the one feature whose point is honest
+  progress. Fix: new `useFreshProgress` (hooks/use-live-progress.ts) — while a run is live, suppress a
+  terminal frame until the run shows something fresh, then pass everything through. That ordering
+  matters: the run's REAL "ready" lands while `running` is still true (the server stamps ready before
+  the route responds), so a blanket mask would have made the bar blink out at the finish. Keyed on
+  `runKey` so the reset is structural, not dependent on the three UI gates that currently prevent
+  overlapping runs.
+- **`useFollowupProgress` was the unfixed twin — live-broken, pre-existing.** Same server store, same
+  15-min TTL, same terminal parking; its header comment even claimed it "mirrors usePrepareProgress
+  including its audit hardening" while still doing `if (stage === ready|error) return false` with no
+  escape. A failed send-next parks `{stage:"error"}`; the retry's first GET reads it, the poller dies,
+  and the red bar renders over a run that is actually in flight. Fixed the same way (`running` +
+  `useFreshProgress`), and corrected the comment at ChannelFollowupPage.tsx that asserted the same
+  disproven reasoning ("reset restarts it" — it doesn't; resetQueries clears the CLIENT cache while
+  the stale entry lives on the SERVER).
+
+Also reverted the first cut of the suppression, which masked inside the hook via
+`{...query, data: undefined}`: spreading React Query's tracked-result Proxy calls `trackProp` for every
+key, and `#trackedProps` is **add-only**, so one suppression render permanently degrades the observer to
+`notifyOnChangeProps:"all"` — re-rendering the 50-row Contacts table on every 1.2s poll. Masking now
+happens at the call site off `.data` only.
+
+**Examined and deliberately NOT changed** (fixing these would have been churn):
+- `messagesGenerated` +1 per regeneration — the weekly digest sums it beside `messagesSent` and
+  `anthropicSpendUsd`, and a regenerate genuinely does generate a message at real, separately-counted
+  cost. Per-generation counting is the consistent semantic; the earlier "inflation" framing was wrong.
+- force + no researchBrief → full research, and force + no company → 409 `missing_company`. The add
+  form requires a non-empty company (`canSubmit`), so the FE can't reach either; the 409 is an honest
+  error, not corruption.
+
+**Green after:** `pnpm run build` exit 0 · smoke:regenerate 13/13 · smoke:chatfollowup 17/17 ·
+smokeDeliveryFlow 5/5 · `@workspace/db` 3/3.
+
+**STILL NOT VERIFIED (unchanged, and now the only material gap):** no browser has rendered any of this.
+The dashboard has **zero test infrastructure** (no vitest/testing-library, no test files) and this
+workspace has no Chromium/Playwright, so neither a browser drive nor a component test is possible
+without a deliberate tooling decision. Every FE claim above is typecheck + build + source-level
+reasoning against query-core. The BE is runtime-smoked.
+
+### Dashboard test infrastructure — the FE stops being unverifiable (2026-07-14)
+
+**Why:** every FE claim in this ledger, across every session, rested on typecheck + review. That is
+exactly how this session produced a hook bug AND a confidently-wrong fix for it (the "reorder the calls"
+attempt) that only died when a verifier read query-core's sources. Argument is not verification. The
+dashboard had **zero** test infrastructure — no vitest, no testing-library, no test file anywhere.
+
+Added the smallest stack that matches the house style: **vitest 4.1.5** (the exact version `lib/db`
+already runs) + `@testing-library/react` + `jsdom`, plus **`@testing-library/dom` as an explicit dep** —
+`.npmrc` sets `auto-install-peers=false`, so the peer does NOT arrive on its own (the first run failed
+with "Cannot find module '@testing-library/dom'"). New root script **`pnpm run test`** →
+`pnpm -r --if-present run test`, so the green bar is one command across every package.
+
+**34 dashboard tests, all green:**
+- `hooks/use-live-progress.test.ts` (9) — the suppression rule. Stale ready/error hidden at run start
+  (no green flash, no red flash); the run's REAL ready NOT hidden (it lands while `running` is still
+  true — a blanket mask would blank the bar at the finish); re-arms per run and on runKey change; idle
+  treated as fresh (it proves the stale entry is gone).
+- `hooks/use-prepare-progress.test.tsx` (6) — the polling rule, on BOTH hooks: keeps polling through a
+  stale terminal frame while a run is live, still stops when nothing is running, never polls without an id.
+- `components/followup/FirstMessagePreviewDialog.test.tsx` (19) — the state machine an SDR walks:
+  generating (bar, no textarea, Send disabled, won't close mid-run) / ready (editable, "Send in
+  <channel>" → "Save & send" once edited, blank edit blocked) / error ("Try again", not "Regenerate").
+  Plus the three properties the audit could previously only argue: the edit is **PATCHed before** the
+  composer opens (asserted as an ORDER, `["patch","send"]`); a blocked popup (`onSend → false`) leaves
+  the dialog open **with the edit intact**; and Send is inert while a save is in flight.
+
+**The tests were verified to catch the bug** — deleting `if (running) return 1200` from both hooks makes
+exactly the 2 stale-frame tests fail and nothing else. A test that passes against the bug is decoration.
+
+That exercise also exposed **inter-test coupling**: `vi.clearAllMocks()` clears recorded calls but leaves
+QUEUED `mockResolvedValueOnce` values in place. In the broken state the poller stopped early, never drained
+its queue, and the leftover frames surfaced as the NEXT test's first response — so a test's result depended
+on run order *and* on whether the code under test was correct. Switched to `mockReset()` in `beforeEach`.
+
+**Gotcha for the next session:** `pnpm add` inside `artifacts/dashboard` transiently broke `lib/db`'s
+vitest bin link ("Cannot find module .../lib/db/node_modules/vitest/vitest.mjs") — the jsdom peer forces a
+re-resolution of the shared vitest. A root `pnpm install` repairs it; both suites pass after.
+
+**Green bar now:** `pnpm run build` exit 0 (0 TS errors) · `pnpm run test` → **37/37** (db 3/3 +
+dashboard 34/34) · smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5.
+
+**Still honest about the limit:** jsdom is not Chrome. Real popup-blocker behaviour, real clipboard
+permissions, and visual layout are still unverified — Playwright/Chromium isn't installed here. What is
+now *asserted* rather than *argued*: the progress polling, the stale-frame suppression, and the preview
+dialog's state machine.
+
+### Browser E2E — the last mile (2026-07-14)
+
+Playwright + real Chromium, driving the REAL production build. 6/6 green. What it took, and the
+constraints that shape it:
+
+**Scope + safety (asked for explicitly by the user, who was right to ask).** The suite is
+**localhost-only and never contacts LinkedIn**. This app performs no LinkedIn automation by design —
+LinkedIn delivery is the SDR clicking, in their own browser, as themselves (F-A: clipboard-only, no
+prefill, no Cloud API, no scraping) — and the tests must not become the exception that gets a real
+account flagged. Concretely: `vite preview` serves `dist/public` on 127.0.0.1; every `/api` call is
+stubbed with `page.route`; **`window.open` is stubbed**, so the LinkedIn deep link is asserted as a
+STRING and never navigated to (without that stub, clicking "Send in LinkedIn" would make Chromium fetch
+a real linkedin.com URL from this datacenter IP — harmless to any account, since there's no session,
+but sloppy and avoidable). A `page.route("**://www.linkedin.com/**", abort)` backstop fails loudly if
+anything ever tries to leave localhost. Stubbing also means ZERO LLM spend: driving a real generate
+would cost money per run, and a cached-message prospect can't even reach the Generate button (it
+requires status "draft").
+
+**Getting Chromium to run on Nix.** `npx playwright install chromium` downloads a generic Linux build
+that cannot start here (`libglib-2.0.so.0: cannot open shared object file`), and `playwright
+install-deps` is apt-based, so it can't fix a Nix box. The nix store already carries a chromium
+patchelf'd for this environment. So: **@playwright/test is pinned to 1.55.0** to match
+`playwright-browsers-1.55.0-with-cjk` (chromium-1187), `PLAYWRIGHT_BROWSERS_PATH` points at that store
+path, and the project sets `channel: "chromium"` because the store provides the FULL build, not the
+`chromium_headless_shell-1187` playwright reaches for by default in headless mode. Bumping playwright
+will break the launch until a matching nix browsers path exists — that trade is documented in
+playwright.config.ts. The unusable 114MB download was deleted; nothing browser-sized is in the repo
+(`.cache/`, `test-results/`, `playwright-report/` all git-ignored).
+
+**The 6 tests** — `e2e/contacts-generate.spec.ts`:
+1. the real app BOOTS and paints (real bundle, real CSS) and a draft row offers Generate — the cheapest
+   thing jsdom structurally cannot tell us;
+2. Generate → the dialog opens generating, and the staged bar tracks queued→researching→writing on the
+   REAL 1.2s clock, then the message lands editable;
+3. **REGRESSION** — the production race, reproduced: the first progress GET serves a stale parked
+   "ready" (as the 15-min-TTL server entry does), and the bar must neither flash green nor freeze;
+4. edit → Save & send PATCHes BEFORE the composer opens (asserted as an ORDER) and the composer gets
+   the EDITED text;
+5. a blocked popup (real `window.open` → null) keeps the dialog open with the edit intact;
+6. LinkedIn: Send yields the profile URL to the stubbed opener, the "can't prefill" hint shows, and the
+   **real clipboard under the real permission model** holds the message — copied BEFORE window.open,
+   which is the fix jsdom could only approximate.
+
+**Verified the E2E catches the bug in a browser:** with `if (running) return 1200` removed from
+usePrepareProgress, test 3 FAILS and the other five still pass; restored, 6/6. Three test bugs were
+found and fixed along the way (two were the feature working correctly: `prepare-progress` resolves to
+TWO elements because the bar renders on the row AND in the dialog — scoped to the dialog rather than
+loosening the locator; and the page has two tablists; the third assertion forgot that opening the
+preview already spends one `prepare`).
+
+**FULL GREEN BAR (2026-07-14, everything):**
+`pnpm run build` exit 0 · `pnpm run test` → 37/37 (db 3/3 + dashboard 34/34) ·
+`pnpm --filter @workspace/dashboard test:e2e` → **6/6 real Chromium** ·
+smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5. **Nothing outstanding.**

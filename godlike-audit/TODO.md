@@ -6,9 +6,144 @@ after an SSH drop. Keep it current: when you finish something, move it to DONE w
 result; when you start something, note it under IN PROGRESS with the exact next step.
 
 **Branch:** `audit/godlike-fixes` (main untouched at `e9ed33c`) · **Identity:** hwholestorm@gmail.com
-**Green bar:** `pnpm run build` → exit 0 · `@workspace/db` tests → 3/3 · dev DB (heliumdb) at head.
+**Green bar (as of 2026-07-14) — 100%, nothing outstanding:**
+`pnpm run build` → exit 0 · **`pnpm run test` (NEW, root) → 37/37** (`@workspace/db` 3/3 +
+`@workspace/dashboard` 34/34) · **`pnpm --filter @workspace/dashboard test:e2e` → 6/6 in REAL
+Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chatfollowup` 17/17,
+`smokeDeliveryFlow` 5/5 · dev DB (heliumdb) at head.
+> The dashboard had **zero test infrastructure** until session 14 — every FE claim in this ledger
+> before then rested on typecheck + review, which is exactly how a hook bug and a wrong *fix* for it
+> both survived. `pnpm run test` at the root now runs every package that has tests.
+
+> **State as of 2026-07-14 (session 14).** Sessions 13–14 (the hook-writer/ad-intel/seed-classifier
+> batch, its 4-auditor godlike pass, the deferred-items batch, and the runtime smokes) landed as
+> commits `cd24785` → `2e443d8` — this file had gone stale at 2026-07-10 and did not mention any of
+> them; LOG.md is the authoritative narrative and was current throughout. Working tree clean at
+> `2e443d8` + the session-14 Contacts preview work below. **Prod is at head (0018)** — the migration
+> is DONE and verified (27/27); the only prod actions left are a Republish and the optional
+> `prod-cancel-legacy-channel-followups.sql` data cleanup. Branch is **107 commits ahead of `main`**.
 
 ---
+
+## ⭐ SESSION 14 — CONTACTS: generate → preview → confirm (2026-07-14). Answers Murat's Q.
+
+**Why:** first-message generation was INVISIBLE and UNREVIEWABLE. Adding a contact fired
+prepare-first-message from inside the (unmounting) Add dialog, so there was no progress bar and no
+preview — the SDR saw two toasts and the text only appeared, unreviewed, in the WhatsApp composer.
+The row's "Generate" button existed but only surfaced on `status === "draft"` (i.e. after a FAILED
+auto-generate), which is why it looked missing. This is the "in-app generate→preview→confirm step"
+recorded as a possible future feature in Session 12 — now built, for **all 3 channels**.
+
+**Built:**
+- **BE** `force` flag on POST /prospects/:id/prepare-first-message (route + service). Default false →
+  every existing caller keeps the free cached short-circuit; `force:true` skips it and re-runs the
+  writer (research/classify reused via `hasBrief` — *usually* writer-only, NOT guaranteed).
+- **FE** `FirstMessagePreviewDialog` (new): live `PrepareProgressBar` while generating → editable
+  message + Regenerate / Save for later / Send. Channel-agnostic (wa/tg/li).
+- **FE** `AddManualContactDialog`: `prepareAfterAdd?: boolean` → `onAdded?(prospect)`. The **page**
+  now owns the run (it holds the single-flight `generatingId` + the one progress poller), so the
+  staged bar is visible on the new row AND in the dialog.
+- **FE** `contacts.tsx`: `runGenerate(target, force)` + `handleAdded` + row Generate all open the
+  preview; `handlePrepareAndSend` now returns `Promise<boolean>` so a blocked popup keeps the dialog
+  (and the SDR's edit) on screen. Spec + generated clients regenerated (`pnpm --filter @workspace/api-spec codegen`).
+
+**Godlike audit — 2 parallel read-only auditors (BE force/spend + FE blast-radius), then 1
+adversarial verifier on the FIXES. All High/Med fixed; green after each.**
+- **[High] force could overwrite an ALREADY-SENT message** → follow-up writer cites text the prospect
+  never received (it feeds stored `firstMessageBody` + `firstMessageSentAt` to the LLM as "you sent X
+  on <date>"), and status stays `sent` so nothing surfaces the swap. Fix: `firstMessageSentAt` guard
+  → 409 `already_sent`.
+- **[High] force = new cost-DoS surface.** Pre-force this route was free to repeat (cached read).
+  `assertUnderDailyLlmCap` is off by default (`.env.example` ships the cap empty) and is a
+  read-then-check, so N concurrent calls all pass it. Fix: 10/min per-user sliding-window limit,
+  **force-only** (cached path stays free), 429 + Retry-After.
+- **[High] the progress bar froze on every Regenerate/retry.** The server parks ready/error for a
+  15-min TTL and our GET beats the POST — `resetQueries` refetches SYNCHRONOUSLY while `mutateAsync`
+  defers its fetch a microtask, so **no source ordering can put the POST first**. The poller believed
+  the stale terminal entry and stopped dead → frozen 100% bar under a "Writing…" title. Fix:
+  `usePrepareProgress(id, {running})` keeps polling while the POST is in flight; the bar self-corrects
+  within one interval. (First attempt — reordering the calls — was proven useless by the verifier.)
+- **[High] `prepare` is ONE shared mutation instance** across generate + send, so `prepare.isPending`
+  made every send flip the dialog back to "Writing your first message…" and pinned a phantom spinner
+  on the last-generated row. Fix: explicit `generateRunning` + `runSeqRef` epoch guard.
+- **[Med]** force persisted the new body then rethrew from `buildDeepLink` → destroyed a good message
+  *and* billed for it. Fix: degrade to `deepLinkUrl: null` on force only (first-generate still throws).
+- **[Med]** LinkedIn clipboard copy fired AFTER `window.open` stole focus → `NotAllowedError`,
+  swallowed, while the toast still claimed "message copied" — dead-ending LinkedIn (clipboard-ONLY).
+  Fix: copy before open, awaited (2s-bounded), honest toast.
+- **[Med]** preview save never invalidated `["followups"]`/`["prospects-list"]` → Today/follow-ups kept
+  rendering the pre-edit body. **[Med]** Save-then-Send double-PATCHed and closed the dialog mid-send.
+- **[Low]** unscoped research UPDATE (added userId), OpenAPI spec lacked `force` (added + codegen),
+  stale-run toast escaped the epoch guard, "Regenerate" label on an error state → "Try again".
+
+**Verified green:** `pnpm run build` exit 0 · **new `smoke:regenerate` 13/13** · `smoke:chatfollowup`
+17/17 · `smokeDeliveryFlow` 5/5 · `@workspace/db` 3/3.
+`pnpm --filter @workspace/api-server smoke:regenerate` — drives the force semantics over real HTTP on
+the live DB and **spends ZERO LLM money by construction** (every case short-circuits or is rejected by
+a guard before any model call). If a guard regresses it starts burning real money and the runtime
+explodes — that's the signal.
+
+**Follow-up round (4th verifier pass) — the `running` fix was incomplete; both gaps closed:**
+- The stale terminal frame still **rendered** (green "Ready 100%" flash on every Regenerate, red
+  "Failed" through every retry) → new `useFreshProgress` (`hooks/use-live-progress.ts`) suppresses a
+  terminal frame until the live run reports in, then passes through (so the real ready, which lands
+  while `running` is still true, isn't masked and the bar can't blink out at the end).
+- **`useFollowupProgress` was the unfixed twin** — same store/TTL/parking, live-broken on follow-up
+  send-next retries, with a comment falsely claiming it mirrored the prepare hook's hardening. Fixed
+  identically. Also reverted an in-hook `{...query}` mask that permanently degraded React Query prop
+  tracking to `"all"` (tracked-result Proxy + add-only `#trackedProps`).
+
+**Examined, deliberately NOT changed (not defects):** `messagesGenerated` +1 per regeneration is the
+consistent semantic (the digest sums it beside `messagesSent`/spend, and a regenerate does generate a
+message at real counted cost). `force` + no-brief → full research, and + no-company → 409
+`missing_company`: unreachable (the add form requires a company) and an honest error.
+
+**GAP CLOSED — the dashboard now has tests (2026-07-14).** Took option (a): vitest 4.1.5 (the version
+lib/db already uses) + @testing-library/react + jsdom, plus @testing-library/dom as an EXPLICIT dep —
+`.npmrc` sets `auto-install-peers=false`, so the peer does not come along on its own. New root
+`pnpm run test` runs every package that has tests. **34 dashboard tests, all green:**
+- `hooks/use-live-progress.test.ts` (9) — the suppression rule: a stale ready/error frame is hidden at
+  run start, the run's REAL ready is NOT (the bar must not blink out at the finish), and it re-arms per
+  run and on runKey change.
+- `hooks/use-prepare-progress.test.tsx` (6) — the polling rule, on BOTH hooks: keeps polling through a
+  stale terminal frame while a run is live; still stops when nothing is running.
+- `components/followup/FirstMessagePreviewDialog.test.tsx` (19) — the state machine: generating /
+  ready / error, per-channel Send labels, edit→PATCH-before-composer ORDER, blocked popup keeps the
+  dialog open with the edit intact, no double-PATCH while a save is in flight.
+
+**The tests were verified to actually catch the bug:** with `if (running) return 1200` removed from both
+hooks, exactly the 2 stale-frame tests fail and nothing else. That exercise also exposed inter-test
+coupling worth knowing about — `clearAllMocks` leaves QUEUED `mockResolvedValueOnce` values behind, so a
+test whose poller stopped early leaked its unconsumed frames into the next test (which then passed or
+failed depending on run order AND on whether the code was correct). `mockReset` in `beforeEach` instead.
+
+**BROWSER E2E — DONE (6/6, real Chromium).** `artifacts/dashboard/e2e/contacts-generate.spec.ts`, run
+with `pnpm --filter @workspace/dashboard test:e2e`. Drives the REAL production build via `vite preview`
+on 127.0.0.1 with every `/api` call stubbed → zero LLM spend, no DB. Covers: the app actually boots and
+paints; the staged bar streams queued→researching→writing on the real 1.2s clock; **the stale-parked-
+"ready" race reproduced end-to-end** (no flash, no freeze); edit→PATCH-before-composer as an ORDER; a
+real blocked popup keeps the edit; and the **real clipboard under the real permission model** for
+LinkedIn. Verified to catch the bug: removing `if (running) return 1200` makes exactly that regression
+test fail.
+
+> **SAFETY — do not break this.** The suite is localhost-only and **never contacts LinkedIn**.
+> `window.open` is STUBBED, so the LinkedIn deep link is asserted as a string, never navigated to; a
+> `page.route("**://www.linkedin.com/**", abort)` backstop fails loudly if anything tries to leave
+> localhost. This app does no LinkedIn automation by design (F-A: clipboard-only; the SDR clicks in
+> their own browser as themselves) and the tests must not become the exception. Any test that would hit
+> a third-party host does not belong in this suite.
+
+> **NIX GOTCHA — why @playwright/test is PINNED to 1.55.0.** `npx playwright install chromium` downloads
+> a build that can't run here (`libglib-2.0.so.0` missing) and `playwright install-deps` is apt-based, so
+> it can't fix a Nix box. We use the nix store's patchelf'd chromium instead:
+> `PLAYWRIGHT_BROWSERS_PATH=/nix/store/71577…-playwright-browsers-1.55.0-with-cjk` (chromium-1187) +
+> `channel: "chromium"` (the store has the FULL build, not the headless shell playwright defaults to).
+> **Bumping @playwright/test breaks the launch** until a matching nix browsers path exists.
+
+**NOT yet committed as of this checkpoint** / source-code mirror not re-synced.
+**`pnpm-lock.yaml` + dashboard `package.json` changed** (test deps). Gotcha for the next session:
+`pnpm add` inside the dashboard transiently broke `lib/db`'s vitest bin link (the jsdom peer forces a
+re-resolution of the shared vitest); a root `pnpm install` repairs it — both suites pass after.
 
 ## ⭐ SESSION 12 — MURAT'S TEST FINDINGS (2026-07-10). FE fixes + audit + smoke.
 Reviewed Murat's manual test pass (WhatsApp/Telegram/LinkedIn test-channel, follow-up tab,
