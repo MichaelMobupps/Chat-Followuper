@@ -1467,3 +1467,67 @@ those 2 tests fail and the other 46 pass.
 
 **Green:** build exit 0 · `pnpm run test` **51/51** (db 3 + dashboard 48) · e2e 8/8 real Chromium ·
 smoke:draft 18/18 · smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5.
+
+### Exemplars in the first message — TRIED, BENCHED, REVERTED (2026-07-14)
+
+**The question:** does the Add-dialog's "Generate message" use the exemplar library and the
+gemini-3.5-flash → gemini-3-flash-preview → claude-sonnet-4-6 chain?
+
+**Answers, verified rather than asserted (new `smoke:parity`, 15/15, ZERO spend — it asserts the
+routing policy and prompt CONTENT via the pure functions, no model is invoked):**
+- **Chain: YES, identical.** previewFirstMessage and manualContactPrepare build a field-identical
+  ProspectInput and both call generateChatMessage with stage: 0. No caller-dependent branching exists.
+  Also proved the recent "toggle wins" vertical fix is routing-NEUTRAL: the writer's only
+  caller-dependent branch is isGreyAreaVertical(vertical, subVertical), and the coarse vertical is only
+  ever "web_cps"/"mobile" — neither can match casino|gambling|betting|sportsbook|igaming|crypto|forex|cfd.
+  Grey-area routing is decided by subVertical alone.
+- **Exemplars: NO — and not by ANY first-message path.** stage 0 → mode "prospector" →
+  getProspectorUserPrompt, which carries research + competitor blocks and no exemplar block. The
+  library is wired into getFollowuperUserPrompt ONLY. Not a preview-specific gap; system-wide for
+  stage 0, and true since the library landed.
+
+**The experiment.** Wired exemplars into the prospector prompt behind a mode-aware
+buildExemplarBlock(exemplars, "prospector") whose framing named the mismatch explicitly ("these are
+FOLLOW-UPS to an existing thread; yours is a FIRST contact — mirror register/economy/one proof
+point/soft CTA; DO NOT mirror their opening; DO NOT copy their numbers").
+
+**The bench said no.** Matched 10-case subset (5 worst healers + 5 clean one-pass), same writer model:
+- iterations 2.00 → **1.70** (−15%) · critic score 4.10 → **3.60** (−0.50). **Reverted.**
+- The per-case split is the finding: exemplars **rescue weak drafts and corrupt strong ones**.
+  ar-UAE 3→1 iters, $0.089→$0.034 (−62%), score held. ru-Kazakhstan 1→**3** iters, score **5→3**, cost
+  **6×**. he-Israel 5→4, uk-Ukraine 4→3. Every one of the 947 exemplars (stages 1/2/3 = 320/304/323) is
+  a follow-up opening on a prior thread — even stage 1 ("I'm following up on my previous message…").
+  No framing stopped it dragging a clean cold open toward follow-up register; the critic then flagged
+  it and healing made it worse. Framing cannot substitute for a library with no first-touch examples.
+- smoke:parity now ASSERTS the no-exemplars decision with these numbers in the comment, so re-adding
+  them is a deliberate act.
+
+**Economics learned from the committed bench (52 cases, $3.453):** cases the writer lands in ONE pass
+average **4.11** and cost **$0.024 / 10.4s**; cases that heal average **3.79** and cost **$0.065 /
+37.3s**. Healing does not rescue a weak draft — it MARKS one, and the rewrite doesn't fully recover.
+So a better first draft is the same lever for quality, cost AND latency; there is no trade-off to
+manage. (Research dwarfs all of it at ~$0.39–0.52 per new prospect vs $0.024–0.065 for the whole
+writer chain — that, not the writer, is where the money is.)
+
+**TWO PROCESS FAILURES worth remembering:**
+- **A confounded run nearly produced a false conclusion.** The first bench scored 3.50 and looked like
+  proof — but `LLM_GEMINI_MODEL=gemini-3.5-flash` is set in this env, so it ran a DIFFERENT writer than
+  the committed baseline (gemini-3-flash-preview, 52/52). Two variables at once. Always pin
+  LLM_GEMINI_MODEL to the baseline's model when comparing.
+- **The bench ATE the committed 52-case baseline.** Its report name was keyed by model alone, so a
+  10-case BENCH_ONLY run overwrote BENCH-WRITER-gemini-3-flash-preview.{md,json} mid-comparison
+  (recovered via git checkout; 52 cases verified intact). FIXED: the stem now carries `subsetN` and an
+  optional BENCH_TAG, so a partial or A/B run can never claim a full run's filename.
+
+**STALE DOC CORRECTED — gemini-3.5-flash is LIVE now.** The router comment claims 3.5-flash "503s (not
+provisioned on the key's tier), so today the chain lands writers on 3-flash-preview". Live-probed both:
+**3.5-flash → HTTP OK (16.4s), 3-flash-preview → HTTP OK (16.3s)**. Google now serves the primary, so
+the chain silently promoted itself. Consequences:
+- **Writer spend rose ~3× with no deploy**: 3.5-flash is $1.50/$9.00 per MTok vs 3-flash-preview's
+  $0.50/$3.00. While the primary 503'd, the chain was accidentally saving money.
+- **The 3.90/1.90 quality baseline measures the FALLBACK, not what production now runs.** 3.5-flash has
+  never been benched. The LOG/TODO notes saying "savings INACTIVE until 3.5-flash is provisioned" are
+  obsolete.
+→ A/B in flight: full 52 cases per arm, each arm's fallback pinned to its own primary so neither can
+borrow the other model. If the cheap tier holds quality, making gemini-3-flash-preview the baseline
+cuts writer cost ~3× for free.

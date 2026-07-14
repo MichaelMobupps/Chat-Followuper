@@ -361,10 +361,24 @@ async function main(): Promise<void> {
   // 19 generations completed; results were salvaged from the log).
   const here = path.dirname(fileURLToPath(import.meta.url));
   const outBase = path.resolve(here, "../../../..", "godlike-audit");
-  const mdPath = path.join(outBase, `BENCH-WRITER-${GEMINI_DEFAULT_MODEL}.md`);
+  // Report name.
+  //
+  // Keyed by model ALONE, a 10-case BENCH_ONLY run silently overwrote the
+  // committed 52-case baseline for the same model — destroying the reference
+  // data mid-comparison (recovered from git, 2026-07-14). A partial run is not
+  // the same artifact as a full run and must not claim its filename. BENCH_TAG
+  // additionally separates arms of an A/B on the same model.
+  const suffix = [
+    process.env.BENCH_TAG?.trim().replace(/[^A-Za-z0-9_-]/g, ""),
+    cases.length < CASES.length ? `subset${cases.length}` : "",
+  ]
+    .filter(Boolean)
+    .join("-");
+  const stem = `BENCH-WRITER-${GEMINI_DEFAULT_MODEL}${suffix ? `-${suffix}` : ""}`;
+  const mdPath = path.join(outBase, `${stem}.md`);
   fs.writeFileSync(mdPath, lines.join("\n"));
   fs.writeFileSync(
-    path.join(outBase, `BENCH-WRITER-${GEMINI_DEFAULT_MODEL}.json`),
+    path.join(outBase, `${stem}.json`),
     JSON.stringify(results, null, 2),
   );
 

@@ -14,7 +14,8 @@
     "smoke:bulk": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeBulk.ts",
     "smoke:chatfollowup": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeChatFollowupTests.ts",
     "smoke:regenerate": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeRegenerate.ts",
-    "smoke:draft": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeDraftIngest.ts"
+    "smoke:draft": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeDraftIngest.ts",
+    "smoke:parity": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeGeneratorParity.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
