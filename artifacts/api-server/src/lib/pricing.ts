@@ -8,8 +8,9 @@
  * Values verified 2026-07:
  *   - Opus 4.7 / 4.8:   $5 / $25   (previously mispriced here at $15 / $75,
  *     which over-counted every draft+critic spend ~3x)
- *   - Sonnet 5 / 4.6:   $3 / $15   (Sonnet 5 intro $2/$10 through 2026-08-31 —
- *     we book at sticker so rollups don't dip then jump in September)
+ *   - Sonnet 5 / 4.6:   $3 / $15   sticker. Sonnet 5 ALSO has a time-boxed intro
+ *     rate — see INTRO_PRICING below; it is now booked at the rate actually
+ *     billed, reversing the earlier "book at sticker" choice (rationale there).
  *   - Haiku 4.5:        $1 / $5    (previously mispriced at $0.8 / $4)
  *   - Gemini 3.5 Flash: $1.50 / $9, cached input $0.15
  *   - Opus 4.1:         $15 / $75  (legacy, retiring 2026-08-05)
@@ -46,6 +47,74 @@ export const ANTHROPIC_PRICING: Record<
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
 };
 
+/**
+ * Time-boxed introductory rates that OVERRIDE the sticker table above while
+ * they're live.
+ *
+ * WHY THIS EXISTS (and why it reverses an earlier decision). This file used to
+ * book Sonnet 5 at sticker on purpose — "so rollups don't dip then jump in
+ * September". That's a defensible reporting choice, but it is the wrong one for
+ * an accountant-facing spend view: CRITIC_MODEL is claude-sonnet-5, so booking
+ * $3/$15 while Anthropic bills $2/$10 over-states every critic call by 50% and
+ * the dashboard silently fails to reconcile against the invoice. A spend report
+ * that doesn't match the bill isn't smooth, it's wrong. So: book what is
+ * actually charged, and accept the step-up.
+ *
+ * CONSEQUENCE, deliberately accepted: reported spend for Sonnet 5 will rise ~50%
+ * on 2026-09-01 with no behaviour change. That is real — the intro period ends —
+ * and the ledger should show it rather than hide it.
+ *
+ * Hardcoding either number is wrong half the time ($2 is wrong from September,
+ * $3 is wrong today), which is why this is date-resolved rather than a constant.
+ * When the window closes, the entry can simply be deleted — priceFor falls back
+ * to the sticker table with no other change.
+ */
+interface IntroRate {
+  input: number;
+  output: number;
+  /** Inclusive final day of the intro window, UTC (billing day granularity). */
+  endsAfterUtc: string;
+}
+
+const INTRO_PRICING: Record<string, IntroRate> = {
+  // Verified against Anthropic's published pricing 2026-07: $2/$10 per MTok
+  // "intro through 2026-08-31", reverting to the $3/$15 sticker above.
+  "claude-sonnet-5": { input: 2.0, output: 10.0, endsAfterUtc: "2026-08-31" },
+};
+
+/**
+ * Resolve the rate actually billed for `model` at `at` (default: now).
+ *
+ * Boundary: the intro window is inclusive of `endsAfterUtc`, so it expires at
+ * the first instant of the next UTC day. Anthropic's billing timezone isn't
+ * published to the hour, so a request in the last minutes of 2026-08-31 could
+ * in principle be billed either way — a sub-day rounding artifact on one day's
+ * spend, called out here rather than pretended away.
+ */
+export function priceFor(
+  model: string,
+  at: Date = new Date(),
+): { input: number; output: number; cachedInput?: number; cacheWrite?: number } | undefined {
+  const sticker = ANTHROPIC_PRICING[model];
+  if (!sticker) return undefined;
+
+  const intro = INTRO_PRICING[model];
+  if (!intro) return sticker;
+
+  const expiresAt = Date.parse(`${intro.endsAfterUtc}T23:59:59.999Z`);
+  if (Number.isNaN(expiresAt) || at.getTime() > expiresAt) return sticker;
+
+  // Cache rates ride on the intro input rate — Anthropic's 0.1x read / 1.25x
+  // write multipliers apply to whatever input rate is in force, so an entry that
+  // pins explicit cache rates keeps them and everything else re-derives below.
+  return {
+    input: intro.input,
+    output: intro.output,
+    ...(sticker.cachedInput !== undefined ? { cachedInput: sticker.cachedInput } : {}),
+    ...(sticker.cacheWrite !== undefined ? { cacheWrite: sticker.cacheWrite } : {}),
+  };
+}
+
 export interface CostBreakdown {
   inputTokens: number;
   outputTokens: number;
@@ -81,7 +150,9 @@ export function computeCost(
   const cacheWrite = cache.cacheWriteTokens ?? 0;
   const totalInput = inputTokens + cachedIn + cacheWrite;
 
-  const pricing = ANTHROPIC_PRICING[model];
+  // priceFor, not a raw table read: resolves any live introductory rate so the
+  // number booked is the number billed (see INTRO_PRICING).
+  const pricing = priceFor(model);
   if (!pricing) {
     // Unknown model — return zero-cost rather than throwing, but do NOT do so
     // silently: an unpriced model means spend rollups under-count real cost

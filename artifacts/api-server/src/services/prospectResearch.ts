@@ -40,7 +40,23 @@ import {
 // Public types
 // ─────────────────────────────────────────────────────────────────
 
-const RESEARCH_MODEL = "claude-opus-4-7";
+/**
+ * Research model. Env-overridable so it can be A/B'd without a code edit per
+ * arm — the writer chain already works this way (LLM_GEMINI_MODEL et al.); this
+ * was the one model in the pipeline hardcoded, and it happens to be the most
+ * expensive call we make (~$0.39–0.52 per new prospect vs $0.024–0.065 for the
+ * entire writer chain).
+ *
+ * Default stays opus-4-7 ($5/$25 per MTok) pending the bench. If you point this
+ * at a Sonnet-tier model, mind the thinking default: opus-4-7 with `thinking`
+ * omitted runs WITHOUT thinking (what this call does today), whereas sonnet-5
+ * with `thinking` omitted runs adaptive thinking ON — so a bare model swap
+ * silently adds thinking tokens and latency. Any model set here must also
+ * support `web_search_20260209` (Opus 4.8/4.7/4.6, Sonnet 5, Sonnet 4.6);
+ * haiku-4-5 is NOT eligible and would silently need the unfiltered
+ * `web_search_20250305`, pulling raw results into context.
+ */
+const RESEARCH_MODEL = process.env.RESEARCH_MODEL || "claude-opus-4-7";
 
 // Hook-doctrine v2: give the research call Anthropic's server-side web search so
 // Opus can find a fresh, dated hook and check ad presence (Google Ads
