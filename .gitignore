@@ -66,3 +66,9 @@ credentials.json
 
 # Snapshot archives
 *.zip
+
+# Playwright (browser E2E) — run artifacts + traces. The chromium binary itself
+# comes from the nix store (see artifacts/dashboard/playwright.config.ts), so
+# nothing browser-sized should ever land in the repo.
+test-results/
+playwright-report/
