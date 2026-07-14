@@ -967,6 +967,16 @@ the delivery provider")** — typecheck + build green:
 - Newly-classified coarse `vertical` now persisted + passed to prospectInput, and normalized from the
   final subVertical (getDoctrineDomain) so stored vertical/subVertical stay consistent.
 
+**FINAL full-length smoke on the committed state (both commits): 3.90 avg @ 1.90 iters, 52/52 cases,
+0 errors, 0 wrong-script, 52/52 served by the intended writer; score-2 only lv-Latvia + si-SriLanka
+(low-resource floor). Best run of the session — the deferred batch broke nothing.**
+
+**NOT runtime-driven (no live server/browser/Pushover/phone available here): the delivery button flow
+(email/Pushover → /open → channel prefilled / LinkedIn copy-page) and the FE Detect button are
+typecheck + build + code-audit verified but NOT clicked end-to-end. Ad-intel accuracy (JS-heavy
+ad-library SPAs), classifier accuracy at scale, and production web_search cost/latency (~$0.39 +
+≤120s per new prospect, on by default) are genuine best-effort/unknown-at-scale, not defects.**
+
 **STILL DEFERRED (documented)**
 - Em-dash blanket hard-fail can strip grammatically-required dashes (RU тире, ES/FR raya) — KEPT per
   the user's explicit doctrine ("No em dashes in any language"); bench iterations stayed 1.7–2.0.

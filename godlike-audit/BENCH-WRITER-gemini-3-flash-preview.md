@@ -1,103 +1,101 @@
 # Writer quality bench — gemini-3-flash-preview
 
-Cases: 52 · errors: 0 · writer served by gemini-3-flash-preview: 51/52
-Avg critic score: 3.62 · avg healing iterations: 1.96 · total spend: $2.772
+Cases: 52 · errors: 0 · writer served by gemini-3-flash-preview: 52/52
+Avg critic score: 3.90 · avg healing iterations: 1.90 · total spend: $3.453
 
 | case | score | iters | writer | cost | ms | flags |
 |---|---|---|---|---|---|---|
-| en-US-research | 4 | 1 | gemini-3-flash-preview | $0.092 | 115430 | ✓ |
-| tr-TR-research | 4 | 1 | gemini-3-flash-preview | $0.107 | 135933 | ✓ |
-| en-UnitedStates | 3 | 2 | gemini-3-flash-preview | $0.063 | 24243 | LOW SCORE 3 |
-| es-Mexico | 4 | 2 | gemini-3-flash-preview | $0.057 | 20780 | ✓ |
-| pt-Brazil | 3 | 1 | gemini-3-flash-preview | $0.034 | 10682 | LOW SCORE 3 |
-| fr-France | 5 | 2 | gemini-3-flash-preview | $0.037 | 21692 | ✓ |
-| de-Germany | 3 | 3 | gemini-3-flash-preview | $0.086 | 43486 | LOW SCORE 3 |
-| it-Italy | 4 | 3 | gemini-3-flash-preview | $0.082 | 35298 | ✓ |
-| nl-Netherlands | 4 | 3 | gemini-3-flash-preview | $0.071 | 41555 | ✓ |
-| pl-Poland | 4 | 1 | gemini-3-flash-preview | $0.039 | 21238 | ✓ |
-| ru-Kazakhstan | 4 | 2 | gemini-3-flash-preview | $0.041 | 19536 | ✓ |
-| uk-Ukraine | 3 | 3 | gemini-3-flash-preview | $0.099 | 41250 | LOW SCORE 3 |
-| he-Israel | 3 | 2 | gemini-3-flash-preview | $0.063 | 27845 | LOW SCORE 3 |
-| ar-UnitedArabEmirates | 3 | 3 | gemini-3-flash-preview | $0.080 | 47671 | LOW SCORE 3 |
-| fa-Tajikistan | 4 | 3 | gemini-3-flash-preview | $0.064 | 36221 | ✓ |
-| tr-Turkey | 3 | 1 | gemini-3-flash-preview | $0.034 | 14286 | LOW SCORE 3 |
-| hi-India | 3 | 3 | gemini-3-flash-preview | $0.083 | 40474 | LOW SCORE 3 |
-| bn-Bangladesh | 0 | 1 | gemini-3-flash-preview | $0.003 | 22189 | LOW SCORE 0 |
-| ur-Pakistan | 4 | 3 | gemini-3-flash-preview | $0.076 | 41736 | ✓ |
-| th-Thailand | 3 | 1 | gemini-3-flash-preview | $0.039 | 14574 | LOW SCORE 3 |
-| vi-Vietnam | 4 | 2 | claude-sonnet-4-6 | $0.117 | 36301 | writer fell back to claude-sonnet-4-6 |
-| id-Indonesia | 4 | 1 | gemini-3-flash-preview | $0.034 | 11519 | ✓ |
-| ms-Malaysia | 4 | 1 | gemini-3-flash-preview | $0.019 | 9925 | ✓ |
-| tl-Philippines | 4 | 2 | gemini-3-flash-preview | $0.045 | 27108 | ✓ |
-| ja-Japan | 4 | 2 | gemini-3-flash-preview | $0.046 | 19345 | ✓ |
-| ko-SouthKorea | 4 | 1 | gemini-3-flash-preview | $0.031 | 13318 | ✓ |
-| zh-Taiwan | 3 | 2 | gemini-3-flash-preview | $0.047 | 21578 | LOW SCORE 3 |
-| sv-Sweden | 4 | 1 | gemini-3-flash-preview | $0.020 | 9664 | ✓ |
-| no-Norway | 4 | 2 | gemini-3-flash-preview | $0.049 | 30022 | ✓ |
-| da-Denmark | 4 | 2 | gemini-3-flash-preview | $0.043 | 23822 | ✓ |
-| fi-Finland | 4 | 2 | gemini-3-flash-preview | $0.055 | 28882 | ✓ |
-| cs-CzechRepublic | 4 | 1 | gemini-3-flash-preview | $0.028 | 10547 | ✓ |
-| ro-Romania | 3 | 3 | gemini-3-flash-preview | $0.099 | 50034 | LOW SCORE 3 |
-| hu-Hungary | 4 | 1 | gemini-3-flash-preview | $0.033 | 10117 | ✓ |
-| el-Greece | 4 | 3 | gemini-3-flash-preview | $0.109 | 50468 | ✓ |
-| bg-Bulgaria | 5 | 2 | gemini-3-flash-preview | $0.055 | 20060 | ✓ |
-| sw-Kenya | 4 | 2 | gemini-3-flash-preview | $0.048 | 25415 | ✓ |
-| am-Ethiopia | 0 | 1 | gemini-3-flash-preview | $0.003 | 25213 | LOW SCORE 0 |
-| az-Azerbaijan | 5 | 3 | gemini-3-flash-preview | $0.053 | 29890 | ✓ |
-| et-Estonia | 4 | 1 | gemini-3-flash-preview | $0.017 | 10706 | ✓ |
-| hr-Croatia | 4 | 3 | gemini-3-flash-preview | $0.069 | 40018 | ✓ |
-| ka-Georgia | 4 | 1 | gemini-3-flash-preview | $0.016 | 10380 | ✓ |
-| km-Cambodia | 5 | 3 | gemini-3-flash-preview | $0.060 | 44539 | ✓ |
-| lt-Lithuania | 4 | 2 | gemini-3-flash-preview | $0.037 | 21525 | ✓ |
-| lv-Latvia | 2 | 3 | gemini-3-flash-preview | $0.046 | 29072 | LOW SCORE 2 |
-| my-Myanmar | 3 | 1 | gemini-3-flash-preview | $0.029 | 18115 | LOW SCORE 3 |
-| si-SriLanka | 2 | 3 | gemini-3-flash-preview | $0.063 | 71299 | LOW SCORE 2 |
-| sl-Slovenia | 4 | 2 | gemini-3-flash-preview | $0.043 | 27281 | ✓ |
-| sr-Serbia | 4 | 3 | gemini-3-flash-preview | $0.065 | 42497 | ✓ |
-| tr-TR-followup | 4 | 2 | gemini-3-flash-preview | $0.076 | 26465 | ✓ |
-| en-GB-followup | 4 | 2 | gemini-3-flash-preview | $0.052 | 16115 | ✓ |
-| es-AR-followup | 4 | 1 | gemini-3-flash-preview | $0.016 | 5960 | ✓ |
+| en-US-research | 4 | 2 | gemini-3-flash-preview | $0.443 | 98408 | ✓ |
+| tr-TR-research | 3 | 2 | gemini-3-flash-preview | $0.522 | 96475 | LOW SCORE 3 |
+| en-UnitedStates | 3 | 1 | gemini-3-flash-preview | $0.040 | 14236 | LOW SCORE 3 |
+| es-Mexico | 3 | 1 | gemini-3-flash-preview | $0.040 | 12848 | LOW SCORE 3 |
+| pt-Brazil | 4 | 2 | gemini-3-flash-preview | $0.058 | 23391 | ✓ |
+| fr-France | 5 | 2 | gemini-3-flash-preview | $0.043 | 18687 | ✓ |
+| de-Germany | 3 | 2 | gemini-3-flash-preview | $0.049 | 22587 | LOW SCORE 3 |
+| it-Italy | 3 | 2 | gemini-3-flash-preview | $0.063 | 27338 | LOW SCORE 3 |
+| nl-Netherlands | 4 | 2 | gemini-3-flash-preview | $0.040 | 20660 | ✓ |
+| pl-Poland | 4 | 2 | gemini-3-flash-preview | $0.061 | 22543 | ✓ |
+| ru-Kazakhstan | 5 | 1 | gemini-3-flash-preview | $0.014 | 4755 | ✓ |
+| uk-Ukraine | 4 | 1 | gemini-3-flash-preview | $0.030 | 11999 | ✓ |
+| he-Israel | 5 | 1 | gemini-3-flash-preview | $0.024 | 10759 | ✓ |
+| ar-UnitedArabEmirates | 3 | 3 | gemini-3-flash-preview | $0.089 | 48581 | LOW SCORE 3 |
+| fa-Tajikistan | 4 | 1 | gemini-3-flash-preview | $0.021 | 11683 | ✓ |
+| tr-Turkey | 5 | 3 | gemini-3-flash-preview | $0.088 | 33828 | ✓ |
+| hi-India | 4 | 1 | gemini-3-flash-preview | $0.022 | 9967 | ✓ |
+| bn-Bangladesh | 5 | 2 | gemini-3-flash-preview | $0.063 | 33237 | ✓ |
+| ur-Pakistan | 4 | 3 | gemini-3-flash-preview | $0.083 | 49519 | ✓ |
+| th-Thailand | 4 | 1 | gemini-3-flash-preview | $0.030 | 9094 | ✓ |
+| vi-Vietnam | 4 | 3 | gemini-3-flash-preview | $0.130 | 42052 | ✓ |
+| id-Indonesia | 3 | 2 | gemini-3-flash-preview | $0.076 | 27543 | LOW SCORE 3 |
+| ms-Malaysia | 4 | 1 | gemini-3-flash-preview | $0.019 | 10606 | ✓ |
+| tl-Philippines | 4 | 1 | gemini-3-flash-preview | $0.018 | 9279 | ✓ |
+| ja-Japan | 5 | 2 | gemini-3-flash-preview | $0.046 | 21230 | ✓ |
+| ko-SouthKorea | 5 | 3 | gemini-3-flash-preview | $0.074 | 29622 | ✓ |
+| zh-Taiwan | 4 | 3 | gemini-3-flash-preview | $0.068 | 30857 | ✓ |
+| sv-Sweden | 4 | 1 | gemini-3-flash-preview | $0.018 | 8603 | ✓ |
+| no-Norway | 4 | 2 | gemini-3-flash-preview | $0.036 | 27307 | ✓ |
+| da-Denmark | 3 | 3 | gemini-3-flash-preview | $0.068 | 37710 | LOW SCORE 3 |
+| fi-Finland | 4 | 3 | gemini-3-flash-preview | $0.066 | 35132 | ✓ |
+| cs-CzechRepublic | 4 | 1 | gemini-3-flash-preview | $0.037 | 20484 | ✓ |
+| ro-Romania | 5 | 1 | gemini-3-flash-preview | $0.025 | 7289 | ✓ |
+| hu-Hungary | 5 | 3 | gemini-3-flash-preview | $0.090 | 26337 | ✓ |
+| el-Greece | 4 | 2 | gemini-3-flash-preview | $0.067 | 23632 | ✓ |
+| bg-Bulgaria | 4 | 2 | gemini-3-flash-preview | $0.067 | 25254 | ✓ |
+| sw-Kenya | 4 | 1 | gemini-3-flash-preview | $0.019 | 9808 | ✓ |
+| am-Ethiopia | 3 | 3 | gemini-3-flash-preview | $0.082 | 57361 | LOW SCORE 3 |
+| az-Azerbaijan | 4 | 2 | gemini-3-flash-preview | $0.036 | 19213 | ✓ |
+| et-Estonia | 5 | 2 | gemini-3-flash-preview | $0.035 | 18427 | ✓ |
+| hr-Croatia | 4 | 2 | gemini-3-flash-preview | $0.046 | 27647 | ✓ |
+| ka-Georgia | 4 | 1 | gemini-3-flash-preview | $0.020 | 13136 | ✓ |
+| km-Cambodia | 3 | 3 | gemini-3-flash-preview | $0.074 | 63925 | LOW SCORE 3 |
+| lt-Lithuania | 4 | 2 | gemini-3-flash-preview | $0.048 | 42279 | ✓ |
+| lv-Latvia | 2 | 3 | gemini-3-flash-preview | $0.055 | 32260 | LOW SCORE 2 |
+| my-Myanmar | 3 | 2 | gemini-3-flash-preview | $0.061 | 38264 | LOW SCORE 3 |
+| si-SriLanka | 2 | 3 | gemini-3-flash-preview | $0.057 | 71505 | LOW SCORE 2 |
+| sl-Slovenia | 4 | 1 | gemini-3-flash-preview | $0.013 | 8137 | ✓ |
+| sr-Serbia | 4 | 1 | gemini-3-flash-preview | $0.020 | 12384 | ✓ |
+| tr-TR-followup | 3 | 3 | gemini-3-flash-preview | $0.108 | 37373 | LOW SCORE 3 |
+| en-GB-followup | 4 | 1 | gemini-3-flash-preview | $0.033 | 7511 | ✓ |
+| es-AR-followup | 5 | 1 | gemini-3-flash-preview | $0.016 | 5423 | ✓ |
 
 ## en-US-research
 
 ```
-Hi Dana,
-
-Instacart's recent growth and partnerships hiring push for 2025 shows a clear focus on scaling new customer acquisition and Instacart+ memberships. Walmart Grocery, Amazon Fresh, and DoorDash are all scaling US web performance programs right now, but the cohorts that actually win on ROAS day-7 come from publishers who deliver repeat buyers. This scale tier can realistically drive 2,500 confirmed purchases a day through vetted US web publishers, with billing only for sales that survive the 30-day cancellation window. Category-level curation across coupon and cashback sites filters for incrementality and first-purchase rate to ensure high-LTV volume. Would you be open to seeing how this model handles fraud filtering on the affiliate chain?
+Hi Dana, on October 28, 2025 Instacart announced a partnership with Grubhub to power grocery delivery inside the Grubhub app nationwide, opening a new first-order acquisition surface the affiliate program will need to feed. Peer brands like DoorDash, Walmart Grocery, and Shipt are increasingly competing for the same US publisher pool, which puts pressure on net GMV through coupon and cashback channels. A vetted US grocery and cashback publisher pool can realistically deliver 2,500 confirmed purchases per day when layered on your existing Impact setup. We use MAFO incrementality-aware allocation to suppress publishers showing high last-click attribution but no incremental lift, and invoice only on sales surviving the 30-day cancellation window. Would you be open to a brief chat about how this could supplement your current acquisition?
 ```
 
 ## tr-TR-research
 
 ```
-Merhaba Emre Bey,
-
-Trendyol'un Körfez ve Avrupa pazarlarındaki agresif büyüme hamlesi için LinkedIn üzerinden kurduğunuz yeni performans pazarlaması ekibini ilgiyle takip ediyoruz. Hepsiburada ve Amazon.com.tr gibi pazaryerlerinin bu bölgelerde içerik ve cashback yayıncılarını kapsayan onaylı satış odaklı affiliate yapılarını hızla ölçeklendirmesi, pazar rekabeti açısından kritik bir öneme sahip. MobUpps olarak Türkiye ve yeni genişleme bölgelerinizde günlük 2.500 adet onaylı satış (confirmed purchase) hacmini gerçekçi verilerle sağlayabiliyoruz. Faturalandırma süreçleri yalnızca 30 günlük iade penceresini başarıyla geçen işlemler üzerinden yürütülürken, MAFO sistemimiz yayıncı dağılımını doğrudan iade sonrası kesinleşen ciroya göre optimize ediyor. Bu stratejinin Trendyol'un sınır ötesi genişleme hedeflerini nasıl destekleyebileceğini kısaca değerlendirmek ister misiniz?
+Merhaba Emre Bey, Trendyol'un 31 Aralık 2025 tarihli Kreatif Özet raporunda vurgulanan Körfez ve Orta ve Doğu Avrupa genişlemesi ile GITEX Global sponsorluğunuz bölgedeki büyüme vizyonunuzu net bir şekilde gösteriyor. Hepsiburada, Amazon.com.tr ve N11 gibi platformların mevcut dijital kanallarına küratörlü CPS yayıncılarını eklediği bu dönemde, Trendyol'un 20 milyonu aşan ziyaretçi ölçeği için onaylı satış odaklı bir kanal stratejik bir adım olacaktır. İçerik ve karşılaştırma odaklı 500'den fazla onaylı yayıncımız üzerinden günde ~2.500 onaylı satış hacmi sağlayabiliyoruz. MAFO motorumuz, kaynakları 30 günlük iade penceresini başarıyla geçen satışlara yönlendirerek brüt sepet yerine doğrudan net satış performansına odaklanıyor. Moda ve elektronik gibi iade oranı yüksek kategorilerde, fraud filtreleme ve sepet hatırlatma mekanizmalarıyla yalnızca kesinleşen işlemler üzerinden faturalandırma yapıyoruz. Bu kategorize edilmiş yayıncı havuzunu Trendyol'un yeni pazarlarındaki büyüme hedeflerinize dahil etmeyi değerlendirmek ister misiniz?
 ```
 
 ## en-UnitedStates
 
 ```
-Hi Dana, MarketCo opening three growth and UA roles this month shows great momentum during this seasonal demand spike. Marketplace competition in the United States is intensifying as acquisition costs rise across the sector. We help similar ecommerce brands scale by optimizing directly for confirmed purchases at a volume of 600 confirmed purchases per day. This performance model includes integrated fraud screening to maintain margin quality alongside peers like Amazon and Walmart. Would you be open to a brief chat about our purchase-level optimization?
+Hi Dana,
+
+MarketCo's recent move to open three growth and UA roles this month suggests some serious momentum for your team. This expansion comes at a busy time as seasonal demand spikes across the US marketplace sector. Other major players like Walmart are seeing acquisition costs rise on social, making diversified inventory even more critical. Similar ecommerce accounts currently reach 600 confirmed purchases per day through performance-driven video placement. This volume is backed by fraud screening to ensure every confirmed purchase is legitimate. Would you be open to a brief chat about scaling this alongside your Meta ads?
 ```
 
 ## es-Mexico
 
 ```
-Buen dia Valeria, MercadoHogar ha mostrado un impulso interesante con las tres vacantes de crecimiento y UA que abrieron este mes. Ante la competencia actual en Mexico frente a jugadores como Mercado Libre o Amazon México, mantener un CPA eficiente es clave para aprovechar el pico de demanda estacional. Optimizamos directo a first purchase en cuentas similares del sector, alcanzando 637 compras confirmadas al dia. Este volumen se logra mediante optimizacion de eventos y fraud filtering riguroso para asegurar la calidad de cada transaccion. Podria funcionar integrar sus creativos de video actuales en inventarios de YouTube para diversificar el trafico. ¿Le interesaria platicar sobre estas proyecciones de volumen?
+Buen día Valeria,
+
+MercadoHogar destaca con la apertura de tres nuevas posiciones de crecimiento este mes, lo cual refleja un gran momento para su equipo. El mercado en México se vuelve cada vez más competitivo frente a jugadores como Mercado Libre y Amazon MX. Ante el alza en el CAC de canales sociales, el escalado de creativos de video hacia inventarios de YouTube y CTV permite diversificar el origen de las transacciones. Actualmente, cuentas similares alcanzan un volumen de 637 first purchase diarias mediante optimización directa al evento de compra. Este flujo integra fraud filtering avanzado para asegurar la calidad de cada conversión confirmada. ¿Le interesaría platicar sobre cómo integrar este volumen a su estrategia actual?
 ```
 
 ## pt-Brazil
 
 ```
-Olá Rafael,
-
-Notei que a LojaViva abriu três novas posições de crescimento e UA este mês para aproveitar o pico de demanda sazonal no mercado brasileiro. Com a intensificação da concorrência e o aumento do CAC no Meta, escalar o volume de vendas mantendo a rentabilidade se tornou o ponto central para grandes marketplaces como o Magazine Luiza. Operações similares têm alcançado 674 compras confirmadas por dia através da otimização direta para o evento de conversão final e filtragem rigorosa de tráfego. Seria interessante avaliar se esse modelo de escala baseado em CPS faz sentido para o seu planejamento atual?
+Olá Rafael, as três novas vagas de growth abertas pela LojaViva este mês sinalizam um momento forte de expansão frente à alta concorrência no e-commerce brasileiro. Com o aumento do custo de aquisição, marcas como Magalu e Shopee Brasil têm buscado otimizar o CPA focando no evento de compra confirmada. Em contas similares, chegamos a 674 compras confirmadas por dia com fraud screening integrado para garantir a qualidade do tráfego. Faz sentido trocarmos uma ideia sobre como escalar esse volume para seu próximo pico de demanda sazonal?
 ```
 
 ## fr-France
 
 ```
-Bonjour Camille, l'ouverture de trois postes en acquisition ce mois-ci montre la forte dynamique de ModeRapide malgré la hausse des coûts marketing en France. Dans ce contexte de pic saisonnier, la diversification des sources devient cruciale face à des acteurs comme Vinted ou La Redoute. Des comptes e-commerce similaires atteignent actuellement 711 achats confirmés par jour grâce à une optimisation directe sur l'événement de premier achat. Ce volume de conversions repose sur un filtrage de la fraude rigoureux pour stabiliser votre CPA. Seriez-vous disponible pour échanger sur vos objectifs de croissance ce trimestre ?
+Bonjour Camille, l'ouverture de vos trois nouveaux postes en acquisition ce mois-ci montre une belle dynamique pour le développement de ModeRapide en France. Le marché e-commerce devient de plus en plus concurrentiel face à des acteurs comme Vinted ou La Redoute. Des comptes similaires génèrent actuellement un volume de 711 premiers achats confirmés par jour via une optimisation directe au CPA. Cette performance repose sur un ciblage précis de l'acte d'achat couplé à un filtrage de la fraude rigoureux. Seriez-vous disponible pour un court échange sur ces leviers de performance ?
 ```
 
 ## de-Germany
@@ -105,13 +103,15 @@ Bonjour Camille, l'ouverture de trois postes en acquisition ce mois-ci montre la
 ```
 Hallo Katrin,
 
-KaufFlink hat diesen Monat drei Stellen im Bereich Growth und UA ausgeschrieben, was auf eine Expansion im deutschen Markt hindeutet. Die steigenden Akquisitionskosten in Deutschland erschweren derzeit vielen Marktplätzen die effiziente Neukundengewinnung während saisonaler Nachfragespitzen. Kampagnen auf Basis von CPS erreichen bei vergleichbaren E-Commerce-Accounts aktuell 748 bestätigte Käufe pro Tag. Durch die Optimierung direkt auf den Event confirmed purchase und ein integriertes Fraud-Screening sichern wir die Qualität der Transaktionen ab. Wir unterstützen Marken wie Otto und Zalando dabei, ihre Performance-Ziele durch gezielte Steuerung auf reale Abverkäufe zu erreichen. Ein Fokus auf YouTube-Placements ermöglicht hierbei zusätzliche Reichweite abseits der gesättigten Kanäle. Wäre ein kurzer Austausch zu diesen Benchmarks für Sie nächste Woche denkbar?
+KaufFlink hat in diesem Monat drei neue Positionen im Bereich Growth und UA ausgeschrieben, was auf eine starke Expansion im deutschen Markt hindeutet. Da der Wettbewerb im E-Commerce Sektor aktuell die Akquisitionskosten massiv in die Höhe treibt, wird die Effizienz bei der Neukundengewinnung entscheidend. Bei vergleichbaren E-Commerce Konten wie Otto oder Zalando optimieren wir auf 748 bestätigte Käufe pro Tag durch ein CPS Modell mit integriertem Fraud-Screening. Dieser Ansatz ermöglicht stabiles Volumen trotz des hohen Marktdrucks und sichert die Qualität jeder einzelnen Transaktion ab. Wäre ein kurzer Austausch zu diesem Modell für Ihre neuen Teammitglieder von Interesse?
 ```
 
 ## it-Italy
 
 ```
-Salve Marco, l'apertura di tre nuove posizioni UA questo mese indica chiaramente la fase di crescita di MercatoVia. Con l'intensificarsi della concorrenza nel settore e-commerce in Italia, supportiamo realtà come Subito ed ePrice ottimizzando le campagne direttamente sul primo acquisto. Grazie a filtri anti-frode dedicati, generiamo mediamente 785 acquisti confermati al giorno per account affini. Potrebbe essere utile valutare questo modello a CPA in vista del picco stagionale?
+Salve Marco,
+
+l'apertura di tre nuove posizioni per i team growth e UA di MercatoVia in questo mese suggerisce una fase di forte accelerazione in vista dei picchi stagionali. In un mercato competitivo come quello italiano, supportiamo realtà simili a Subito ed ePrice ottimizzando l'acquisizione direttamente sul primo acquisto con 785 conversioni confermate al giorno. Questo volume viene garantito da uno screening del traffico che filtra le anomalie prima del completamento dell'ordine. Le andrebbe di scambiare due parole su come questo modello a performance può supportare i vostri margini attuali?
 ```
 
 ## nl-Netherlands
@@ -119,33 +119,39 @@ Salve Marco, l'apertura di tre nuove posizioni UA questo mese indica chiaramente
 ```
 Hallo Sanne,
 
-KoopSnel heeft deze maand drie growth en UA vacatures geopend tijdens de huidige seizoensgebonden piek in de markt. Nu de concurrentie bij Bol.com en Marktplaats toeneemt, stijgen waarschijnlijk ook de CPA-kosten voor jullie e-commerce kanalen. Voor vergelijkbare spelers worden momenteel 822 confirmed purchases per dag gerealiseerd via gerichte CPA-optimalisatie. Deze volumes komen voort uit sturing op transactieniveau in combinatie met strikte fraudefiltering. Zou het interessant zijn om te bespreken hoe deze schaal ook voor KoopSnel haalbaar is?
+De recente opening van drie growth en UA rollen bij KoopSnel markeert een ambitieuze fase voor jullie platform. In de Nederlandse markt waar spelers als Bol.com en Marktplaats de druk opvoeren, wordt het beheersen van de CPA steeds crucialer. Soortgelijke e-commerce accounts realiseren momenteel exact 822 bevestigde aankopen per dag via ons netwerk. Wij bereiken dit door CPA optimalisatie op transactieniveau te combineren met geavanceerde fraudedetectie om de orderkwaliteit te waarborgen. Zou je willen zien hoe dit past bij jullie plannen voor de komende seizoenspiek?
 ```
 
 ## pl-Poland
 
 ```
-Dzień dobry, Kasia,
+Dzień dobry, Pani Kasiu,
 
-Otwarcie trzech nowych ról w obszarze growth i UA w tym miesiącu to wyraźny sygnał dynamicznego rozwoju SzybkiRynek w Polsce. Przy obecnej intensyfikacji rynku e-commerce i rosnących kosztach pozyskania klienta na platformach Meta, utrzymanie niskiego CAC staje się kluczowym wyzwaniem. Podobne platformy marketplace osiągają u nas poziom 859 potwierdzonych zakupów dziennie dzięki optymalizacji opartej bezpośrednio na pierwszej transakcji. Stosujemy przy tym rygorystyczny screening pod kątem fraudu, co pozwala na bezpieczne skalowanie wolumenu obok działań w Allegro czy Empiku. Czy byłaby Pani otwarta na krótką rozmowę o przeniesieniu części budżetów wideo na kanały generujące bezpośrednią sprzedaż?
+Zauważyłem, że SzybkiRynek otworzył w tym miesiącu trzy nowe role w obszarze growth i UA, co przy rosnących kosztach pozyskania klienta w Polsce wydaje się świetnym ruchem. Wykorzystanie sezonowego skoku popytu wymaga obecnie precyzyjnego dotarcia do kupujących, szczególnie przy silnej konkurencji ze strony Allegro czy Empiku. Optymalizujemy kampanie bezpośrednio pod pierwszą transakcję, dowożąc 859 potwierdzonych zakupów dziennie dla podobnych platform e-commerce. Dzięki wbudowanej ochronie przed fraudem eliminujemy wydatki na ruch, który nie kończy się realną sprzedażą. Takie podejście pozwala na stabilne skalowanie wolumenu przy zachowaniu rentowności modelu CPA. Czy mogłaby Pani poświęcić chwilę na krótką rozmowę o tym modelu w przyszłym tygodniu?
 ```
 
 ## ru-Kazakhstan
 
 ```
-Здравствуйте, Айгерим.
+Здравствуйте, Айгерим,
 
-Заметил, что StepMarket открыл три UA-роли в этом месяце на фоне сезонного роста спроса в Казахстане.
+Заметил, что StepMarket активно расширяет команду роста и открыл сразу три вакансии для UA-специалистов в этом месяце. В условиях растущей конкуренции с Kaspi.kz и Wildberries на рынке Казахстана такая ставка на масштабирование выглядит очень своевременной.
 
-В условиях усиления конкуренции с Kaspi.kz и Wildberries масштабирование видеокреативов в YouTube может стать дополнительным рычагом для контроля стоимости привлечения. Похожие e-commerce проекты в регионе получают 896 подтвержденных покупок в день через CPS-оптимизацию и антифрод-скрининг.
+Сейчас удается поддерживать объем на уровне 896 подтвержденных покупок в день для схожих площадок, сохраняя целевой CPA за счет прямой оптимизации на выкуп заказа. Весь инвентарь проходит через многоуровневый антифрод-скрининг, что позволяет эффективно масштабировать видео-креативы из Meta и YouTube на новые источники.
 
-Было бы вам интересно обсудить, как дополнить текущие охваты в Meta и YouTube новым объемом подтвержденных покупок?
+Будет ли вам интересно обсудить этот подход в дополнение к вашим текущим кампаниям?
 ```
 
 ## uk-Ukraine
 
 ```
-Вітаю, Оксано, відкриття трьох вакансій у напрямках growth та UA цього місяця свідчить про серйозні плани ShvydkoShop щодо розширення. На фоні зростання вартості залучення в Україні важливо диверсифікувати канали за межами стандартних мереж. Ми реалізуємо оптимізацію на рівні першої покупки, що забезпечує 933 підтверджених замовлень на добу для таких маркетплейсів, як Rozetka та Prom.ua. Використання інтегрованого фрод-скринінгу дозволяє масштабувати обсяги за моделлю CPA без втрати якості трафіку. Це допомагає стабільно нарощувати кількість транзакцій навіть за умов високої конкуренції. Чи було б вам цікаво обговорити ці показники?
+Вітаю, Оксано,
+
+Відкриття трьох нових вакансій у вашій команді залучення користувачів цього місяця свідчить про активні плани ShvydkoShop щодо масштабування на українському ринку. Посилення конкуренції між Rozetka та Prom.ua вимагає пошуку нових каналів для утримання стабільної вартості цільової дії.
+
+Наразі схожі проєкти у сфері електронної комерції отримують понад 933 підтверджених замовлення на день завдяки оптимізації трафіку на рівні першої покупки з обов'язковою фільтрацією фроду. Такий підхід дозволяє перенести досвід ваших відеокреативів з Meta та YouTube у нові джерела з оплатою виключно за результат.
+
+Чи було б вам цікаво обговорити можливість масштабування ShvydkoShop за межі традиційних платформ?
 ```
 
 ## he-Israel
@@ -153,15 +159,7 @@ Otwarcie trzech nowych ról w obszarze growth i UA w tym miesiącu to wyraźny s
 ```
 שלום נועה,
 
-פתיחת שלושה תפקידי growth ו-UA חדשים החודש בקניון אונליין מעידה על תנופת הצמיחה שלכם בשוק הישראלי.
-
-קניון אונליין מתמודד עם עלויות רכישה עולות בשוק המקומי ולכן הגיוון בערוצי המדיה הופך לקריטי.
-
-חשבונות דומים מגיעים ל-970 רכישות מאושרות ביום דרך אופטימיזציה ישירה לאירוע ה-CPA של רכישה מאושרת.
-
-אנחנו מבצעים סינון פרה-ביד של טראפיק חשוד כדי להבטיח איכות המרה גבוהה מול פלטפורמות כמו KSP או Wolt Market.
-
-האם תרצי לבדוק אם מודל מבוסס CPS יכול להתאים לתוכניות הצמיחה העונתיות שלכם?
+פתיחת שלוש משרות הצמיחה וה-UA החדשות של קניון אונליין החודש מראה על תנופה משמעותית בשוק הישראלי. לצד הגידול בביקוש העונתי, התחרות הגוברת מצד שחקנים כמו Wolt Market ו-KSP מקשה על השמירה על עלויות רכישה נמוכות בערוצי הסושיאל. חשבון ה-Performance שלנו בישראל מגיע ל-970 רכישות מאושרות ביום דרך אופטימיזציה ישירה של אירוע ה-confirmed purchase. המנגנון כולל סינון פרה-ביד של טראפיק חשוד כדי להבטיח שכל המרה מייצגת קנייה ממשית במערכת. יש לך עניין לבדוק אם נוכל להוסיף רכישות מאושרות לנפח הקיים שלכם?
 ```
 
 ## ar-UnitedArabEmirates
@@ -169,13 +167,7 @@ Otwarcie trzech nowych ról w obszarze growth i UA w tym miesiącu to wyraźny s
 ```
 السلام عليكم خالد،
 
-توسعات فريق النمو الأخيرة في سوق الخليج تشير إلى انطلاقة قوية لتعزيز الحضور الرقمي في السوق الإماراتي.
-
-تزايد تكاليف الاستحواذ في القنوات التقليدية يجعل من الوصول إلى عمليات الشراء المؤكدة تحدياً يتطلب حلولاً دقيقة.
-
-تصل الحسابات المماثلة في التجارة الإلكترونية حالياً إلى أكثر من 1007 عملية شراء مؤكدة يومياً من خلال استهداف الجمهور بناءً على سلوك الشراء الفعلي مع فحص جودة حركة المرور لضمان استبعاد الاحتيال.
-
-هل لديكم اهتمام باستكشاف تنويع قنوات الوصول إلى العملاء بعيداً عن المنصات الاجتماعية التقليدية؟
+توسيع فريق النمو وجذب كفاءات جديدة في سوق الخليج مؤخراً يعكس بوضوح طموحكم لتعزيز التواجد الرقمي في الإمارات. مع اشتداد المنافسة السوقية وارتفاع تكاليف الاستحواذ، تبرز الحاجة إلى قنوات تضمن جودة عمليات الشراء المؤكدة بدلاً من مجرد التفاعل العابر. تساهم استراتيجيات تحسين التحويل في تحقيق أكثر من 1007 عملية شراء مؤكدة يومياً لحسابات التجارة الإلكترونية المماثلة من خلال فحص حركة المرور بدقة. هل لديكم اهتمام باستكشاف إمكانيات توسيع نطاق إعلانات الفيديو لتشمل قنوات إضافية تعزز العائد؟
 ```
 
 ## fa-Tajikistan
@@ -183,14 +175,13 @@ Otwarcie trzech nowych ról w obszarze growth i UA w tym miesiącu to wyraźny s
 ```
 سلام Roya,
 
-انتشار سه آگهی استخدام جدید برای بخش رشد و جذب کاربر در BazarTez طی ماه جاری، نشان دهنده برنامه ریزی شما برای مدیریت تقاضای فصلی در بازار رو به رشد تاجیکستان است. تشدید رقابت در پلتفرم هایی مانند Somon.tj و Alif Shop، اهمیت دسترسی به ترافیک با کیفیت را دوچندان می کند. بهینه سازی روی رویداد خرید تایید شده همراه با غربالگری هوشمند ترافیک، در حساب های مشابه به ۱۰۴۴ خرید تایید شده روزانه رسیده است. این رویکرد متمرکز بر CPA به افزایش حجم تراکنش های نهایی و کنترل دقیق هزینه های جذب کاربر کمک می کند. آیا مایل هستید ظرفیت های موجود برای همکاری در این حوزه را بررسی کنیم؟
+استخدام سه متخصص جدید در بخش جذب کاربر طی هفته‌های اخیر نشان‌دهنده برنامه جدی توسعه در BazarTez است. با توجه به رقابت شدید در بازار تاجیکستان و افزایش هزینه‌های تبلیغات در پلتفرم‌هایی مثل Meta، تمرکز بر روی نتایج نهایی اهمیت بیشتری پیدا کرده است. در حال حاضر مدل‌های مشابه در حوزه تجارت الکترونیک با استفاده از بهینه‌سازی دقیق و فیلترهای ضد تقلب، به رکورد ۱۰۴۴ خرید قطعی در روز رسیده‌اند. این شیوه باعث می‌شود بودجه تبلیغاتی مستقیماً بر اساس ثبت سفارش نهایی و مشابه با رفتار خریداران در Somon.tj یا Alif Shop مدیریت شود. آیا تمایل دارید جزییات مربوط به نحوه دستیابی به این حجم از خرید قطعی را بررسی کنیم؟
 ```
 
 ## tr-Turkey
 
 ```
-Merhaba Emre Bey,
-HızlıPazar bünyesinde son üç haftada açılan yeni büyüme ve kullanıcı kazanımı pozisyonları pazardaki hedeflerinizi oldukça net gösteriyor. Türkiye e-ticaret pazarında artan rekabet ve sosyal medya maliyetleri göz önüne alındığında, doğrudan satış odaklı ilerlemek kritik hale geldi. Benzer ölçekteki pazaryeri hesaplarında, ilk alışveriş etkinliğine yönelik optimizasyonla günlük 1081 onaylanmış sipariş hacmine ulaşıyoruz. Bu süreçte video kreatiflerin YouTube ve farklı kanallarda ölçeklendirilmesiyle sahte trafikten arındırılmış kaliteli bir akış sağlıyoruz. Trendyol ve Hepsiburada gibi oyuncuların aktif olduğu bu dönemde, sizin onaylanmış sipariş başı maliyet hedeflerinizi destekleyebilir miyiz?
+Merhaba Emre Bey, HızlıPazar bünyesinde bu ay büyüme ve kullanıcı kazanımı odaklı üç yeni pozisyon açıldığını gördüm. Türkiye e-ticaret pazarındaki yoğun rekabet ve mevsimsel talep artışı maliyetleri yükseltirken doğrudan ilk satın alma odaklı ilerlemek önem kazanıyor. Trendyol ve Hepsiburada gibi benzer pazaryeri hesaplarında sahtecilik filtreleme yöntemleriyle günde 1081 onaylanmış satın alma hacmine ulaşıyoruz. Bu sonuçları ilk satın alma etkinliğine göre optimize edilen CPA modelleriyle sağlıyoruz. HızlıPazar için de bu ölçekte bir hacmi değerlendirmek isterseniz kısa bir görüşme yapabilir miyiz?
 ```
 
 ## hi-India
@@ -198,15 +189,13 @@ HızlıPazar bünyesinde son üç haftada açılan yeni büyüme ve kullanıcı 
 ```
 नमस्ते Priya,
 
-BazaarPlus में हाल ही में शुरू हुई तीन Growth और UA भूमिकाओं को देखकर आपकी टीम की विस्तार योजना काफी प्रभावशाली लग रही है।
+LinkedIn पर BazaarPlus द्वारा इस महीने तीन नए growth और UA रोल के लिए हायरिंग शुरू करना काफी प्रभावशाली है।
 
-भारत के ई-कॉमर्स बाजार में बढ़ते CAC के बीच, Flipkart और Meesho जैसे प्रतिस्पर्धियों के साथ कदम मिलाना अब और भी चुनौतीपूर्ण हो गया है।
+भारत में बढ़ते CAC और फेस्टिवल सीजन की डिमांड को देखते हुए, Meta और YouTube जैसे चैनल्स पर वीडियो क्रिएटिव्स को स्केल करना अब और भी महत्वपूर्ण हो गया है।
 
-समान ई-कॉमर्स खातों के लिए प्रतिदिन 1118 confirmed purchases का लक्ष्य हासिल हो रहा है, जिसमें fraud filtering के जरिए हाई-क्वालिटी ट्रैफिक सुनिश्चित किया जाता है।
+समान ई-कॉमर्स पोर्टफोलियो में रोजाना 1,118 confirmed purchases तक की स्केलिंग देखी जा रही है, जहां ऑप्टिमाइज़ेशन पूरी तरह से कन्फर्म्ड सेल्स और फ्रॉड फिल्टरिंग पर आधारित है।
 
-क्या आप अपनी मौजूदा वीडियो इन्वेंट्री को YouTube और CTV जैसे माध्यमों पर स्केल करने के बारे में चर्चा करने के लिए उपलब्ध हैं?
-
-धन्यवाद
+क्या आप इस पर चर्चा करने के लिए कुछ समय निकाल पाएंगी?
 ```
 
 ## bn-Bangladesh
@@ -214,7 +203,7 @@ BazaarPlus में हाल ही में शुरू हुई तीन
 ```
 নমস্কার Anika,
 
-DhakaBazar এ এই মাসে তিনটি নতুন Growth এবং UA রোলের জন্য নিয়োগ শুরু হওয়াতে আপনাদের বর্তমান সম্প্রসারণের পরিকল্পনা বেশ স্পষ্ট বোঝা যাচ্ছে। বাংলাদেশে ই-কমার্স সেক্টরে প্রতিযোগিতা এবং সোশ্যাল মিডিয়ায় বিজ্ঞাপনের খরচ বেড়ে যাওয়ার এই সময়ে সিজনাল ডিমান্ড সামলানো বেশ চ্যালেঞ্জিং হতে পারে। একই ধরনের অ্যাকাউন্টে আমরা প্রতিদিন ১১৫৫ এর বেশি confirmed purchase নিশ্চিত করছি যা সরাসরি আপনাদের রেভিনিউ লক্ষ্যমাত্রার সাথে সামঞ্জস্যপূর্ণ। এখানে fraud screening এর মাধ্যমে প্রতিটি ট্রাফিক যাচাই করা হয় যাতে Daraz এর মতো বড় প্ল্যাটফর্মের এই বাজারে আপনাদের ROI বজায় থাকে। আপনাদের বর্তমান CPA মডেলের সাথে আমাদের এই প্রসেসটি কীভাবে কাজ করতে পারে তা নিয়ে কি আমরা সংক্ষেপে আলাপ করতে পারি?
+DhakaBazar এই মাসে তিনটি নতুন growth এবং UA রোল খোলার সময়ে বাংলাদেশে ক্রমবর্ধমান acquisition costs সামলানো বর্তমানে একটি বড় অগ্রাধিকার। আমরা একই ধরনের অ্যাকাউন্টে প্রতিদিন ১১৫৫টি confirmed purchase ডেলিভারি করি যেখানে সরাসরি first purchase ইভেন্টের জন্য অপ্টিমাইজ করা হয়। কোয়ালিটি নিশ্চিত করতে আমাদের সিস্টেমে প্রতিটি ট্রাফিক সোর্স fraud screening এর মাধ্যমে যাচাই করা হয়। Daraz এবং Chaldal এর মতো সমগোত্রীয় ব্র্যান্ডগুলো বর্তমানে বাংলাদেশে যেভাবে স্কেল করছে সেই অভিজ্ঞতা আমরা এখানে কাজে লাগাতে পারি। প্রথম অর্ডারের এই ভলিউম এবং CPA মডেল নিয়ে আমরা কি একটি ছোট আলাপ করতে পারি?
 ```
 
 ## ur-Pakistan
@@ -222,7 +211,7 @@ DhakaBazar এ এই মাসে তিনটি নতুন Growth এবং
 ```
 السلام علیکم Ayesha,
 
-TezBazaar میں اس ماہ تین نئی UA اور گروتھ پوزیشنز کا کھلنا اسکیلنگ کی جانب ایک بڑا قدم ہے۔ پاکستان کی ای کامرس مارکیٹ میں بڑھتے ہوئے مقابلے اور سیزنل ڈیمانڈ کے دوران یہ بہترین وقت ہے۔ اسی طرح کے بڑے اکاؤنٹس پر روزانہ 1192 تصدیق شدہ خریداریاں حاصل کی جا رہی ہیں۔ فراڈ اسکریننگ اور خالص پرفارمنس کی بنیاد پر Daraz.pk اور PriceOye جیسے پلیٹ فارمز کے درمیان اپنی موجودگی بڑھانا ممکن ہے۔ ہر آرڈر کی لاگت کو مستحکم رکھتے ہوئے CPS ماڈل کے ذریعے والیم میں اضافہ کیا جا سکتا ہے۔ کیا آپ اس نئی ٹریفک انونٹری کو ٹیسٹ کرنے پر بات کرنا چاہیں گی؟
+TezBazaar کی جانب سے اسی ماہ گروتھ اور UA کے لیے تین نئی پوزیشنز کا اعلان مارکیٹ میں آپ کی تیزی سے بڑھتی ہوئی موجودگی کو ظاہر کرتا ہے۔ پاکستان کی ای کامرس مارکیٹ میں بڑھتی ہوئی مسابقت کے دوران سیزنل ڈیمانڈ کو ہینڈل کرنا ایک بڑا چیلنج ہوتا ہے۔ ملتے جلتے ای کامرس اکاؤنٹس پر یومیہ 1192 confirmed purchases کی کارکردگی حاصل کی جا رہی ہے۔ یہ نتائج خالصتاً confirmed purchase لیول پر optimization اور سخت fraud screening کے ذریعے ممکن بنائے جاتے ہیں۔ Daraz اور PriceOye جیسے مسابقتی ماحول میں ہمارا فوکس صرف ویریفائیڈ ٹرانزیکشنز پر رہتا ہے۔ کیا آپ اس پرفارمنس ماڈل کو ٹیسٹ کرنے کے بارے میں سوچ سکتے ہیں؟
 ```
 
 ## th-Thailand
@@ -230,17 +219,13 @@ TezBazaar میں اس ماہ تین نئی UA اور گروتھ پوزیشنز �
 ```
 เรียน คุณ Nan,
 
-ยินดีด้วยที่ TaladFast กำลังขยายทีมงานและเปิดรับตำแหน่งด้าน growth และ UA ถึงสามตำแหน่งในช่วงเดือนนี้ครับ ท่ามกลางการแข่งขันที่สูงขึ้นในตลาดอีคอมเมิร์ซของไทย การบริหารจัดการต้นทุนการเข้าถึงลูกค้าหรือ CAC ให้มีประสิทธิภาพถือเป็นกุญแจสำคัญในการเติบโต
-
-ปัจจุบันเราช่วยผลักดันยอดขายให้กับแพลตฟอร์มในกลุ่มเดียวกับ Shopee และ Lazada โดยทำยอด confirmed purchase ได้มากกว่า 1229 รายการต่อวัน ผ่านการใช้กลยุทธ์เจาะจงกลุ่มเป้าหมายที่มีแนวโน้มการซื้อครั้งแรกสูงพร้อมระบบคัดกรอง traffic คุณภาพ
-
-หากคุณ Nan สนใจแลกเปลี่ยนมุมมองเกี่ยวกับการเพิ่มยอดขายในช่วง peak season นี้ ผมขออนุญาตส่งข้อมูลเพิ่มเติมให้พิจารณาดีไหมครับ
+ยินดีด้วยที่ TaladFast กำลังขยายทีมและเปิดรับตำแหน่งด้าน growth และ user acquisition ถึง 3 ตำแหน่งในเดือนนี้ครับ การแข่งขันในตลาดอีคอมเมิร์ซของไทยที่สูงขึ้นทำให้ต้นทุนการหาลูกค้าใหม่เริ่มขยับตัวสูงขึ้นตามไปด้วย ผลลัพธ์ในกลุ่มธุรกิจลักษณะเดียวกันสามารถทำยอด confirmed purchase ได้ถึง 1,229 รายการต่อวันผ่านการคัดกรอง traffic และเน้นเจาะกลุ่มเป้าหมายที่มีคุณภาพ การปรับจูนแคมเปญให้เข้าถึงการซื้อครั้งแรกโดยตรงจะช่วยให้การขยายฐานผู้ใช้มีประสิทธิภาพมากขึ้น คุณพอจะสะดวกแลกเปลี่ยนมุมมองสั้นๆ เกี่ยวกับการบริหารต้นทุน CPA ในช่วงความต้องการซื้อพุ่งสูงขึ้นแบบนี้บ้างไหมครับ
 ```
 
 ## vi-Vietnam
 
 ```
-Chào chị Linh, em thấy ChoNhanh vừa mở 3 vị trí growth và UA mới trong tháng này. Có vẻ chị đang chuẩn bị rất kỹ cho đợt cao điểm mua sắm sắp tới tại Việt Nam. Hiện tại chi phí acquisition trên thị trường đang tăng khá cao. Bên em đang hỗ trợ các sàn TMĐT tối ưu trực tiếp theo confirmed purchase với khối lượng 1.266 đơn hàng xác nhận mỗi ngày. Hệ thống của em tập trung tối ưu vào chất lượng đơn thật và có sẵn bộ lọc fraud cho traffic. Những đối thủ như Shopee hay Tiki cũng đang dùng cách này để kiểm soát chi phí CPS hiệu quả hơn. Chị có muốn em gửi thêm số liệu cụ thể để chị tham khảo không?
+Chào chị Linh, ChoNhanh vừa đăng tuyển thêm ba vị trí Growth và UA trong tháng này, cho thấy tốc độ mở rộng đội ngũ rất ấn tượng. Trong bối cảnh chi phí quảng cáo tại Việt Nam tăng cao, việc tối ưu hiệu quả trên mỗi đơn hàng chắc hẳn là ưu tiên hàng đầu của chị. Em đang hỗ trợ các sàn thương mại điện tử tương tự Shopee Vietnam và Tiki đạt mức 1.266 confirmed purchase mỗi ngày. Giải pháp của em tập trung tối ưu sâu theo confirmed purchase kết hợp fraud screening để đảm bảo chất lượng đơn hàng thực tế. Chị có quan tâm đến việc thử nghiệm thêm nguồn traffic theo mô hình CPA này cho các chiến dịch sắp tới không?
 ```
 
 ## id-Indonesia
@@ -248,7 +233,7 @@ Chào chị Linh, em thấy ChoNhanh vừa mở 3 vị trí growth và UA mới 
 ```
 Selamat pagi, Ibu Putri,
 
-Langkah TokoCepat membuka tiga posisi baru untuk tim growth dan UA bulan ini menunjukkan momentum ekspansi yang sangat menarik di pasar Indonesia. Persaingan marketplace yang semakin ketat saat ini memang menuntut efisiensi biaya akuisisi yang lebih tajam dibandingkan saluran paid social standar. Kami melihat akun e-commerce serupa mampu mencapai skala 1.303 confirmed purchases per hari dengan optimasi langsung pada level first purchase. Kualitas trafik terjaga melalui screening fraud yang ketat untuk memastikan setiap transaksi valid dan memberikan ROAS maksimal. Mengingat adanya lonjakan permintaan musiman saat ini, apakah Ibu tertarik untuk mendiskusikan potensi volume tambahan untuk TokoCepat?
+TokoCepat terlihat sedang memperkuat tim dengan pembukaan tiga posisi growth dan UA baru pada bulan ini. Langkah ini sangat strategis di tengah persaingan e-commerce Indonesia yang kian ketat dan kenaikan biaya akuisisi pelanggan. First purchase TokoCepat dapat dioptimalkan hingga mencapai 1.303 confirmed purchases per hari, merujuk pada performa akun marketplace peer seperti Tokopedia atau Shopee Indonesia. Kualitas transaksi ini dijaga melalui fraud screening ketat untuk memastikan skalabilitas tetap bersih. Apakah Ibu terbuka untuk diskusi singkat mengenai potensi optimasi first purchase ini?
 ```
 
 ## ms-Malaysia
@@ -256,7 +241,7 @@ Langkah TokoCepat membuka tiga posisi baru untuk tim growth dan UA bulan ini men
 ```
 Salam Aisyah,
 
-PasarLaju nampaknya sedang berkembang pesat dengan pembukaan tiga jawatan baharu dalam pasukan growth dan UA pada bulan ini. Memandangkan persaingan e-commerce di Malaysia semakin sengit dan kos pemerolehan di platform sosial kian meningkat, mengekalkan momentum jualan adalah satu keutamaan yang mencabar. Akaun e-commerce dalam kategori yang sama kini mencapai lebih 1340 confirmed purchase sehari melalui optimasi prestasi yang disaring daripada fraud. Strategi ini membantu meningkatkan volum pesanan yang berkualiti tanpa bergantung sepenuhnya kepada saluran pengiklanan tradisional. Adakah anda terbuka untuk melihat data ringkas tentang bagaimana jumlah transaksi ini dijana?
+PasarLaju nampaknya sedang berkembang pesat dengan pembukaan tiga jawatan baharu dalam pasukan growth dan UA pada bulan ini. Memandangkan persaingan e-commerce di Malaysia semakin sengit dan kos pemerolehan di Meta serta YouTube kian meningkat, mengekalkan momentum jualan pada musim puncak ini amat penting. Akaun marketplace yang serupa kini mencapai tahap 1340 confirmed purchase setiap hari melalui pengoptimuman terus ke peringkat transaksi dan saringan fraud yang ketat. Adakah anda terbuka untuk melihat bagaimana model prestasi ini boleh menyokong sasaran jualan anda?
 ```
 
 ## tl-Philippines
@@ -264,26 +249,32 @@ PasarLaju nampaknya sedang berkembang pesat dengan pembukaan tiga jawatan baharu
 ```
 Hi Maria,
 
-Napansin kong nagbukas ang TindahanGo ng tatlong growth at UA roles ngayong buwan kasabay ng seasonal demand spike sa Pilipinas. Dahil tumataas ang acquisition costs sa market, baka makatulong ang pag-scale ng inyong first purchase acquisition sa iba pang performance channels. Ang mga katulad na e-commerce accounts ay nakakakuha ng 1377 confirmed purchases kada araw sa pamamagitan ng first purchase optimization na may fraud screening. Nakakatulong ito para mapanatiling mataas ang kalidad ng bawat transaksyon habang lumalaki ang inyong volume. Open ka bang pag-usapan kung paano namin ito ginagawa para sa iba pang marketplace?
+Napansin ko ang pagbubukas niyo ng tatlong growth at UA roles ngayong buwan kasabay ng seasonal demand spike sa Pilipinas.
+
+Dahil sa tumataas na acquisition costs sa social media, mahalaga ang paghahanap ng bagong channels para sa inyong first purchase conversion.
+
+Nakakakuha ang mga katulad na marketplace ng mahigit sa 1,377 confirmed purchases kada araw sa pamamagitan ng automated fraud screening.
+
+Malaking tulong ito para ma-scale ang inyong video creative sa YouTube inventory nang hindi nasasayang ang budget.
+
+Open ka ba na pag-usapan natin kung paano ito makakatulong sa TindahanGo?
 ```
 
 ## ja-Japan
 
 ```
 Yuki様、
-KaimonoGoにて今月3件のグロース・UA職種の採用を開始されたのを拝見し、拡大への勢いを感じております。
-日本市場でのEC競争が激化する中、季節的な需要拡大に向けて効率的な獲得が重要かと存じます。
-弊社では類似のマーケットプレイス案件において、不正フラウド検知を徹底しながら、1日あたり1,414件の購入完了をCPSモデルで実現した実績がございます。
-RakutenやMercariのような大規模な競合環境でも、購入完了データに基づいた最適化により成果の拡大に貢献可能です。
-一度、KaimonoGoの獲得効率向上について情報交換をさせていただけますでしょうか？
+KaimonoGoにて今月3つのグロースおよびUA関連のポジションを公開されたのを拝見いたしました。
+国内EC市場での競争激化に伴う獲得単価の上昇は、貴社にとっても重要な局面かと存じます。
+弊社は楽天やメルカリのような大手ECアカウントにおいて、フラウド対策を徹底した上で、1日あたり1,414件の購入確定実績を維持しております。
+購入確定地点での直接的な最適化により、季節的な需要が急増する時期においても安定した成果を積み上げることが可能です。
+現在の獲得効率を維持しつつ、さらに購入ボリュームを拡大できる可能性があるか、一度お話しさせていただけないでしょうか。
 ```
 
 ## ko-SouthKorea
 
 ```
-Minjun 님,
-
-최근 MarketOn에서 세 건의 그로스 및 UA 담당자 채용을 시작하신 것을 보고 국내 이커머스 시장에서의 확고한 성장 의지를 느꼈습니다. 현재 한국 시장의 광고비 대비 수익률(ROAS) 확보가 점차 까다로워지는 상황에서, 영상 소재를 활용한 효율적인 구매 전환이 더욱 중요해지고 있습니다. 유사한 규모의 이커머스 계정들을 대상으로 부정 트래픽을 차단하며 일일 1,451건 이상의 확정 구매를 안정적으로 확보하고 있습니다. 특히 단순 유입이 아닌 첫 구매 발생 단계를 직접 최적화하여 신규 고객 획득 비용을 효율적으로 관리하고 있는데, 혹시 관련하여 가볍게 의견을 나누어 보실 수 있을까요?
+Minjun 님, 이번 달 MarketOn에서 세 개의 성장 및 UA 관련 직무 채용을 시작하신 것을 확인했습니다. 한국 이커머스 시장의 경쟁이 격화됨에 따라 점차 상승하는 신규 고객 획득 비용을 관리하는 것이 중요한 시점입니다. 쿠팡이나 지마켓과 유사한 계정에서는 프로드 스크리닝이 포함된 CPA 모델을 통해 일일 1,451건의 첫 구매 이벤트를 안정적으로 확보하고 있습니다. 이러한 첫 구매 단위의 최적화 방식이 MarketOn의 확장 단계에 어떻게 기여할 수 있을지 가볍게 논의해 보고 싶습니다. 편하신 시간에 짧은 회신 부탁드립니다.
 ```
 
 ## zh-Taiwan
@@ -291,7 +282,7 @@ Minjun 님,
 ```
 您好，Wei：
 
-看到 GoBuy 本月啟動了三個增長與獲客職位的招募，顯見貴司正在台灣市場加大發展力道。面對 momo 或蝦皮等同業競爭及獲客成本攀升，維持穩定的訂單轉換成本至關重要。我們針對同類電商帳號，透過防詐騙流量篩選，每日能穩定帶入 1488 筆確認購買訂單。這類以 CPA 計費的模式能將影片素材投放至 YouTube 或 Meta 的優質版位，並直接對準確認購買事件進行最佳化。這週五您方便撥冗簡單交流幾分鐘嗎？
+GoBuy 本月開放了三個成長與獲客職位，在台灣電商競爭加劇與季節需求飆升之際，這份動能令人注目。當前市場獲客成本攀升，確保每筆訂單的轉換品質變得至關重要。針對類似規模的電商帳戶，我們目前能達成每日 1488 件確認購買。這項績效透過針對確認購買事件的深度最佳化並結合防詐騙篩選，協助達成與蝦皮及 momo 相似的訂單規模。這類在穩定獲客成本下擴大實質訂單量的模式，是否符合您目前的規劃？
 ```
 
 ## sv-Sweden
@@ -299,25 +290,25 @@ Minjun 님,
 ```
 Hej Elsa,
 
-SnabbKöp verkar skala upp ordentligt nu med tre nya rekryteringar inom growth och UA bara den senaste månaden. Den ökade konkurrensen på den svenska marknaden gör att många e-handlare ser stigande CAC på sociala medier just nu. För liknande konton ligger volymerna ofta kring 625 bekräftade köp per dag genom optimering direkt mot sluthändelsen. Genom att kombinera video-creatives med strikt bedrägerifiltrering går det att bibehålla kvaliteten även vid högre tryck. Skulle det vara intressant att se hur de volymerna ser ut i jämförelse med era nuvarande kampanjer?
+SnabbKöp verkar växla upp ordentligt i Sverige nu med tre nya UA-roller under de senaste veckorna. Den ökade konkurrensen från aktörer som CDON och Blocket gör att kostnaden för nya kunder på sociala medier ofta stiger vid säsongstoppar. Liknande e-handelskonton når idag 625 bekräftade köp per dag genom optimering direkt mot slutmålet snarare än räckvidd. Denna volym kombineras med automatiserad bedrägerifiltrering för att säkerställa hög kvalitet på varje transaktion. Skulle det vara intressant att se hur dessa volymer kan komplettera era befintliga kanaler?
 ```
 
 ## no-Norway
 
 ```
-Hei Ingrid, RaskHandel har åpnet tre nye growth og UA roller denne måneden, noe som sammenfaller med en sesongmessig økning i etterspørselen. I det norske markedet møter aktører som Finn.no og Komplett nå økende kundeanskaffelseskostnader som følge av tøffere konkurranse. Lignende kontoer oppnår 662 bekreftede kjøp daglig gjennom optimalisering på transaksjonsnivå kombinert med svindelfiltrering. Denne modellen sikrer volum basert på faktiske salg i et krevende marked. Er du åpen for en kort utveksling av erfaringer rundt optimalisering mot bekreftet kjøp i løpet av neste uke?
+Hei Ingrid, RaskHandel sin utlysning av tre nye roller innen vekst og UA denne måneden viser et spennende momentum i det norske markedet. Norsk e-handel opplever generelt økende konkurranse om kundeanskaffelse mot aktører som Komplett og Finn.no, spesielt rundt sesongtopper. Lignende kontoer oppnår 662 bekreftede kjøp daglig gjennom optimalisering mot faktiske salgshendelser og integrert svindelfiltrering. Er dere åpne for en kort utveksling om hvordan vi kan skalere deres CPA-resultater?
 ```
 
 ## da-Denmark
 
 ```
-Hej Freja, HurtigKøb har virkelig fart på med tre nye stillinger inden for vækst og UA alene i denne måned. Det øgede fokus på det danske e-handelsmarked giver god mening nu hvor de sæsonbestemte køb topper. Lignende e-handelskonti opnår i øjeblikket 699 bekræftede køb dagligt gennem optimering direkte mod den første transaktion. Denne volumen leveres med fuld svindelfiltrering og kan skaleres ved at føre video-annoncemateriale over på YouTube og Meta. Vil det give mening at høre mere om hvordan det fungerer for konti som DBA eller Proshop?
+Hej Freja, HurtigKøb har haft fart på med hele tre nye ansættelser inden for growth og UA i denne måned. Den øgede konkurrence på det danske marked gør det oplagt at kigge mod nye kanaler, når prisen for at skaffe kunder stiger. Lignende e-commerce konti som DBA opnår i øjeblikket 699 bekræftede køb om dagen gennem optimering på første køb kombineret med svindelfiltrering. Vi leverer denne volumen via CPA optimering direkte mod jeres primære konverteringshændelse. Har I overvejet at teste dette af som supplement til jeres nuværende setup?
 ```
 
 ## fi-Finland
 
 ```
-Hei Aino, NopeaKauppa on avannut peräti kolme uutta kasvun ja käyttäjähankinnan roolia tässä kuussa. Suomen verkkokauppamarkkinan kiristyvä kilpailu ja sesonkihuiput lisäävät painetta hankintakustannuksiin. Samankaltaiset toimijat kuten Tori.fi ja Verkkokauppa skaalaavat tuloksia CPS-mallilla, joka pohjautuu suoraan vahvistettuihin ostoihin. Toimitamme 736 vahvistettua ostoa päivässä vastaaville e-commerce tileille. Volyymi varmistetaan optimoimalla suoraan toteutuneisiin ostoihin ja hyödyntämällä automaattista fraud-suodatusta liikenteen laadun takaamiseksi. Voisiko vastaava CPA-pohjainen malli tukea kasvutavoitteitanne?
+Hei Aino, NopeaKaupan tässä kuussa avaamat kolme kasvun ja UA-puolen roolia kertovat selkeästä tavoitteesta laajentua Suomen kiristyvässä markkinassa. Saman kokoluokan toimijat, kuten Tori.fi ja Verkkokauppa.com, saavuttavat kauttamme 736 vahvistettua ostoa päivässä hyödyntämällä suoraa CPA-mallia. Optimoimme liikenteen suoraan vahvistettuihin ostoihin ja käytämme automaattista fraud-suodatusta laadun varmistamiseksi. Tämä malli on auttanut muita verkkokauppoja hallitsemaan hankintakustannuksia myös sesonkipiikkien aikana. Voisimmeko keskustella lyhyesti näistä tuloksista?
 ```
 
 ## cs-CzechRepublic
@@ -325,21 +316,21 @@ Hei Aino, NopeaKauppa on avannut peräti kolme uutta kasvun ja käyttäjähankin
 ```
 Dobrý den, Petro,
 
-Všiml jsem si, že RychlyTrh v posledních třech týdnech výrazně rozšiřuje svůj tým o tři nové pozice v oblasti růstu a akvizice uživatelů. Vzhledem k aktuální sezónní špičce v českém e-commerce a rostoucím nákladům na placených sociálních sítích je toto posílení skvělým krokem. Podobné projekty v tomto segmentu dosahují stability kolem 773 potvrzených nákupů denně díky optimalizaci přímo na první nákup v kombinaci s automatickým screeningem kvality provozu. Zvažujete v rámci aktuálního náboru i rozšíření kanálů pro škálování video kreativ mimo platformy Meta a YouTube?
+všiml jsem si, že RychlyTrh v posledních týdnech otevřel tři nové pozice pro růst a akvizici uživatelů, což v aktuální sezóně dává velký smysl. Vzhledem k rostoucím nákladům na akvizici na českém trhu se v podobných segmentech zaměřujeme na navyšování objemu potvrzených nákupů mimo tradiční sociální sítě. U e-commerce účtů v tomto regionu se běžně dostáváme na 773 potvrzených nákupů denně díky optimalizaci přímo na první nákup s integrovanou ochranou proti podvodnému provozu. Zvažovali jste v rámci rozšiřování týmu také škálování video kreativ do prostředí YouTube a CTV pro efektivnější konverze?
 ```
 
 ## ro-Romania
 
 ```
-Bună ziua, Ana, deschiderea celor trei roluri noi de growth la PiataRapida arată un impuls excelent pentru cota de piață locală. Într-un context de intensificare a competiției în e-commerce-ul din România, scalarea volumului de tranzacții devine esențială pentru marketplace-uri. Gestionăm campanii similare care ating 810 comenzi confirmate zilnic prin optimizarea directă pe acest eveniment post-instalare. Utilizăm filtrarea fraudelor pentru a asigura calitatea traficului în platforme precum eMAG sau OLX Romania. Acest model de achiziție livrează performanță la nivel de tranzacție confirmată. Credeți că ar merita să analizăm dacă acest volum suplimentar se aliniază cu obiectivele dumneavoastră actuale?
+Bună ziua, Ana,
+
+PiataRapida pare să accelereze extinderea echipei de achiziție utilizatori prin noile roluri deschise luna aceasta. Într-o piață e-commerce tot mai competitivă în România, diversificarea canalelor dincolo de Meta și YouTube devine esențială pentru a menține un cost de achiziție sustenabil. Alte platforme din verticala de marketplace ating volume de peste 810 comenzi confirmate zilnic prin optimizarea directă pe evenimentul de conversie finală. Această metodă include și un filtru activ anti-fraudă pentru a asigura calitatea tranzacțiilor pe tot parcursul creșterii sezoniere. Credeți că ar fi util să discutăm despre suplimentarea acestor volume printr-un model bazat strict pe rezultate?
 ```
 
 ## hu-Hungary
 
 ```
-Üdvözlöm, Eszter,
-
-A GyorsPiac az elmúlt három hétben három új growth és UA pozíciót is megnyitott, ami komoly bővülési szándékot jelez. A magyar e-kereskedelmi piacon tapasztalható élesedő verseny és a közösségi média növekvő akvizíciós költségei mellett a hatékony skálázás most kiemelt prioritás lehet. Hasonló profilú fiókoknál naponta 847 megerősített vásárlást realizálunk, közvetlenül az első tranzakcióra optimalizálva a kampányokat. Ez a megközelítés a videós kreatívok és a YouTube készletek használatával hatékonyan egészítheti ki a Jófogás vagy az eMAG Hungary mellett futó aktivitásokat, miközben minden forgalom többszintű csalásszűrésen megy keresztül. Érdemes lenne áttekinteniük, hogyan illeszthető ez a volumen az aktuális növekedési terveikbe?
+Üdvözlöm, Eszter, a GyorsPiacnál ebben a hónapban meghirdetett három új növekedési és UA pozíció komoly piaci momentumot jelez. A magyarországi e-kereskedelmi verseny fokozódása és a szezonális kereslet mellett az akvizíciós költségek szinten tartása kiemelt feladat. Olyan partnereknél, mint a Jófogás vagy az eMAG Hungary, az első vásárlásra történő optimalizálással és folyamatos csalásszűréssel naponta 847 visszaigazolt vásárlást érünk el. Ezt a volument CPA modellben, közvetlenül a konverziós eseményekre fókuszálva biztosítjuk. Érdemes lenne erről egy rövid egyeztetést tartani?
 ```
 
 ## el-Greece
@@ -347,7 +338,7 @@ A GyorsPiac az elmúlt három hétben három új growth és UA pozíciót is meg
 ```
 Γεια σας, Eleni,
 
-Η πρόσφατη ανακοίνωση για τρεις νέες θέσεις UA και ανάπτυξης στην AgoraFast δείχνει μια έντονη δυναμική ενόψει της εποχιακής αύξησης της ζήτησης. Καθώς ο ανταγωνισμός στο ελληνικό ηλεκτρονικό εμπόριο εντείνεται, η διαχείριση του αυξανόμενου κόστους απόκτησης αποτελεί προτεραιότητα για πλατφόρμες όπως η δική σας. Σε παρόμοιους λογαριασμούς ηλεκτρονικού εμπορίου στην Ελλάδα, όπως στον χώρο όπου δραστηριοποιούνται η Skroutz και το Public.gr, επιτυγχάνουμε 884 επιβεβαιωμένες αγορές την ημέρα μέσω βελτιστοποίησης που στοχεύει σε αυτό το γεγονός μετατροπής με παράλληλο έλεγχο για την αποτροπή απάτης. Θα σας ενδιέφερε να ανταλλάξουμε ορισμένες σύντομες ιδέες σχετικά με τη βελτιστοποίηση σε επίπεδο επιβεβαιωμένης αγοράς για την AgoraFast;
+Η ανακοίνωση για τις τρεις νέες θέσεις εργασίας σε growth και user acquisition αυτόν τον μήνα δείχνει μια σημαντική δυναμική στην AgoraFast. Καθώς ο ανταγωνισμός στο ελληνικό ηλεκτρονικό εμπόριο αυξάνει τα κόστη απόκτησης πελατών, η βελτιστοποίηση στο επίπεδο της επιβεβαιωμένης αγοράς επιτρέπει σε εταιρείες όπως η Skroutz και η Public.gr να διατηρούν την κερδοφορία τους. Σε παρόμοιους λογαριασμούς, η προσέγγισή μας με φιλτράρισμα fraud επιτυγχάνει 884 επιβεβαιωμένες αγορές ημερησίως. Θα σας ενδιέφερε μια σύντομη ανταλλαγή απόψεων για το πώς κινείται το CPA στην αγορά λόγω της εποχιακής ζήτησης;
 
 Με εκτίμηση,
 ```
@@ -357,7 +348,7 @@ A GyorsPiac az elmúlt három hétben három új growth és UA pozíciót is meg
 ```
 Здравейте, Елена,
 
-Трите нови позиции за растеж и UA в BurzPazar през този месец показват сериозни планове за пазарния Ви дял в България. При засилената конкуренция от страна на eMAG и OLX, сезонният пик в търсенето изисква по-прецизна оптимизация на разходите. Постигаме по 921 потвърдени покупки на ден за сходни акаунти чрез таргетиране директно на ниво първа поръчка. Използваме специализиран фрод контрол, за да гарантираме качеството на всяка реализирана конверсия. Обмисляте ли добавяне на нови канали за придобиване на клиенти през това тримесечие?
+Трите нови позиции за UA и растеж в BurzPazar през този месец показват сериозен фокус върху разширяването Ви в България. На фона на растящата конкуренция в електронната търговия, ние помагаме на подобни платформи да постигат точно 921 потвърдени покупки на ден. Постигаме го чрез оптимизация на ниво първа поръчка с включена защита от фрод. Този модел осигурява мащаб и качество на трансакциите, съпоставими с тези при eMAG и OLX. Бихте ли проявили интерес да обсъдим тези обеми преди сезонния пик?
 ```
 
 ## sw-Kenya
@@ -365,7 +356,7 @@ A GyorsPiac az elmúlt három hétben három új growth és UA pozíciót is meg
 ```
 Habari Amani,
 
-SokoHaraka imefungua nafasi tatu mpya za growth na UA mwezi huu wakati ushindani wa e-commerce ukizidi kupamba moto Kenya. Ongezeko hili la mahitaji ya msimu linafanya gharama za acquisition kuwa changamoto kubwa. Akaunti za aina hii zinafikia manunuzi 958 yaliyothibitishwa kila siku kupitia optimization ya CPA. Mfumo huu unahakikisha ubora kwa kufanya fraud screening ya kina ili kulinda bajeti yenu. Hii ni njia thabiti ya kupanua soko lenu sambamba na washindani kama Kilimall na Jumia. Je, ungependa kuona jinsi tunavyoweza kusaidia kufikia malengo yenu ya mauzo?
+Ufunguzi wa nafasi tatu mpya za growth na UA mwezi huu unaonyesha kasi kubwa ya SokoHaraka katika soko la Kenya. Wakati ushindani wa e-commerce ukiongezeka, changamoto ya kupanda kwa gharama za CAC kwenye Meta na YouTube inakuwa kizuizi kwa ukuaji wa faida. Mikakati inayolenga confirmed purchase inaweza kusaidia kudhibiti gharama hizi kwa kutoa matokeo ya uhakika. Tunafikisha zaidi ya 958 confirmed purchases kwa siku kwenye akaunti za marketplace zinazotumia video creative kufikia wateja wapya. Mfumo huu unatumia fraud screening ya hali ya juu ili kuhakikisha kila ununuzi ni halali na unaleta thamani halisi kama inavyoonekana kwa washindani kama Kilimall. Je, ungependa kuona jinsi tunavyoweza kuongeza idadi ya mauzo yaliyothibitishwa kwa SokoHaraka?
 ```
 
 ## am-Ethiopia
@@ -373,13 +364,13 @@ SokoHaraka imefungua nafasi tatu mpya za growth na UA mwezi huu wakati ushindani
 ```
 ሰላም Selam,
 
-FetanGebeya በዚህ ወር ውስጥ ሦስት አዳዲስ የዕድገት እና የ-UA ባለሙያዎችን ለመቅጠር ያወጣው ማስታወቂያ የድርጅቱን መስፋፋት በግልጽ ያሳያል። በኢትዮጵያ የኢኮሜርስ ገበያ ውስጥ ውድድር እየጨመረ ባለበት በዚህ ወቅት Meta እና YouTube ላይ የሚለቀቁ የቪዲዮ ማስታወቂያዎችን ወደ ከፍተኛ ውጤት መቀየር ወሳኝ ነው። ተመሳሳይ የገበያ መድረኮች በቀን ውስጥ ከ995 በላይ የተረጋገጡ ሽያጮችን እንዲያመነጩ በየደረጃው ማመቻቸት ይቻላል። ጥራት ያለው ግብይት እንዲከናወን የመጀመሪያ የግዢ ሂደትን ብቻ መሠረት በማድረግ የማጭበርበር መከላከያ ዘዴዎችን እንጠቀማለን። በበዓላት ወቅት የሚጨምረውን ፍላጎት ለመጠቀም ያላችሁን ስትራቴጂ በጋራ ብንነጋገርበት ፍላጎት ይኖርሻል?
+FetanGebeya በዚህ ወር ሶስት አዳዲስ የዕድገት እና የ UA ባለሙያዎችን ለመቅጠር ያወጣው ማስታወቂያ የንግድ እንቅስቃሴያችሁ እየሰፋ መሆኑን ያሳያል። በኢትዮጵያ የኢኮሜርስ ገበያ ውስጥ ያለው ውድድር እየጨመረ በመጣበት በዚህ ወቅት በ Meta እና YouTube ላይ የሚወጡ የማስታወቂያ ወጪዎች (CAC) ማሻቀባቸው ተፈጥሯዊ ነው። በተመሳሳይ ዘርፍ ያሉ አካውንቶች በቀን ከ 995 በላይ የተረጋገጡ ግዢዎችን እንዲያሳኩ በ first purchase ደረጃ ማመቻቸት ተችሏል። ጥራቱን የጠበቀ የደንበኞች ፍሰት ለማረጋገጥ እንዲቻል ስለ ግዢ ሂደቶች ማሳለጫ መንገዶች ጥቂት ሃሳቦችን ብንለዋወጥ ፍላጎት ይኖርዎታል?
 ```
 
 ## az-Azerbaijan
 
 ```
-Salam Leyla, TezBazar komandasında bu ay üç yeni growth və UA vəzifəsinin açılması genişlənmə hədəflərinizi göstərir. Azərbaycanda e-ticarət rəqabətinin kəskinləşdiyi bir vaxtda Tap.az və Umico kimi platformalar arasında birbaşa nəticəyə yönəlmək əhəmiyyətlidir. Bənzər e-ticarət layihələrində fırıldaqçılıqdan təmizlənmiş trafik və xüsusi optimizasiya ilə gündəlik 1032 təsdiqlənmiş sifariş həcminə çatılır. Mövsümi tələbatın artdığı bu dövrdə CPA modelimizlə alış sayını artırmağı müzakirə edə bilərik?
+Salam Leyla, TezBazar tərəfindən bu ay üç yeni UA və artım üzrə mütəxəssis vakansiyasının açılması komandanızın genişlənmə sürətini aydın göstərir. Azərbaycanda e-ticarət sektorunda rəqabətin artması ilə müştəri qazanma maliyyəti yüksəldiyi üçün performans hədəfləri daha da önəm qazanır. Tap.az və Umico kimi oyunçuların aktiv olduğu bazarda fırıldaqçılıqdan qorunmuş trafik və hər gün 1032 təsdiqlənmiş sifariş həcmi ilə nəticələri stabil saxlamaq mümkündür. Birbaşa təsdiqlənmiş sifariş səviyyəsində CPA optimallaşdırılması tətbiq edərək alış xərclərinizi effektiv idarə edə bilərik. Bu yanaşmanın sizin performans hədəflərinizə uyğunluğunu qısa müzakirə etməyə vaxtınız olar?
 ```
 
 ## et-Estonia
@@ -387,13 +378,13 @@ Salam Leyla, TezBazar komandasında bu ay üç yeni growth və UA vəzifəsinin 
 ```
 Tere, Kadri
 
-KiireTurg hiljutine kolme uue kasvu ja mobiiliturunduse spetsialisti värbamine näitab selget ambitsiooni turuosa laiendamiseks. Praegune hooajaline nõudluse kasv ja tihenev konkurents selliste platvormidega nagu Kaup24 tekitavad aga surve Meta ja YouTube kanalite CAC näitajatele. Sarnased e-kaubanduse kontod saavutavad täna keskmiselt 1069 kinnitatud ostu päevas, optimeerides kampaaniad otse esmase tehingu peale. See lähenemine koos pettustevastase filtreerimisega aitab hoida uute ostjate värbamise kulud kontrolli all. Kas teil oleks huvi vaadata, kuidas need mahud teie praegustesse plaanidesse sobituvad?
+KiireTurg on sel kuul avanud kolm uut UA ja kasvu valdkonna rolli, mis viitab plaanile sesoonse nõudluse tipus mahte kasvatada. Eesti e-kaubanduse turul kasvav konkurents surub akvitsiooni kulu järjest kõrgemaks. Sarnaste platvormide nagu Osta.ee ja Kaup24 puhul toob esimese ostu sündmusele optimeeritud CPA kampaania praegu 1069 kinnitatud tehingut päevas. Kasutame pettuste ennetamiseks sõelumist, et tagada ainult reaalne ostuaktiivsus. Kas oleksite avatud lühikesele arutelule, kuidas need mahud KiireTurg strateegiaga sobituda võiksid?
 ```
 
 ## hr-Croatia
 
 ```
-Poštovana Ivana, BrziTrg je ovog mjeseca otvorio tri nove pozicije za rast i akviziciju korisnika u jeku sezonske potražnje. Na tržištu gdje raste konkurencija brendova poput Njuškala i eKupi, slični ecommerce klijenti dostižu volumen od 1106 potvrđenih kupnji dnevno putem CPA modela. Ovakav pristup temelji se na provjerenom prometu i optimizaciji isključivo prema finalnoj kupnji. Vrijedi li razmijeniti perspektive o skaliranju prodaje na ovaj način?
+Pozdrav Ivana, BrziTrg je očito u fazi širenja s obzirom na tri nove UA i growth pozicije koje ste otvorili ovog mjeseca. S obzirom na sezonski skok potražnje i jačanje konkurencije u Hrvatskoj, optimizacija troškova akvizicije postaje ključna u odnosu na igrače poput Njuškala ili eKupi. Slični ecommerce klijenti u regiji generiraju 1106 potvrđenih kupnji dnevno putem našeg CPS modela uz napredan fraud screening. Ovakav pristup fokusiran isključivo na realizirane narudžbe omogućuje stabilno skaliranje unatoč općem rastu cijena oglašavanja na tržištu. Vrijedi li razmijeniti par informacija o tome kako to možemo primijeniti na vaše kampanje?
 ```
 
 ## ka-Georgia
@@ -401,11 +392,7 @@ Poštovana Ivana, BrziTrg je ovog mjeseca otvorio tri nove pozicije za rast i ak
 ```
 გამარჯობა ნინო,
 
-SwrafiMarket-ის გუნდში სამი ახალი UA სპეციალისტის დამატება ნამდვილად დროული ნაბიჯია ადგილობრივ ბაზარზე მზარდი კონკურენციის ფონზე. საქართველოში ელექტრონული კომერციის სეზონური მოთხოვნის პიკი კარგი შესაძლებლობაა Meta-ს და YouTube-ის კამპანიების მასშტაბირებისთვის.
-
-მსგავსი პროფილის ექაუნთებზე ჩვენი მოდელი დღეში 1143 დადასტურებულ შესყიდვას უზრუნველყოფს. ეფექტიანობა მიიღწევა უშუალოდ პირველი შესყიდვის ივენთზე ოპტიმიზაციით და ფრაუდის სკრინინგით, რაც CAC-ის შენარჩუნებაში ეხმარება ისეთ მოთამაშეებს, როგორიცაა Extra.ge ან MyMarket.
-
-ხომ არ განვიხილოთ ამ მოცულობის დამატება თქვენი მიმდინარე CPA არხებისთვის?
+SwrafiMarket-ის მიერ UA და ზრდის მიმართულებით ვაკანსიების გამოქვეყნება ქართულ ბაზარზე თქვენს აქტიურ გაფართოებაზე მიუთითებს. MyMarket-ისა და Extra.ge-ს მსგავს პლატფორმებს შორის მზარდი კონკურენციისა და სეზონური მოთხოვნის ფონზე, მომხმარებლის მოზიდვის დანახარჯების ოპტიმიზაცია კიდევ უფრო აქტუალური ხდება. მსგავსი მასშტაბის პარტნიორებისთვის დღიურად 1143 დადასტურებული შესყიდვის გენერირებაა შესაძლებელი. პირველი შესყიდვის დონეზე ოპტიმიზაცია და ტრაფიკის ფილტრაცია უზრუნველყოფს ხარისხიანი აუდიტორიის მოზიდვას CPA მოდელით. ხომ არ განიხილავთ ვიდეო კრეატივების მასშტაბირებას YouTube-ზე ახალი მომხმარებლების მისაღებად?
 ```
 
 ## km-Cambodia
@@ -413,13 +400,13 @@ SwrafiMarket-ის გუნდში სამი ახალი UA სპე
 ```
 សួស្ដី Sreyneang
 
-ការដែល PsarLoeun បើកជ្រើសរើសបុគ្គលិកផ្នែកកំណើន និង UA ចំនួន ៣ នាក់ក្នុងខែនេះ បង្ហាញពីការត្រៀមខ្លួនសម្រាប់តម្រូវការទីផ្សារតាមរដូវកាល។ ក្នុងស្ថានភាពដែលការប្រកួតប្រជែងជាមួយ Khmer24 និង L192 កំពុងមានសន្ទុះខ្លាំង ការបង្កើនប្រសិទ្ធភាពនៃការចំណាយគឺជារឿងសំខាន់បំផុត។ ដៃគូក្នុងវិស័យ ecommerce ស្រដៀងគ្នាសម្រេចបានការបញ្ជាទិញដែលបានបញ្ជាក់ចំនួន ១១៨០ ដងក្នុងមួយថ្ងៃ តាមរយៈការធ្វើប្រសិទ្ធភាពកម្រិត CPA។ លទ្ធផលនេះកើតចេញពីការផ្ដោតលើការបញ្ជាទិញដែលបានបញ្ជាក់ និងការប្រើប្រាស់បច្ចេកវិទ្យាត្រួតពិនិត្យដើម្បីទប់ស្កាត់លំហូរទិន្នន័យមិនល្អ។ តើអ្នកចង់សាកល្បងបង្កើនចំនួនការបញ្ជាទិញបន្ថែមសម្រាប់ PsarLoeun ដែរឬទេ?
+ការដែល PsarLoeun បើកជ្រើសរើសបុគ្គលិកផ្នែក UA និង growth ថ្មីៗដល់ទៅ ៣ រូបក្នុងខែនេះ បង្ហាញពីសន្ទុះយ៉ាងខ្លាំងក្នុងទីផ្សារកម្ពុជា។ ស្របពេលដែលការប្រកួតប្រជែងលើ Meta និង YouTube កំពុងកើនឡើង និងមានតម្រូវការតាមរដូវកាល ការគ្រប់គ្រងថ្លៃដើមនៃការទាក់ទាញអតិថិជនគឺពិតជាមានសារៈសំខាន់។ យុទ្ធនាការស្រដៀងគ្នានេះអាចឈានដល់ការបញ្ជាទិញជោគជ័យជាង ១១៨០ ក្នុងមួយថ្ងៃ តាមរយៈការបង្កើនប្រសិទ្ធភាពផ្ដោតលើការលក់ជាក់ស្ដែង និងមានប្រព័ន្ធត្រួតពិនិត្យគុណភាពចរាចរណ៍។ ការពង្រីកការផ្សាយពាណិជ្ជកម្មវីដេអូទៅកាន់ CTV ក៏អាចជួយបង្កើនចំនួនការបញ្ជាទិញបន្ថែម ដោយមិនពឹងផ្អែកតែលើបណ្ដាញសង្គមតែមួយ។ តើអ្នកចង់ពិភាក្សាបន្ថែមអំពីលទ្ធភាពទទួលបានការបញ្ជាទិញក្នុងទំហំនេះដែរឬទេ?
 ```
 
 ## lt-Lithuania
 
 ```
-Labas, Ruta. Šį mėnesį jūsų atidarytos trys naujos pozicijos augimo ir UA komandose rodo aktyvų pasiruošimą sezoniniam paklausos šuoliui. Lietuvos rinkoje stiprėjant konkurencijai su Pigu.lt ar Skelbiu, padedame stabilizuoti CPA kaštus optimizuodami srautą tiesiogiai pagal pirmojo pirkimo įvykį. Panašaus profilio paskyrose pasiekiame 1217 patvirtintų pirkimų per dieną tūrį, naudojant papildomą apsaugą nuo netikro srauto. Ar būtų įdomu pasidalinti įžvalgomis, kaip šie tūriai galėtų papildyti jūsų dabartinę strategiją?
+Sveiki, Ruta, pastebėjau, kad GreitasTurgus šį mėnesį paskelbė tris naujas pozicijas augimo ir UA komandoje. Sezoninis paklausos šuolis Lietuvoje yra gera proga dar labiau išplėsti pirkėjų bazę, nepaisant rinkoje kylančių pritraukimo kaštų. Panašūs e-komercijos projektai pasiekia 1217 patvirtintų pirkimų per dieną, optimizuojant srautą pagal pirmo pirkimo įvykį su integruota apsauga nuo sukčiavimo. Ar būtų įdomu trumpai apie tai pasikalbėti?
 ```
 
 ## lv-Latvia
@@ -427,7 +414,7 @@ Labas, Ruta. Šį mėnesį jūsų atidarytos trys naujos pozicijos augimo ir UA 
 ```
 Sveika, Līga!
 
-AtrsTirgus pēdējo trīs nedēļu laikā izsludinātās vakances izaugsmes komandā liecina par nopietniem mērogošanās mērķiem. Pieaugošā konkurence un izmaksas Meta kanālos liek meklēt alternatīvus veidus, kā efektīvi piesaistīt pircējus Latvijas tirgū. Līdzīgos e-komercijas projektos mērķtiecīga video reklāmu virzīšana ļauj sasniegt virs 1254 apstiprinātiem pirkumiem dienā. CPS modelis apvienojumā ar stingru krāpniecisko darījumu filtru nodrošina, ka investīcijas atbilst reāliem ieņēmumiem, līdzīgi kā to redzam 220.lv vai SS.lv segmentā. Vai būtu vērts apspriest šādu pieeju jūsu jauno komandas biedru atbalstam?
+AtrsTirgus pēdējo trīs nedēļu laikā atvērtās trīs jaunas izaugsmes speciālistu pozīcijas liecina par nopietniem plāniem paplašināt tirgus daļu. Pieaugošā konkurence no tādiem spēlētājiem kā 220.lv un SS.lv padara efektīvu pirkumu piesaisti arvien svarīgāku. Līdzīgos e-komercijas projektos mūsu pieeja nodrošina virs 1254 apstiprinātiem pirkumiem dienā, optimizējot tieši uz šo gala darbību. Izmantojot padziļinātu datu atlasi un aizsardzību pret viltus darījumiem, izdodas saglabāt zemu CAC pat pie liela apjoma. Vai būtu vērts īsi apspriest, kā tas varētu papildināt jūsu esošās video un Meta kampaņas?
 ```
 
 ## my-Myanmar
@@ -435,7 +422,7 @@ AtrsTirgus pēdējo trīs nedēļu laikā izsludinātās vakances izaugsmes koma
 ```
 မင်္ဂလာပါ Thiri
 
-MyanZay အနေနဲ့ ဒီလထဲမှာ growth နဲ့ UA တာဝန်ယူမဲ့သူတွေ ထပ်မံခေါ်ယူနေတာ တွေ့ရလို့ ဝမ်းသာပါတယ်။ မြန်မာနိုင်ငံ e-commerce ဈေးကွက်မှာ ပြိုင်ဆိုင်မှုတွေ ပြင်းထန်လာတာနဲ့အမျှ Meta နဲ့ YouTube ads တွေမှာ acquisition cost တက်လာတာ သတိထားမိမှာပါ။ အလားတူလုပ်ငန်းတွေမှာတော့ ပထမအကြိမ် ဝယ်ယူမှုအထိ အောင်မြင်အောင် fraud screening စနစ်နဲ့ လုပ်ဆောင်ပေးတဲ့အခါ တစ်ရက်ကို အမှန်တကယ် ဝယ်ယူမှုအကြိမ်ရေ ၁၂၉၁ ခုအထိ တိုးတက်လာတာ တွေ့ရပါတယ်။ Shop.com.mm လို ပြိုင်ဘက်တွေကြားမှာ အခုလို ရာသီအလိုက် အရောင်းအဝယ် မြင့်တက်လာချိန်ကို အမိအရဖမ်းဆုပ်နိုင်ဖို့ ဒီထက်ပိုပြီး scale လုပ်ဖို့ စဉ်းစားနေပါသလား။
+MyanZay က ဒီလထဲမှာ Growth နဲ့ UA အခန်းကဏ္ဍတွေအတွက် ရာထူးနေရာသစ် ၃ ခုအထိ ခေါ်ယူနေတာ တွေ့ရပါတယ်။ မြန်မာ့ e-commerce ဈေးကွက်မှာ Shop.com.mm နဲ့ OneKyat တို့လို ပြိုင်ဘက်တွေကြား ပြိုင်ဆိုင်မှု ပြင်းထန်လာသလို ရာသီအလိုက် အရောင်းမြှင့်တင်မှုတွေကြောင့် ဈေးကွက်တွင်း အသုံးပြုရတဲ့ စရိတ်တွေလည်း မြင့်တက်လာနေပါတယ်။ အလားတူ လုပ်ငန်းတွေမှာတော့ ပထမအကြိမ် ဝယ်ယူမှုအထိ အောင်မြင်အောင် လုပ်ဆောင်ပေးတဲ့ စနစ်နဲ့ တစ်ရက်ကို အတည်ပြုပြီးသား purchase အော်ဒါပေါင်း 1291 ကျော်အထိ ရရှိနေပါတယ်။ ကျွန်တော်တို့က fraud screening စနစ်နဲ့ စစ်ထုတ်ပြီး အရည်အသွေးရှိတဲ့ traffic တွေကို confirmed purchase ရရှိအောင် တိုက်ရိုက် လုပ်ဆောင်ပေးတာပါ။ ဒီလိုမျိုး စနစ်ကို YouTube ads တွေအတွက်ပါ စမ်းသပ်ကြည့်ဖို့ စိတ်ဝင်စားမှု ရှိမလား ခင်ဗျာ။
 ```
 
 ## si-SriLanka
@@ -443,21 +430,15 @@ MyanZay အနေနဲ့ ဒီလထဲမှာ growth နဲ့ UA တာ�
 ```
 ආයුබෝවන් Nimali,
 
-WeleFast ආයතනය පසුගිය සති තුන තුළ නව වර්ධන සහ පරිශීලක අත්පත් කරගැනීමේ භූමිකාවන් කිහිපයක් සඳහා බඳවා ගැනීම් ආරම්භ කර තිබීම ඉතා වැදගත් පියවරක්.
-
-ශ්‍රී ලංකාවේ ඊ-කොමර්ස් වෙළඳපොළ තුළ තරඟකාරීත්වය ඉහළ යන පසුබිමක සහ පාරිභෝගිකයින් මිලදී ගැනීමේ පිරිවැය (CAC) වැඩි වෙමින් පවතින අවස්ථාවක, වීඩියෝ නිර්මාණ හරහා සෘජුවම අලෙවියක් තහවුරු වන පරිදි මෙහෙයුම් පුළුල් කිරීම සාර්ථක ප්‍රතිඵල ගෙන දෙනු ඇත.
-
-අපගේ ප්‍රධාන අවධානය යොමු වන්නේ හුදු ලියාපදිංචි කිරීම් වලට වඩා තහවුරු කළ මිලදී ගැනීම් (confirmed purchases) ලබා දීම කෙරෙහි වන අතර, දැනටමත් දිනකට 1328 කට අධික තහවුරු කළ ඇණවුම් ප්‍රමාණයක් මෙවැනිම ගිණුම් සඳහා ලබා දෙමින් පවතී.
-
-මෙම ක්‍රමය මඟින් වංචනික ගනුදෙනු (fraud) පෙරීමකට ලක් කරමින් සැබෑ ගනුදෙනුකරුවන් වැඩි කරගැනීමට හැකියාව ලැබෙනු ඇත.
-
-Daraz සහ ikman වැනි වෙළඳපොළවල් පවතින ක්ෂේත්‍රයක මෙවැනි වර්ධනයක් ඇති කරගැනීම පිළිබඳව කෙටි සාකච්ඡාවකට ඔබ කැමතිද?
+WeleFast ආයතනය මේ මාසයේදී වර්ධනය සහ පාරිභෝගිකයින් අත්පත් කරගැනීම වෙනුවෙන් අලුතින් තනතුරු තුනක් විවෘත කිරීම පිළිබඳව මම අවධානය යොමු කළෙමි. උත්සව සමයත් සමඟ ශ්‍රී ලංකාවේ ඊ-කොමර්ස් වෙළඳපොළ තුළ තරඟකාරිත්වය ඉහළ යන බැවින් YouTube සහ Meta හරහා සිදුකරන ප්‍රවර්ධන කටයුතු තවදුරටත් පුළුල් කිරීමේ හැකියාව පවතී. වර්තමානයේ පවතින ඉහළ පිරිවැය කළමනාකරණය කරමින්, දිනකට තහවුරු කළ ඇණවුම් 1328 ක් ඉක්මවා යන පරිදි පරිමාවන් ඉහළ නැංවීමට මෘදුකාංගමය ක්‍රමවේද හරහා සහාය විය හැකියි. ඔබගේ වර්ධන සැලසුම් පිළිබඳව කෙටි අදහස් හුවමාරුවකට ඔබ කැමතිද?
 ```
 
 ## sl-Slovenia
 
 ```
-Živijo Nina, HitriTrg je ta mesec z objavo treh novih delovnih mest za rast in UA očitno v močnem zagonu. Glede na vse večjo konkurenco trgovin, kot sta Bolha in Mimovrste, postaja obvladovanje stroškov ključno za ohranjanje donosnosti. Optimizacija na nivoju prvega nakupa pri podobnih projektih dosega 1365 potrjenih naročil dnevno ob strogem preverjanju kakovosti prometa. Takšen pristop omogoča varno skaliranje na nove kanale s CPA modelom brez tveganja za prevare. Bi bilo smiselno, da se na kratko slišimo o podpori vaši novi ekipi s temi volumni?
+Živijo Nina,
+
+HitriTrg v zadnjem mesecu očitno močno krepi svojo ekipo s tremi novimi strokovnjaki za rast in akvizicijo uporabnikov. Glede na vse večjo konkurenco na slovenskem trgu s strani igralcev, kot sta Bolha in Mimovrste, postaja obvladovanje stroškov na kanalih Meta in YouTube ključno. Pri podobnih projektih dosegamo 1365 potrjenih nakupov na dan z neposredno optimizacijo na končno prodajo in filtriranjem neustreznega prometa. Ta pristop omogoča varno skaliranje video kreativ na nove vire brez dviga CAC. Bi vas zanimalo kratek pregled teh številk?
 ```
 
 ## sr-Serbia
@@ -465,23 +446,31 @@ Daraz සහ ikman වැනි වෙළඳපොළවල් පවතින �
 ```
 Zdravo Milica,
 
-BrzaPijaca je ovog meseca otvorila tri UA i growth pozicije. Tržište Srbije beleži sezonski skok potražnje dok konkurencija koju predvode KupujemProdajem i Gigatron nastavlja da raste. Slični marketplace nalozi trenutno ostvaruju 1402 potvrđene kupovine dnevno kroz CPA optimizaciju. Tehnologija za proveru prevara (fraud screening) obezbeđuje isključivo stvarnu aktivnost korisnika, čime se povećava volumen bez gubitka kvaliteta u e-commerce segmentu. Da li ste otvoreni za kratku razmenu informacija o optimizaciji prema potvrđenoj kupovini?
+Primećujem da BrzaPijaca ovog meseca širi tim za tri nove pozicije u sektoru akvizicije i rasta.
+
+S obzirom na sezonski skok potražnje u Srbiji i sve jaču konkurenciju koju diktiraju KupujemProdajem i Gigatron, verovatno se suočavate sa rastom CAC-a na kanalima kao što su Meta i YouTube.
+
+E-commerce nalozi sličnog obima ostvaruju 1402 potvrđene kupovine dnevno kroz optimizaciju prodajnog levka na nivou CPS modela.
+
+Ovaj proces uključuje automatski skrining saobraćaja kako bi se osigurao kvalitet svake transakcije pre nego što ona uđe u vaš sistem.
+
+Da li ste otvoreni za kratku razmenu informacija o skaliranju broja porudžbina van standardnih društvenih mreža?
 ```
 
 ## tr-TR-followup
 
 ```
-Merhaba Baran Bey, Hepsiburada'nın onaylı satın alma bazlı modele geçişinden bahsetmiştik. Bu ay açtığınız üç yeni büyüme ve UA pozisyonu Türkiye'deki artan edinim maliyetleri karşısında operasyonu genişlettiğinizi gösteriyor. Trendyol gibi rakiplerin olduğu bu pazarda fraud taramalı ve doğrudan satış odaklı optimizasyonla günlük 1.200 onaylı satın alma hacmini koruyoruz. Küçük bir segmentte test etmek isterseniz detayları paylaşabilirim?
+Baran Bey merhaba, HızlıPazar için konuştuğumuz onaylı satın alma odaklı CPS modelini hatırlatmak istedim. Bu ay açtığınız üç yeni büyüme ve UA pozisyonuyla birlikte, video kreatiflerinizi YouTube ve Meta üzerinde dolandırıcılık korumalı trafikle günden 1.200 onaylı işleme kadar ölçeklendirebiliriz. Önümüzdeki hafta bu akışı 15 dakikalık bir görüşmede netleştirelim mi?
 ```
 
 ## en-GB-followup
 
 ```
-Following up on the confirmed purchase optimisation I mentioned for the UK market. I noticed you opened three growth roles this month, so our ability to scale 1,400 daily purchases with fraud screening might be timely given rising acquisition costs. Worth a brief chat whilst you are growing the team?
+Following up on the confirmed purchase optimisation I mentioned for SwiftCart in the UK. I noticed you opened three new growth roles this month, and we could help support that scale by delivering 1,400 daily purchases with built-in fraud screening. Open to a brief chat about how we handle the seasonal demand spike?
 ```
 
 ## es-AR-followup
 
 ```
-Hola Sofía, paso por última vez sobre el programa de 650 primeras compras diarias que te comenté. Vi que abrieron tres roles de growth este mes y me pareció oportuno ver si podíamos aliviar la carga de CAC en Argentina con nuestro modelo de compra validada. Si el timing no es el mejor, lo dejamos acá y te libero la bandeja?
+Hola Sofía, paso por última vez sobre el programa de UA para las 650 primeras compras diarias que comentamos. Noté que abrieron tres roles de growth este mes y me pareció un momento clave para evaluar si el fraude o los costos en Meta están frenando el escalado. Si no es el momento para avanzar ahora, lo dejamos acá sin problema.
 ```
