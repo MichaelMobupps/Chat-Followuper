@@ -215,3 +215,56 @@ export function postManualIngestBulk(
     },
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Seed → classify (ask-less onboarding)
+//
+// POST /api/prospector/classify-seed
+// Paste a company/brand NAME or a Google Play / App Store / website URL and the
+// backend derives {company, vertical, subVertical, country, language, product}
+// via web search. Any override field wins over the model's guess. Used by the
+// Add-contact dialog to auto-fill the form so the SDR types the least possible.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ClassifySeedInput {
+  seed: string;
+  company?: string;
+  vertical?: "web_cps" | "mobile";
+  subVertical?: string;
+  country?: string;
+  language?: string;
+  product?: string;
+}
+
+export interface ClassifiedSeed {
+  company: string;
+  /** "web_cps" | "mobile" (coarse — maps to the Web/Mobile product type). */
+  vertical: string;
+  subVertical: string;
+  country: string;
+  language: string;
+  product: string;
+  seedType: string;
+  appName: string | null;
+  domain: string | null;
+  webSearchUsed: boolean;
+  notes: string;
+  costUsd: number;
+}
+
+export function postClassifySeed(
+  input: ClassifySeedInput,
+): Promise<{ classified: ClassifiedSeed }> {
+  return apiFetch<{ classified: ClassifiedSeed }>(
+    "/api/prospector/classify-seed",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/** Map the coarse classified vertical to the dialog's Web/Mobile ticker. */
+export function verticalToTicker(vertical: string): Ticker {
+  return vertical === "web_cps" ? "web" : "mobile";
+}

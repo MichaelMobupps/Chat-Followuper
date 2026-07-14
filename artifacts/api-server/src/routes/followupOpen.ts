@@ -10,10 +10,7 @@ import {
   generateLink as generateTelegramLink,
   recordSendIntent as recordTelegramSendIntent,
 } from "../services/channels/telegram";
-import {
-  generateLink as generateLinkedinLink,
-  recordSendIntent as recordLinkedinSendIntent,
-} from "../services/channels/linkedin";
+import { recordSendIntent as recordLinkedinSendIntent } from "../services/channels/linkedin";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 import { appPublicUrl } from "../lib/appPublicUrl";
 
@@ -116,14 +113,20 @@ router.get(
         return;
       }
       if (row.channel === "linkedin") {
-        // F-A: LinkedIn is clipboard-only (no prefill), so redirect to the
-        // profile URL. The message can't be embedded in the URL; the in-app
-        // send flow copies it to the clipboard.
+        // LinkedIn has no message-prefill deep link, and a bare 302 to the
+        // profile would drop the generated message on the floor (a server
+        // redirect can't touch the clipboard). Route to the copy-paste fallback
+        // page instead: it shows the message + a Copy button + an "Open LinkedIn
+        // profile" button, so the rep copies, opens the profile, and pastes.
         if (!row.linkedinUrl) {
           res.redirect(302, dashboardFallback());
           return;
         }
-        res.redirect(302, generateLinkedinLink(row.linkedinUrl, messageBody));
+        const t = encodeURIComponent(token);
+        res.redirect(
+          302,
+          `${appPublicUrl()}/api/followups/fallback/${followupId}?t=${t}`,
+        );
         return;
       }
       res.redirect(302, dashboardFallback());

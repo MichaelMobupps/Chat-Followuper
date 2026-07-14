@@ -9,6 +9,8 @@ import {
   type Prospect,
 } from "@workspace/db";
 import { getLanguageForCountry } from "../lib/geoGate";
+import { isValidSubVertical } from "../lib/doctrine/taxonomy";
+import { classifySeed } from "./seedClassifier";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import { usageBucketDate } from "../lib/usageBucket";
 import { researchProspect, type ProspectBrief } from "./prospectResearch";
@@ -154,21 +156,65 @@ export async function prepareFirstMessage(params: {
   // terminal error handler. No-op when the cap env is unset.
   await assertUnderDailyLlmCap(userId);
 
-  const country = prospect.country ?? "";
-  const language =
-    prospect.language ??
-    (country ? getLanguageForCountry(country) : "en");
-  const subVertical =
-    prospect.subVertical ?? defaultSubVertical(prospect.vertical);
-  const product = prospect.product ?? defaultProduct(prospect.vertical);
+  // Ask-less classification: derive the datapoints research + the writer need
+  // (sub-vertical, country, language, product) from the company/URL seed when the
+  // operator did not supply them. Any value the operator DID set wins as an
+  // override. Runs at most once per prospect — the results persist below, so a
+  // second generate skips it.
+  let subVertical = isValidSubVertical(prospect.subVertical ?? "")
+    ? (prospect.subVertical as string)
+    : "";
+  let country = prospect.country ?? "";
+  let language = prospect.language ?? "";
+  let product = prospect.product ?? "";
+  let classifyCostUsd = 0;
+
+  const hasBrief =
+    !!prospect.researchBrief && typeof prospect.researchBrief === "object";
+  const needsClassify =
+    !hasBrief && (!subVertical || !country || !language || !product);
+
+  if (needsClassify && prospect.company?.trim()) {
+    setPrepareProgress(userId, prospectId, "researching");
+    try {
+      const seedUrl =
+        (prospect.prePlatformContext ?? "").match(/https?:\/\/\S+/)?.[0] ??
+        (prospect.contextNotes ?? "").match(/https?:\/\/\S+/)?.[0];
+      const classified = await classifySeed({
+        seed: seedUrl || prospect.company.trim(),
+        company: prospect.company.trim(),
+        vertical:
+          prospect.vertical === "web_cps" || prospect.vertical === "mobile"
+            ? prospect.vertical
+            : undefined,
+        subVertical: subVertical || undefined,
+        country: country || undefined,
+        language: language || undefined,
+        product: product || undefined,
+      });
+      subVertical = classified.subVertical;
+      country = classified.country || country;
+      language = classified.language || language;
+      product = classified.product || product;
+      classifyCostUsd = classified.costUsd;
+    } catch (err) {
+      logger.warn(
+        { err: String(err) },
+        "manual prepare: seed classification failed; using defaults",
+      );
+    }
+  }
+
+  // Fill any remaining gaps with the coarse platform defaults.
+  if (!isValidSubVertical(subVertical))
+    subVertical = defaultSubVertical(prospect.vertical);
+  if (!language) language = country ? getLanguageForCountry(country) : "en";
+  if (!product) product = defaultProduct(prospect.vertical);
 
   let researchCostUsd = 0;
   let brief: ProspectBrief;
 
-  if (
-    prospect.researchBrief &&
-    typeof prospect.researchBrief === "object"
-  ) {
+  if (hasBrief) {
     brief = prospect.researchBrief as ProspectBrief;
   } else {
     if (!prospect.company?.trim()) {
@@ -270,13 +316,17 @@ export async function prepareFirstMessage(params: {
         userId,
         date: today,
         messagesGenerated: 1,
-        anthropicSpendUsd: (researchCostUsd + generationCostUsd).toFixed(4),
+        anthropicSpendUsd: (
+          researchCostUsd +
+          generationCostUsd +
+          classifyCostUsd
+        ).toFixed(4),
       })
       .onConflictDoUpdate({
         target: [dailyUsageTable.userId, dailyUsageTable.date],
         set: {
           messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
+          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd + classifyCostUsd).toFixed(4)} AS numeric)`,
         },
       });
   });

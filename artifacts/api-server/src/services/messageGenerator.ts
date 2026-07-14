@@ -415,6 +415,12 @@ function detectUngroundedClaims(
     if (Array.isArray(brief.tangibleReasons)) groundParts.push(...brief.tangibleReasons);
     if (brief.marketContext) groundParts.push(brief.marketContext);
     if (brief.prospectSpecificHook) groundParts.push(brief.prospectSpecificHook);
+    // Hook doctrine: the writer is told to LEAD with the fresh dated hook, and
+    // real hooks carry numbers (funding "$150M", "hiring 200", years like 2026).
+    // Ground on them so hook-derived figures aren't self-flagged as hallucinations.
+    if (brief.freshHook) groundParts.push(brief.freshHook);
+    if (brief.hookDateOrRecency) groundParts.push(brief.hookDateOrRecency);
+    if (brief.ctvAngle) groundParts.push(brief.ctvAngle);
   }
   if (conversationText) groundParts.push(conversationText);
 

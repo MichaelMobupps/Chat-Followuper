@@ -42,6 +42,16 @@ import {
 
 const RESEARCH_MODEL = "claude-opus-4-7";
 
+// Hook-doctrine v2: give the research call Anthropic's server-side web search so
+// Opus can find a fresh, dated hook and check ad presence (Google Ads
+// Transparency Center / Meta Ad Library / AppGoblin). Mirrors the proven pattern
+// in opusRescue.ts. Gated by env so it can be disabled (e.g. for cheap CI runs);
+// defaults ON. The SDK typings lack the partner tool variant, hence the `as any`
+// cast at the call site.
+const RESEARCH_WEB_SEARCH_ENABLED =
+  process.env.RESEARCH_ENABLE_WEB_SEARCH !== "false";
+const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search" };
+
 export class ResearchFailedError extends Error {
   constructor(message: string, readonly cause?: unknown) {
     super(message);
@@ -72,6 +82,20 @@ export interface ProspectBrief {
   marketContext: string;
   prospectSpecificHook: string;
   prospectPrimaryGrowthProblem: string;
+
+  // Fresh dated hook + ad-intelligence (MobUpps SDR Hook Writer doctrine v2).
+  // ALL optional and best-effort: hook-hunting and ad-library signals are often
+  // unknown. An empty/false value means "no real signal found" — NEVER invented.
+  // Consumed by the writer to lead the message with a single fresh, dated hook,
+  // and to pick a CTV/video angle + the correct acquisition-model vocabulary.
+  freshHook?: string;
+  hookType?: string;
+  hookSource?: string;
+  hookDateOrRecency?: string;
+  runsYoutubeAds?: boolean;
+  runsMetaAds?: boolean;
+  ctvAngle?: string;
+  acquisitionModel?: string;
 
   // Doctrine arguments (English)
   whyArgument: string;
@@ -174,6 +198,27 @@ function asOptionalNativeString(v: unknown, field: string, isNonEnglish: boolean
 }
 
 /**
+ * Lenient string reader for best-effort fields (hook + ad-intel). Returns "" for
+ * anything non-string or empty. Unlike `asString`, it NEVER throws — an absent
+ * fresh hook or ad-library signal must not fail the whole (required) research call.
+ */
+function asOptionalString(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim();
+}
+
+/**
+ * Lenient boolean reader for ad-intel flags. Accepts real booleans and the
+ * string forms an LLM sometimes emits ("true"/"yes"/"1"). Defaults to false
+ * ("no signal / unknown") — we never assert ad activity we didn't confirm.
+ */
+function asOptionalBoolean(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return /^(true|yes|1)$/i.test(v.trim());
+  return false;
+}
+
+/**
  * Validate the parsed JSON conforms to the ProspectBrief contract.
  * Throws ResearchFailedError on any missing or malformed required field.
  */
@@ -190,6 +235,15 @@ function validateBrief(parsed: Record<string, unknown>, isNonEnglish: boolean): 
     marketContext: asString(parsed.market_context, "market_context", parsed),
     prospectSpecificHook: asString(parsed.prospect_specific_hook, "prospect_specific_hook", parsed),
     prospectPrimaryGrowthProblem: asString(parsed.prospect_primary_growth_problem, "prospect_primary_growth_problem", parsed),
+    // Hook + ad-intel (optional/best-effort — never hard-fail research on absence)
+    freshHook: asOptionalString(parsed.fresh_hook),
+    hookType: asOptionalString(parsed.hook_type),
+    hookSource: asOptionalString(parsed.hook_source),
+    hookDateOrRecency: asOptionalString(parsed.hook_date_or_recency),
+    runsYoutubeAds: asOptionalBoolean(parsed.runs_youtube_ads),
+    runsMetaAds: asOptionalBoolean(parsed.runs_meta_ads),
+    ctvAngle: asOptionalString(parsed.ctv_angle),
+    acquisitionModel: asOptionalString(parsed.acquisition_model),
     whyArgument: asString(parsed.why_argument, "why_argument", parsed),
     validationArgument: asString(parsed.validation_argument, "validation_argument", parsed),
     howArgument: asString(parsed.how_argument, "how_argument", parsed),
@@ -456,43 +510,114 @@ export async function researchProspect(
   });
 
   const llmStart = Date.now();
-  // Hard cap on the total time the research call may consume, including
-  // the retry budget. Anthropic Opus typically returns in 8-25 seconds for
-  // this prompt size; 90 seconds covers worst-case latency plus retries.
-  // Without this, an Anthropic-side hang stalls the SSE stream forever
-  // and the SDR has no signal that anything is wrong.
-  const RESEARCH_TIMEOUT_MS = 90_000;
-  let response: AnthropicMessage;
-  try {
-    response = (await withTimeout(
+  // Research call. When web search is enabled we (a) OVERRIDE the SDK client's
+  // 60s default timeout (lib/anthropic.ts) — server-side web_search fans out to
+  // several round-trips and routinely exceeds 60s — and (b) treat the whole
+  // hook-enrichment-via-search as BEST-EFFORT: if it times out or the tool
+  // errors, we fall back to a fast knowledge-only research call so the prospect
+  // ALWAYS gets a brief (the optional hook fields simply come back empty). A
+  // slow hook search must never leave a prospect with no message.
+  const runResearchCall = (useWebSearch: boolean): Promise<AnthropicMessage> => {
+    const perRequestTimeoutMs = useWebSearch ? 120_000 : 60_000;
+    const outerTimeoutMs = useWebSearch ? 135_000 : 90_000;
+    return withTimeout(
       withAnthropicRetry(
         () =>
           anthropic.messages.create(
             {
               model: RESEARCH_MODEL,
-              max_tokens: 2500,
+              // Web search needs headroom for the interleaved tool_use blocks.
+              max_tokens: useWebSearch ? 3200 : 2500,
               system: systemPrompt,
               messages: [{ role: "user", content: userPrompt }],
+              // Server-side web search for fresh-hook + ad-intel grounding.
+              // Cast: SDK typings lack the partner web_search tool variant.
+              ...(useWebSearch ? ({ tools: [WEB_SEARCH_TOOL] } as any) : {}),
             },
-            // APO6: pass the abort signal as a request option so a client
-            // disconnect cancels the HTTP request mid-flight.
-            { signal },
+            // APO6: abort signal cancels the in-flight request on client
+            // disconnect. Override the 60s client default only when searching.
+            {
+              signal,
+              ...(useWebSearch ? { timeout: perRequestTimeoutMs } : {}),
+            },
           ),
-        { label: "research" },
+        { label: useWebSearch ? "research+web_search" : "research" },
       ),
-      RESEARCH_TIMEOUT_MS,
-      `Opus research call exceeded ${RESEARCH_TIMEOUT_MS}ms`,
-    )) as AnthropicMessage;
+      outerTimeoutMs,
+      `Opus research call exceeded ${outerTimeoutMs}ms`,
+    ) as Promise<AnthropicMessage>;
+  };
+
+  // Call + extract + parse as ONE best-effort unit. A web-search response can be
+  // NON-throwing yet unusable — stop_reason "pause_turn" (server tool loop hit
+  // its cap) or "max_tokens" (budget consumed by interleaved tool blocks before
+  // the final JSON) — leaving no parseable JSON text block. Treating that the
+  // same as a thrown call is what lets us degrade to knowledge-only; otherwise
+  // research would fail where the old tool-less single call never did.
+  const callAndParse = async (
+    useWebSearch: boolean,
+  ): Promise<{ response: AnthropicMessage; parsed: Record<string, unknown> }> => {
+    const resp = await runResearchCall(useWebSearch);
+    // With web_search the response interleaves server_tool_use / tool_result
+    // blocks; the JSON answer is the LAST non-empty text block, not the first.
+    const blocks = resp.content.filter(
+      (b): b is { type: string; text: string } =>
+        b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
+    );
+    const last = blocks[blocks.length - 1];
+    if (!last || !last.text) {
+      throw new ResearchFailedError("Opus response had no usable text block");
+    }
+    return { response: resp, parsed: parseResearchJson(last.text) };
+  };
+
+  let response: AnthropicMessage;
+  let parsed: Record<string, unknown>;
+  try {
+    ({ response, parsed } = await callAndParse(RESEARCH_WEB_SEARCH_ENABLED));
   } catch (err) {
-    emitter.emit({
-      stage: "research",
-      substage: "opus_call_failed",
-      status: "failed",
-      message: `Opus call failed after retries: ${(err as Error).message}`,
-      model: RESEARCH_MODEL,
-      latencyMs: Date.now() - llmStart,
-    });
-    throw new ResearchFailedError(`Opus call failed: ${(err as Error).message}`, err);
+    // Degrade to knowledge-only on ANY web-search failure (thrown OR unparseable),
+    // unless the client already disconnected — a shared-signal abort would just
+    // re-reject the fallback call immediately.
+    if (RESEARCH_WEB_SEARCH_ENABLED && !signal?.aborted) {
+      logger.warn(
+        { err: String(err) },
+        "research web_search call unusable; falling back to knowledge-only research",
+      );
+      emitInfo(emitter, {
+        stage: "research",
+        substage: "web_search_fallback",
+        message:
+          "Web search slow/unavailable — completing research from model knowledge (hook fields may be empty)",
+      });
+      try {
+        ({ response, parsed } = await callAndParse(false));
+      } catch (err2) {
+        emitter.emit({
+          stage: "research",
+          substage: "opus_call_failed",
+          status: "failed",
+          message: `Opus call failed after retries: ${(err2 as Error).message}`,
+          model: RESEARCH_MODEL,
+          latencyMs: Date.now() - llmStart,
+        });
+        throw err2 instanceof ResearchFailedError
+          ? err2
+          : new ResearchFailedError(`Opus call failed: ${(err2 as Error).message}`, err2);
+      }
+    } else {
+      emitter.emit({
+        stage: "research",
+        substage: "opus_call_failed",
+        status: "failed",
+        message: `Opus call failed after retries: ${(err as Error).message}`,
+        model: RESEARCH_MODEL,
+        latencyMs: Date.now() - llmStart,
+      });
+      throw err instanceof ResearchFailedError
+        ? err
+        : new ResearchFailedError(`Opus call failed: ${(err as Error).message}`, err);
+    }
   }
 
   const inputTokens = response.usage?.input_tokens ?? 0;
@@ -511,36 +636,11 @@ export async function researchProspect(
     model: RESEARCH_MODEL,
   });
 
-  // ── Substage 3: Extract text block ──
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || !textBlock.text) {
-    emitter.emit({
-      stage: "research",
-      substage: "no_text_block",
-      status: "failed",
-      message: `Opus response had no text block`,
-    });
-    throw new ResearchFailedError("Opus response had no text block");
-  }
-
-  // ── Substage 4: Parse JSON ──
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = parseResearchJson(textBlock.text);
-    emitInfo(emitter, {
-      stage: "research",
-      substage: "json_parsed",
-      message: `Research JSON parsed (${Object.keys(parsed).length} fields)`,
-    });
-  } catch (err) {
-    emitter.emit({
-      stage: "research",
-      substage: "json_parse_failed",
-      status: "failed",
-      message: `Failed to parse research JSON: ${(err as Error).message}`,
-    });
-    throw err;
-  }
+  emitInfo(emitter, {
+    stage: "research",
+    substage: "json_parsed",
+    message: `Research JSON parsed (${Object.keys(parsed).length} fields)`,
+  });
 
   // ── Substage 5: Validate brief ──
   let validated: Omit<ProspectBrief, "generatedAt" | "generatorModel" | "generatorCostUsd">;

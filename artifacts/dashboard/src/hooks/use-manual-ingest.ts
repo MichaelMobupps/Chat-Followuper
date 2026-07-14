@@ -17,9 +17,12 @@ import {
   getManualIngestSettings,
   getPrepareProgress,
   patchManualIngestSettings,
+  postClassifySeed,
   postManualIngest,
   postManualIngestBulk,
   postPrepareFirstMessage,
+  type ClassifiedSeed,
+  type ClassifySeedInput,
   type ManualIngestBulkInput,
   type ManualIngestBulkResponse,
   type ManualIngestCreateInput,
@@ -156,5 +159,20 @@ export function useAddManualContactsBulk(): UseMutationResult<
         void qc.invalidateQueries({ queryKey: ["followups"] });
       }
     },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Seed → classify (ask-less onboarding). No cache side-effects — the caller
+// reads the returned classification to pre-fill a form.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function useClassifySeed(): UseMutationResult<
+  { classified: ClassifiedSeed },
+  ApiError,
+  ClassifySeedInput
+> {
+  return useMutation<{ classified: ClassifiedSeed }, ApiError, ClassifySeedInput>({
+    mutationFn: (input) => postClassifySeed(input),
   });
 }

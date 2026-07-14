@@ -62,6 +62,7 @@ import {
   type DiscoveryInput,
   type DiscoveryResult,
 } from "../services/discoveryOrchestrator";
+import { classifySeed } from "../services/seedClassifier";
 
 const router: IRouter = Router();
 
@@ -1370,6 +1371,106 @@ router.post(
       audit: result.audit,
       llmUsage: result.llmUsage,
     });
+  },
+);
+
+// ── POST /prospector/classify-seed ─────────────────────────────────────────
+// Turns a MINIMAL seed (company name OR Play/App Store/website URL) into a
+// fully-classified prospect {company, vertical, subVertical, country, language,
+// product} via seedClassifier (resolveUrl + Opus web_search). Operator-supplied
+// overrides always win. The service is best-effort and does not throw.
+const classifySeedBodySchema = z
+  .object({
+    seed: z.string().trim().min(1, "seed required").max(URL_MAX_LEN),
+    company: z.string().trim().max(300).optional(),
+    vertical: z.enum(["web_cps", "mobile"]).optional(),
+    subVertical: z.string().trim().max(120).optional(),
+    country: z.string().trim().max(120).optional(),
+    language: z.string().trim().max(12).optional(),
+    product: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
+router.post(
+  "/prospector/classify-seed",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    // Cost-DoS guard: classify-seed bills an Opus + web_search call (~$0.12).
+    // Rate-limit per user like the sibling expensive endpoints (resolve-company),
+    // since the daily cap is off by default and best-effort under concurrency.
+    const rl = checkResolveCompanyRateLimit(user.id);
+    if (!rl.ok) {
+      const retryAfterSec = Math.ceil(rl.resetMs / 1000);
+      res.setHeader("Retry-After", String(retryAfterSec));
+      res.status(429).json({
+        error: "rate_limit_exceeded",
+        message: `Too many classify-seed calls. Limit is ${RESOLVE_RATE_MAX_CALLS} per minute. Retry in ${retryAfterSec}s.`,
+        retryAfterSeconds: retryAfterSec,
+      });
+      return;
+    }
+
+    // Bills an Opus (web-search) call — pre-check the daily cap. No-op if unset.
+    await assertUnderDailyLlmCap(user.id);
+
+    let body: z.infer<typeof classifySeedBodySchema>;
+    try {
+      body = classifySeedBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    let classified;
+    try {
+      classified = await classifySeed({
+        seed: body.seed,
+        company: body.company,
+        vertical: body.vertical,
+        subVertical: body.subVertical,
+        country: body.country,
+        language: body.language,
+        product: body.product,
+      });
+    } catch (err) {
+      const safe = redactSecrets(
+        err instanceof Error ? err.message : String(err),
+      ).slice(0, 500);
+      res.status(502).json({ error: "classify_failure", message: safe });
+      return;
+    }
+
+    if (classified.costUsd > 0) {
+      await recordDailyLlmSpend(user.id, classified.costUsd).catch(() => {});
+    }
+
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.prospectorCompanyResolved,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          via: "classify_seed",
+          seed_type: classified.seedType,
+          vertical: classified.vertical,
+          sub_vertical: classified.subVertical,
+          web_search_used: classified.webSearchUsed,
+          cost_usd: classified.costUsd,
+        },
+      });
+    } catch {
+      // Audit log failure must not break the response.
+    }
+
+    res.status(200).json({ classified });
   },
 );
 

@@ -1,79 +1,313 @@
 [
   {
-    "id": "tr-TR-research",
-    "ok": true,
-    "draftModel": "gemini-3-flash-preview",
-    "iterations": 2,
-    "score": 4,
-    "usd": 0.06052799999999999,
-    "researchUsd": 0.066215,
-    "ms": 70844,
-    "flags": [],
-    "message": "Merhaba Emre Bey, Trendyol'un MENA ve Avrupa büyümesi sürerken Türkiye'de Hepsiburada ve Amazon.com.tr gibi rakiplerin performans modelini onaylı satış odağına kaydırdığı görülüyor. Moda ağırlıklı kategorilerdeki yüksek iade oranları nedeniyle tıklama bazlı modeller yerine kesinleşmiş siparişlere odaklanmak marj kaybını doğrudan engelliyor. Türkiye ve MENA özelindeki cashback ve içerik yayıncı havuzu üzerinden Trendyol için günlük 2.500 onaylı satış hacmine ulaşmak mümkün. Süreçte 30 günlük iade penceresini baz alarak yalnızca kesinleşmiş siparişler üzerinden faturalandırma yapıyoruz. MAFO teknolojisiyle yayıncıları brüt satış yerine gerçek onaylanma oranlarına göre puanlayarak trafiği en kaliteli kaynaklara yönlendiriyoruz. Bu performans modelini Trendyol'un iade dinamiklerine nasıl entegre edebileceğimizi değerlendirebilir miyiz?"
-  },
-  {
-    "id": "en-UnitedStates",
-    "ok": true,
-    "draftModel": "gemini-3-flash-preview",
-    "iterations": 2,
-    "score": 4,
-    "usd": 0.060902500000000005,
-    "researchUsd": 0,
-    "ms": 24963,
-    "flags": [],
-    "message": "Hi Dana, MarketCo is likely seeing acquisition costs rise as US ecommerce competition intensifies during this seasonal demand spike. Maintaining scale while costs fluctuate remains a challenge for brands competing with the baseline of peers like Amazon and Walmart. We currently deliver 600 confirmed purchases per day for similar marketplace accounts through purchase-level optimization and fraud screening. This approach prioritizes your confirmed purchase events to ensure every sale is legitimate and attribution is clean. Are you open to testing a performance-based CPS channel to offset your current CAC?"
-  },
-  {
-    "id": "de-Germany",
-    "ok": true,
-    "draftModel": "gemini-3-flash-preview",
-    "iterations": 2,
-    "score": 5,
-    "usd": 0.07201175000000001,
-    "researchUsd": 0,
-    "ms": 21589,
-    "flags": [],
-    "message": "Hallo Katrin,\n\nDer deutsche E-Commerce-Markt wird gerade teurer, besonders in den saisonalen Spitzenphasen steigen die Akquisitionskosten auf den üblichen Kanälen spürbar. Vergleichbare Marktplätze erzielen aktuell 748 bestätigte Käufe pro Tag über eine Optimierung direkt auf Transaktionsebene. Das Fraud-Screening läuft dabei integriert mit, sodass jede Conversion sauber ist, auch im Wettbewerb mit Akteuren wie Otto oder Zalando. Die Aussteuerung erfolgt konsequent auf den bestätigten Kauf. Wäre dieses Modell für KaufFlink aktuell ein Thema?"
-  },
-  {
-    "id": "tr-Turkey",
+    "id": "en-US-research",
     "ok": true,
     "draftModel": "gemini-3-flash-preview",
     "iterations": 1,
     "score": 4,
-    "usd": 0.030057,
-    "researchUsd": 0,
-    "ms": 31491,
+    "usd": 0.0230913,
+    "researchUsd": 0.06886,
+    "ms": 115430,
     "flags": [],
-    "message": "Merhaba Emre Bey,\n\nHızlıPazar'ın Türkiye e-ticaret pazarındaki artan rekabet ortamında yükselen müşteri edinim maliyetlerini (CAC) optimize etmeye odaklandığını tahmin ediyorum. Benzer pazar yerlerinde, özellikle sezonluk talep artışlarını karşılamak adına günlük 1081 onaylanmış sipariş hacmine ulaşabiliyoruz. Trendyol ve Hepsiburada gibi oyuncuların domine ettiği bu dikeyde, trafiği doğrudan ilk satın alma etkinliğine göre optimize ederek ölçek sağlıyoruz. Tüm süreci sahtecilik filtrelerinden geçirilmiş kaliteli kullanıcı akışıyla yöneterek sepeti onaylayan gerçek müşterilere odaklanıyoruz. Bu modelin HızlıPazar'ın mevcut büyüme hedefleriyle ne kadar örtüştüğünü kısa bir sohbette değerlendirmek ister misiniz?"
+    "message": "Hi Dana,\n\nInstacart's recent growth and partnerships hiring push for 2025 shows a clear focus on scaling new customer acquisition and Instacart+ memberships. Walmart Grocery, Amazon Fresh, and DoorDash are all scaling US web performance programs right now, but the cohorts that actually win on ROAS day-7 come from publishers who deliver repeat buyers. This scale tier can realistically drive 2,500 confirmed purchases a day through vetted US web publishers, with billing only for sales that survive the 30-day cancellation window. Category-level curation across coupon and cashback sites filters for incrementality and first-purchase rate to ensure high-LTV volume. Would you be open to seeing how this model handles fraud filtering on the affiliate chain?"
+  },
+  {
+    "id": "tr-TR-research",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0349758,
+    "researchUsd": 0.07205,
+    "ms": 135933,
+    "flags": [],
+    "message": "Merhaba Emre Bey,\n\nTrendyol'un Körfez ve Avrupa pazarlarındaki agresif büyüme hamlesi için LinkedIn üzerinden kurduğunuz yeni performans pazarlaması ekibini ilgiyle takip ediyoruz. Hepsiburada ve Amazon.com.tr gibi pazaryerlerinin bu bölgelerde içerik ve cashback yayıncılarını kapsayan onaylı satış odaklı affiliate yapılarını hızla ölçeklendirmesi, pazar rekabeti açısından kritik bir öneme sahip. MobUpps olarak Türkiye ve yeni genişleme bölgelerinizde günlük 2.500 adet onaylı satış (confirmed purchase) hacmini gerçekçi verilerle sağlayabiliyoruz. Faturalandırma süreçleri yalnızca 30 günlük iade penceresini başarıyla geçen işlemler üzerinden yürütülürken, MAFO sistemimiz yayıncı dağılımını doğrudan iade sonrası kesinleşen ciroya göre optimize ediyor. Bu stratejinin Trendyol'un sınır ötesi genişleme hedeflerini nasıl destekleyebileceğini kısaca değerlendirmek ister misiniz?"
+  },
+  {
+    "id": "en-UnitedStates",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 3,
+    "usd": 0.0628548,
+    "researchUsd": 0,
+    "ms": 24243,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Hi Dana, MarketCo opening three growth and UA roles this month shows great momentum during this seasonal demand spike. Marketplace competition in the United States is intensifying as acquisition costs rise across the sector. We help similar ecommerce brands scale by optimizing directly for confirmed purchases at a volume of 600 confirmed purchases per day. This performance model includes integrated fraud screening to maintain margin quality alongside peers like Amazon and Walmart. Would you be open to a brief chat about our purchase-level optimization?"
+  },
+  {
+    "id": "es-Mexico",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.05685245,
+    "researchUsd": 0,
+    "ms": 20780,
+    "flags": [],
+    "message": "Buen dia Valeria, MercadoHogar ha mostrado un impulso interesante con las tres vacantes de crecimiento y UA que abrieron este mes. Ante la competencia actual en Mexico frente a jugadores como Mercado Libre o Amazon México, mantener un CPA eficiente es clave para aprovechar el pico de demanda estacional. Optimizamos directo a first purchase en cuentas similares del sector, alcanzando 637 compras confirmadas al dia. Este volumen se logra mediante optimizacion de eventos y fraud filtering riguroso para asegurar la calidad de cada transaccion. Podria funcionar integrar sus creativos de video actuales en inventarios de YouTube para diversificar el trafico. ¿Le interesaria platicar sobre estas proyecciones de volumen?"
+  },
+  {
+    "id": "pt-Brazil",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 3,
+    "usd": 0.034203250000000004,
+    "researchUsd": 0,
+    "ms": 10682,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Olá Rafael,\n\nNotei que a LojaViva abriu três novas posições de crescimento e UA este mês para aproveitar o pico de demanda sazonal no mercado brasileiro. Com a intensificação da concorrência e o aumento do CAC no Meta, escalar o volume de vendas mantendo a rentabilidade se tornou o ponto central para grandes marketplaces como o Magazine Luiza. Operações similares têm alcançado 674 compras confirmadas por dia através da otimização direta para o evento de conversão final e filtragem rigorosa de tráfego. Seria interessante avaliar se esse modelo de escala baseado em CPS faz sentido para o seu planejamento atual?"
+  },
+  {
+    "id": "fr-France",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 5,
+    "usd": 0.0369636,
+    "researchUsd": 0,
+    "ms": 21692,
+    "flags": [],
+    "message": "Bonjour Camille, l'ouverture de trois postes en acquisition ce mois-ci montre la forte dynamique de ModeRapide malgré la hausse des coûts marketing en France. Dans ce contexte de pic saisonnier, la diversification des sources devient cruciale face à des acteurs comme Vinted ou La Redoute. Des comptes e-commerce similaires atteignent actuellement 711 achats confirmés par jour grâce à une optimisation directe sur l'événement de premier achat. Ce volume de conversions repose sur un filtrage de la fraude rigoureux pour stabiliser votre CPA. Seriez-vous disponible pour échanger sur vos objectifs de croissance ce trimestre ?"
+  },
+  {
+    "id": "de-Germany",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 3,
+    "usd": 0.08606939999999999,
+    "researchUsd": 0,
+    "ms": 43486,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Hallo Katrin,\n\nKaufFlink hat diesen Monat drei Stellen im Bereich Growth und UA ausgeschrieben, was auf eine Expansion im deutschen Markt hindeutet. Die steigenden Akquisitionskosten in Deutschland erschweren derzeit vielen Marktplätzen die effiziente Neukundengewinnung während saisonaler Nachfragespitzen. Kampagnen auf Basis von CPS erreichen bei vergleichbaren E-Commerce-Accounts aktuell 748 bestätigte Käufe pro Tag. Durch die Optimierung direkt auf den Event confirmed purchase und ein integriertes Fraud-Screening sichern wir die Qualität der Transaktionen ab. Wir unterstützen Marken wie Otto und Zalando dabei, ihre Performance-Ziele durch gezielte Steuerung auf reale Abverkäufe zu erreichen. Ein Fokus auf YouTube-Placements ermöglicht hierbei zusätzliche Reichweite abseits der gesättigten Kanäle. Wäre ein kurzer Austausch zu diesen Benchmarks für Sie nächste Woche denkbar?"
+  },
+  {
+    "id": "it-Italy",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.0824799,
+    "researchUsd": 0,
+    "ms": 35298,
+    "flags": [],
+    "message": "Salve Marco, l'apertura di tre nuove posizioni UA questo mese indica chiaramente la fase di crescita di MercatoVia. Con l'intensificarsi della concorrenza nel settore e-commerce in Italia, supportiamo realtà come Subito ed ePrice ottimizzando le campagne direttamente sul primo acquisto. Grazie a filtri anti-frode dedicati, generiamo mediamente 785 acquisti confermati al giorno per account affini. Potrebbe essere utile valutare questo modello a CPA in vista del picco stagionale?"
+  },
+  {
+    "id": "nl-Netherlands",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.0711164,
+    "researchUsd": 0,
+    "ms": 41555,
+    "flags": [],
+    "message": "Hallo Sanne,\n\nKoopSnel heeft deze maand drie growth en UA vacatures geopend tijdens de huidige seizoensgebonden piek in de markt. Nu de concurrentie bij Bol.com en Marktplaats toeneemt, stijgen waarschijnlijk ook de CPA-kosten voor jullie e-commerce kanalen. Voor vergelijkbare spelers worden momenteel 822 confirmed purchases per dag gerealiseerd via gerichte CPA-optimalisatie. Deze volumes komen voort uit sturing op transactieniveau in combinatie met strikte fraudefiltering. Zou het interessant zijn om te bespreken hoe deze schaal ook voor KoopSnel haalbaar is?"
+  },
+  {
+    "id": "pl-Poland",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.03850575,
+    "researchUsd": 0,
+    "ms": 21238,
+    "flags": [],
+    "message": "Dzień dobry, Kasia,\n\nOtwarcie trzech nowych ról w obszarze growth i UA w tym miesiącu to wyraźny sygnał dynamicznego rozwoju SzybkiRynek w Polsce. Przy obecnej intensyfikacji rynku e-commerce i rosnących kosztach pozyskania klienta na platformach Meta, utrzymanie niskiego CAC staje się kluczowym wyzwaniem. Podobne platformy marketplace osiągają u nas poziom 859 potwierdzonych zakupów dziennie dzięki optymalizacji opartej bezpośrednio na pierwszej transakcji. Stosujemy przy tym rygorystyczny screening pod kątem fraudu, co pozwala na bezpieczne skalowanie wolumenu obok działań w Allegro czy Empiku. Czy byłaby Pani otwarta na krótką rozmowę o przeniesieniu części budżetów wideo na kanały generujące bezpośrednią sprzedaż?"
+  },
+  {
+    "id": "ru-Kazakhstan",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.040768000000000006,
+    "researchUsd": 0,
+    "ms": 19536,
+    "flags": [],
+    "message": "Здравствуйте, Айгерим.\n\nЗаметил, что StepMarket открыл три UA-роли в этом месяце на фоне сезонного роста спроса в Казахстане.\n\nВ условиях усиления конкуренции с Kaspi.kz и Wildberries масштабирование видеокреативов в YouTube может стать дополнительным рычагом для контроля стоимости привлечения. Похожие e-commerce проекты в регионе получают 896 подтвержденных покупок в день через CPS-оптимизацию и антифрод-скрининг.\n\nБыло бы вам интересно обсудить, как дополнить текущие охваты в Meta и YouTube новым объемом подтвержденных покупок?"
+  },
+  {
+    "id": "uk-Ukraine",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 3,
+    "usd": 0.0990016,
+    "researchUsd": 0,
+    "ms": 41250,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Вітаю, Оксано, відкриття трьох вакансій у напрямках growth та UA цього місяця свідчить про серйозні плани ShvydkoShop щодо розширення. На фоні зростання вартості залучення в Україні важливо диверсифікувати канали за межами стандартних мереж. Ми реалізуємо оптимізацію на рівні першої покупки, що забезпечує 933 підтверджених замовлень на добу для таких маркетплейсів, як Rozetka та Prom.ua. Використання інтегрованого фрод-скринінгу дозволяє масштабувати обсяги за моделлю CPA без втрати якості трафіку. Це допомагає стабільно нарощувати кількість транзакцій навіть за умов високої конкуренції. Чи було б вам цікаво обговорити ці показники?"
+  },
+  {
+    "id": "he-Israel",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 3,
+    "usd": 0.0633211,
+    "researchUsd": 0,
+    "ms": 27845,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "שלום נועה,\n\nפתיחת שלושה תפקידי growth ו-UA חדשים החודש בקניון אונליין מעידה על תנופת הצמיחה שלכם בשוק הישראלי.\n\nקניון אונליין מתמודד עם עלויות רכישה עולות בשוק המקומי ולכן הגיוון בערוצי המדיה הופך לקריטי.\n\nחשבונות דומים מגיעים ל-970 רכישות מאושרות ביום דרך אופטימיזציה ישירה לאירוע ה-CPA של רכישה מאושרת.\n\nאנחנו מבצעים סינון פרה-ביד של טראפיק חשוד כדי להבטיח איכות המרה גבוהה מול פלטפורמות כמו KSP או Wolt Market.\n\nהאם תרצי לבדוק אם מודל מבוסס CPS יכול להתאים לתוכניות הצמיחה העונתיות שלכם?"
+  },
+  {
+    "id": "ar-UnitedArabEmirates",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 3,
+    "usd": 0.0796248,
+    "researchUsd": 0,
+    "ms": 47671,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "السلام عليكم خالد،\n\nتوسعات فريق النمو الأخيرة في سوق الخليج تشير إلى انطلاقة قوية لتعزيز الحضور الرقمي في السوق الإماراتي.\n\nتزايد تكاليف الاستحواذ في القنوات التقليدية يجعل من الوصول إلى عمليات الشراء المؤكدة تحدياً يتطلب حلولاً دقيقة.\n\nتصل الحسابات المماثلة في التجارة الإلكترونية حالياً إلى أكثر من 1007 عملية شراء مؤكدة يومياً من خلال استهداف الجمهور بناءً على سلوك الشراء الفعلي مع فحص جودة حركة المرور لضمان استبعاد الاحتيال.\n\nهل لديكم اهتمام باستكشاف تنويع قنوات الوصول إلى العملاء بعيداً عن المنصات الاجتماعية التقليدية؟"
+  },
+  {
+    "id": "fa-Tajikistan",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.06445279999999999,
+    "researchUsd": 0,
+    "ms": 36221,
+    "flags": [],
+    "message": "سلام Roya,\n\nانتشار سه آگهی استخدام جدید برای بخش رشد و جذب کاربر در BazarTez طی ماه جاری، نشان دهنده برنامه ریزی شما برای مدیریت تقاضای فصلی در بازار رو به رشد تاجیکستان است. تشدید رقابت در پلتفرم هایی مانند Somon.tj و Alif Shop، اهمیت دسترسی به ترافیک با کیفیت را دوچندان می کند. بهینه سازی روی رویداد خرید تایید شده همراه با غربالگری هوشمند ترافیک، در حساب های مشابه به ۱۰۴۴ خرید تایید شده روزانه رسیده است. این رویکرد متمرکز بر CPA به افزایش حجم تراکنش های نهایی و کنترل دقیق هزینه های جذب کاربر کمک می کند. آیا مایل هستید ظرفیت های موجود برای همکاری در این حوزه را بررسی کنیم؟"
+  },
+  {
+    "id": "tr-Turkey",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 3,
+    "usd": 0.033791800000000004,
+    "researchUsd": 0,
+    "ms": 14286,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Merhaba Emre Bey,\nHızlıPazar bünyesinde son üç haftada açılan yeni büyüme ve kullanıcı kazanımı pozisyonları pazardaki hedeflerinizi oldukça net gösteriyor. Türkiye e-ticaret pazarında artan rekabet ve sosyal medya maliyetleri göz önüne alındığında, doğrudan satış odaklı ilerlemek kritik hale geldi. Benzer ölçekteki pazaryeri hesaplarında, ilk alışveriş etkinliğine yönelik optimizasyonla günlük 1081 onaylanmış sipariş hacmine ulaşıyoruz. Bu süreçte video kreatiflerin YouTube ve farklı kanallarda ölçeklendirilmesiyle sahte trafikten arındırılmış kaliteli bir akış sağlıyoruz. Trendyol ve Hepsiburada gibi oyuncuların aktif olduğu bu dönemde, sizin onaylanmış sipariş başı maliyet hedeflerinizi destekleyebilir miyiz?"
+  },
+  {
+    "id": "hi-India",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 3,
+    "usd": 0.08270369999999999,
+    "researchUsd": 0,
+    "ms": 40474,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "नमस्ते Priya,\n\nBazaarPlus में हाल ही में शुरू हुई तीन Growth और UA भूमिकाओं को देखकर आपकी टीम की विस्तार योजना काफी प्रभावशाली लग रही है।\n\nभारत के ई-कॉमर्स बाजार में बढ़ते CAC के बीच, Flipkart और Meesho जैसे प्रतिस्पर्धियों के साथ कदम मिलाना अब और भी चुनौतीपूर्ण हो गया है।\n\nसमान ई-कॉमर्स खातों के लिए प्रतिदिन 1118 confirmed purchases का लक्ष्य हासिल हो रहा है, जिसमें fraud filtering के जरिए हाई-क्वालिटी ट्रैफिक सुनिश्चित किया जाता है।\n\nक्या आप अपनी मौजूदा वीडियो इन्वेंट्री को YouTube और CTV जैसे माध्यमों पर स्केल करने के बारे में चर्चा करने के लिए उपलब्ध हैं?\n\nधन्यवाद"
+  },
+  {
+    "id": "bn-Bangladesh",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 0,
+    "usd": 0.0032164999999999997,
+    "researchUsd": 0,
+    "ms": 22189,
+    "flags": [
+      "LOW SCORE 0"
+    ],
+    "message": "নমস্কার Anika,\n\nDhakaBazar এ এই মাসে তিনটি নতুন Growth এবং UA রোলের জন্য নিয়োগ শুরু হওয়াতে আপনাদের বর্তমান সম্প্রসারণের পরিকল্পনা বেশ স্পষ্ট বোঝা যাচ্ছে। বাংলাদেশে ই-কমার্স সেক্টরে প্রতিযোগিতা এবং সোশ্যাল মিডিয়ায় বিজ্ঞাপনের খরচ বেড়ে যাওয়ার এই সময়ে সিজনাল ডিমান্ড সামলানো বেশ চ্যালেঞ্জিং হতে পারে। একই ধরনের অ্যাকাউন্টে আমরা প্রতিদিন ১১৫৫ এর বেশি confirmed purchase নিশ্চিত করছি যা সরাসরি আপনাদের রেভিনিউ লক্ষ্যমাত্রার সাথে সামঞ্জস্যপূর্ণ। এখানে fraud screening এর মাধ্যমে প্রতিটি ট্রাফিক যাচাই করা হয় যাতে Daraz এর মতো বড় প্ল্যাটফর্মের এই বাজারে আপনাদের ROI বজায় থাকে। আপনাদের বর্তমান CPA মডেলের সাথে আমাদের এই প্রসেসটি কীভাবে কাজ করতে পারে তা নিয়ে কি আমরা সংক্ষেপে আলাপ করতে পারি?"
+  },
+  {
+    "id": "ur-Pakistan",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.07609774999999999,
+    "researchUsd": 0,
+    "ms": 41736,
+    "flags": [],
+    "message": "السلام علیکم Ayesha,\n\nTezBazaar میں اس ماہ تین نئی UA اور گروتھ پوزیشنز کا کھلنا اسکیلنگ کی جانب ایک بڑا قدم ہے۔ پاکستان کی ای کامرس مارکیٹ میں بڑھتے ہوئے مقابلے اور سیزنل ڈیمانڈ کے دوران یہ بہترین وقت ہے۔ اسی طرح کے بڑے اکاؤنٹس پر روزانہ 1192 تصدیق شدہ خریداریاں حاصل کی جا رہی ہیں۔ فراڈ اسکریننگ اور خالص پرفارمنس کی بنیاد پر Daraz.pk اور PriceOye جیسے پلیٹ فارمز کے درمیان اپنی موجودگی بڑھانا ممکن ہے۔ ہر آرڈر کی لاگت کو مستحکم رکھتے ہوئے CPS ماڈل کے ذریعے والیم میں اضافہ کیا جا سکتا ہے۔ کیا آپ اس نئی ٹریفک انونٹری کو ٹیسٹ کرنے پر بات کرنا چاہیں گی؟"
+  },
+  {
+    "id": "th-Thailand",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 3,
+    "usd": 0.0388639,
+    "researchUsd": 0,
+    "ms": 14574,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "เรียน คุณ Nan,\n\nยินดีด้วยที่ TaladFast กำลังขยายทีมงานและเปิดรับตำแหน่งด้าน growth และ UA ถึงสามตำแหน่งในช่วงเดือนนี้ครับ ท่ามกลางการแข่งขันที่สูงขึ้นในตลาดอีคอมเมิร์ซของไทย การบริหารจัดการต้นทุนการเข้าถึงลูกค้าหรือ CAC ให้มีประสิทธิภาพถือเป็นกุญแจสำคัญในการเติบโต\n\nปัจจุบันเราช่วยผลักดันยอดขายให้กับแพลตฟอร์มในกลุ่มเดียวกับ Shopee และ Lazada โดยทำยอด confirmed purchase ได้มากกว่า 1229 รายการต่อวัน ผ่านการใช้กลยุทธ์เจาะจงกลุ่มเป้าหมายที่มีแนวโน้มการซื้อครั้งแรกสูงพร้อมระบบคัดกรอง traffic คุณภาพ\n\nหากคุณ Nan สนใจแลกเปลี่ยนมุมมองเกี่ยวกับการเพิ่มยอดขายในช่วง peak season นี้ ผมขออนุญาตส่งข้อมูลเพิ่มเติมให้พิจารณาดีไหมครับ"
   },
   {
     "id": "vi-Vietnam",
     "ok": false,
     "draftModel": "claude-sonnet-4-6",
-    "iterations": 1,
+    "iterations": 2,
     "score": 4,
-    "usd": 0.065763,
+    "usd": 0.11684135,
     "researchUsd": 0,
-    "ms": 46843,
+    "ms": 36301,
     "flags": [
       "writer fell back to claude-sonnet-4-6"
     ],
-    "message": "Chào chị Linh,\n\nThị trường thương mại điện tử Việt Nam đang cạnh tranh ngày càng khốc liệt, và chi phí mua khách hàng qua paid social đang tăng đáng kể, đặc biệt trong các giai đoạn cao điểm theo mùa. Các tài khoản marketplace tương tự ChoNhanh đang ghi nhận hơn 1.266 đơn hàng xác nhận mỗi ngày thông qua mô hình CPS, tối ưu trực tiếp trên sự kiện đơn hàng thực sự được xác nhận, không phải chỉ click hay add to cart. Traffic được lọc fraud trước khi phân phối, nên ngân sách chỉ chạy trên những chuyển đổi có giá trị thực, trong bối cảnh Shopee và Tiki đều đang đầu tư mạnh vào kênh tương tự. Chị có muốn em chia sẻ thêm về cách mô hình này phù hợp với ChoNhanh không?"
+    "message": "Chào chị Linh, em thấy ChoNhanh vừa mở 3 vị trí growth và UA mới trong tháng này. Có vẻ chị đang chuẩn bị rất kỹ cho đợt cao điểm mua sắm sắp tới tại Việt Nam. Hiện tại chi phí acquisition trên thị trường đang tăng khá cao. Bên em đang hỗ trợ các sàn TMĐT tối ưu trực tiếp theo confirmed purchase với khối lượng 1.266 đơn hàng xác nhận mỗi ngày. Hệ thống của em tập trung tối ưu vào chất lượng đơn thật và có sẵn bộ lọc fraud cho traffic. Những đối thủ như Shopee hay Tiki cũng đang dùng cách này để kiểm soát chi phí CPS hiệu quả hơn. Chị có muốn em gửi thêm số liệu cụ thể để chị tham khảo không?"
   },
   {
     "id": "id-Indonesia",
-    "ok": false,
-    "draftModel": "claude-sonnet-4-6",
-    "iterations": 2,
-    "score": 5,
-    "usd": 0.1006878,
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0341353,
     "researchUsd": 0,
-    "ms": 24703,
-    "flags": [
-      "writer fell back to claude-sonnet-4-6"
-    ],
-    "message": "Selamat pagi, Ibu Putri,\n\nPersaingan di e-commerce Indonesia makin ketat tahun ini, terutama saat lonjakan permintaan musiman, dan biaya akuisisi di paid social sering kali ikut melonjak lebih dulu dari konversinya. Akun e-commerce dengan skala serupa TokoCepat saat ini mencatatkan 1.303 pembelian pertama terverifikasi per hari melalui model optimasi yang hanya menghitung transaksi nyata, bukan sekadar klik atau install. Semua traffic sudah melalui fraud screening berlapis, sehingga anggaran tidak terbuang ke sumber yang tidak menghasilkan pembeli sesungguhnya. Pendekatan ini membantu pemain e-commerce menjaga CAC tetap stabil di tengah persaingan ketat dengan pemain besar seperti Shopee dan Tokopedia. Boleh saya ceritakan lebih lanjut bagaimana model ini bisa diterapkan untuk TokoCepat?"
+    "ms": 11519,
+    "flags": [],
+    "message": "Selamat pagi, Ibu Putri,\n\nLangkah TokoCepat membuka tiga posisi baru untuk tim growth dan UA bulan ini menunjukkan momentum ekspansi yang sangat menarik di pasar Indonesia. Persaingan marketplace yang semakin ketat saat ini memang menuntut efisiensi biaya akuisisi yang lebih tajam dibandingkan saluran paid social standar. Kami melihat akun e-commerce serupa mampu mencapai skala 1.303 confirmed purchases per hari dengan optimasi langsung pada level first purchase. Kualitas trafik terjaga melalui screening fraud yang ketat untuk memastikan setiap transaksi valid dan memberikan ROAS maksimal. Mengingat adanya lonjakan permintaan musiman saat ini, apakah Ibu tertarik untuk mendiskusikan potensi volume tambahan untuk TokoCepat?"
+  },
+  {
+    "id": "ms-Malaysia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0190984,
+    "researchUsd": 0,
+    "ms": 9925,
+    "flags": [],
+    "message": "Salam Aisyah,\n\nPasarLaju nampaknya sedang berkembang pesat dengan pembukaan tiga jawatan baharu dalam pasukan growth dan UA pada bulan ini. Memandangkan persaingan e-commerce di Malaysia semakin sengit dan kos pemerolehan di platform sosial kian meningkat, mengekalkan momentum jualan adalah satu keutamaan yang mencabar. Akaun e-commerce dalam kategori yang sama kini mencapai lebih 1340 confirmed purchase sehari melalui optimasi prestasi yang disaring daripada fraud. Strategi ini membantu meningkatkan volum pesanan yang berkualiti tanpa bergantung sepenuhnya kepada saluran pengiklanan tradisional. Adakah anda terbuka untuk melihat data ringkas tentang bagaimana jumlah transaksi ini dijana?"
+  },
+  {
+    "id": "tl-Philippines",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.045296050000000004,
+    "researchUsd": 0,
+    "ms": 27108,
+    "flags": [],
+    "message": "Hi Maria,\n\nNapansin kong nagbukas ang TindahanGo ng tatlong growth at UA roles ngayong buwan kasabay ng seasonal demand spike sa Pilipinas. Dahil tumataas ang acquisition costs sa market, baka makatulong ang pag-scale ng inyong first purchase acquisition sa iba pang performance channels. Ang mga katulad na e-commerce accounts ay nakakakuha ng 1377 confirmed purchases kada araw sa pamamagitan ng first purchase optimization na may fraud screening. Nakakatulong ito para mapanatiling mataas ang kalidad ng bawat transaksyon habang lumalaki ang inyong volume. Open ka bang pag-usapan kung paano namin ito ginagawa para sa iba pang marketplace?"
   },
   {
     "id": "ja-Japan",
@@ -81,107 +315,346 @@
     "draftModel": "gemini-3-flash-preview",
     "iterations": 2,
     "score": 4,
-    "usd": 0.06685379999999999,
+    "usd": 0.045563099999999995,
     "researchUsd": 0,
-    "ms": 78389,
+    "ms": 19345,
     "flags": [],
-    "message": "Yuki様、初めてご連絡いたします。\n日本国内のEC市場において獲得コストの高騰が続く中、楽天やメルカリなどが存在する競争環境でのパフォーマンス改善は御社にとっても重要な課題かと存じます。\n弊社は同様のECマーケットプレイス案件において、フラウド排除を徹底したトラフィックから日次1,414件の注文完了を安定してご提供させていただいております。\n注文完了イベントに直接最適化をかける構造のため、広告投資対効果を確実に改善できます。\n季節需要の急増が見込まれるこの時期に、注文完了ベースの獲得ボリュームを積み上げることにご関心はございますか。"
+    "message": "Yuki様、\nKaimonoGoにて今月3件のグロース・UA職種の採用を開始されたのを拝見し、拡大への勢いを感じております。\n日本市場でのEC競争が激化する中、季節的な需要拡大に向けて効率的な獲得が重要かと存じます。\n弊社では類似のマーケットプレイス案件において、不正フラウド検知を徹底しながら、1日あたり1,414件の購入完了をCPSモデルで実現した実績がございます。\nRakutenやMercariのような大規模な競合環境でも、購入完了データに基づいた最適化により成果の拡大に貢献可能です。\n一度、KaimonoGoの獲得効率向上について情報交換をさせていただけますでしょうか？"
+  },
+  {
+    "id": "ko-SouthKorea",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.030837399999999997,
+    "researchUsd": 0,
+    "ms": 13318,
+    "flags": [],
+    "message": "Minjun 님,\n\n최근 MarketOn에서 세 건의 그로스 및 UA 담당자 채용을 시작하신 것을 보고 국내 이커머스 시장에서의 확고한 성장 의지를 느꼈습니다. 현재 한국 시장의 광고비 대비 수익률(ROAS) 확보가 점차 까다로워지는 상황에서, 영상 소재를 활용한 효율적인 구매 전환이 더욱 중요해지고 있습니다. 유사한 규모의 이커머스 계정들을 대상으로 부정 트래픽을 차단하며 일일 1,451건 이상의 확정 구매를 안정적으로 확보하고 있습니다. 특히 단순 유입이 아닌 첫 구매 발생 단계를 직접 최적화하여 신규 고객 획득 비용을 효율적으로 관리하고 있는데, 혹시 관련하여 가볍게 의견을 나누어 보실 수 있을까요?"
+  },
+  {
+    "id": "zh-Taiwan",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 3,
+    "usd": 0.0465505,
+    "researchUsd": 0,
+    "ms": 21578,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "您好，Wei：\n\n看到 GoBuy 本月啟動了三個增長與獲客職位的招募，顯見貴司正在台灣市場加大發展力道。面對 momo 或蝦皮等同業競爭及獲客成本攀升，維持穩定的訂單轉換成本至關重要。我們針對同類電商帳號，透過防詐騙流量篩選，每日能穩定帶入 1488 筆確認購買訂單。這類以 CPA 計費的模式能將影片素材投放至 YouTube 或 Meta 的優質版位，並直接對準確認購買事件進行最佳化。這週五您方便撥冗簡單交流幾分鐘嗎？"
+  },
+  {
+    "id": "sv-Sweden",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0200343,
+    "researchUsd": 0,
+    "ms": 9664,
+    "flags": [],
+    "message": "Hej Elsa,\n\nSnabbKöp verkar skala upp ordentligt nu med tre nya rekryteringar inom growth och UA bara den senaste månaden. Den ökade konkurrensen på den svenska marknaden gör att många e-handlare ser stigande CAC på sociala medier just nu. För liknande konton ligger volymerna ofta kring 625 bekräftade köp per dag genom optimering direkt mot sluthändelsen. Genom att kombinera video-creatives med strikt bedrägerifiltrering går det att bibehålla kvaliteten även vid högre tryck. Skulle det vara intressant att se hur de volymerna ser ut i jämförelse med era nuvarande kampanjer?"
   },
   {
     "id": "no-Norway",
-    "ok": false,
-    "draftModel": "claude-sonnet-4-6",
-    "iterations": 1,
-    "score": 3,
-    "usd": 0.0491355,
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.049444300000000004,
     "researchUsd": 0,
-    "ms": 20632,
-    "flags": [
-      "writer fell back to claude-sonnet-4-6",
-      "LOW SCORE 3"
-    ],
-    "message": "Hei Ingrid,\n\nStigende anskaffelseskostnader på betalt sosiale medier er noe mange norske netthandelsaktører kjenner på nå, og med sesongtopper rett rundt hjørnet blir den utfordringen ofte enda tydeligere for aktører på RaskHandels nivå. Tilsvarende kontoer i det norske markedet genererer i dag over 662 bekreftede kjøp per dag gjennom et opplegg som optimerer direkte mot bekreftede kjøp - ikke klikk eller visninger - kombinert med svindelfiltrering som sikrer at trafikken faktisk konverterer. Det betyr at budsjetter brukes der det faktisk skjer et salg, noe som presser CAC ned uten at man ofrer volum i en periode der konkurransen fra aktører som Komplett tilspisser seg. Hadde det passet med en kort samtale for å se om dette er relevant for RaskHandel inn mot høysesongen?"
+    "ms": 30022,
+    "flags": [],
+    "message": "Hei Ingrid, RaskHandel har åpnet tre nye growth og UA roller denne måneden, noe som sammenfaller med en sesongmessig økning i etterspørselen. I det norske markedet møter aktører som Finn.no og Komplett nå økende kundeanskaffelseskostnader som følge av tøffere konkurranse. Lignende kontoer oppnår 662 bekreftede kjøp daglig gjennom optimalisering på transaksjonsnivå kombinert med svindelfiltrering. Denne modellen sikrer volum basert på faktiske salg i et krevende marked. Er du åpen for en kort utveksling av erfaringer rundt optimalisering mot bekreftet kjøp i løpet av neste uke?"
   },
   {
     "id": "da-Denmark",
     "ok": true,
     "draftModel": "gemini-3-flash-preview",
     "iterations": 2,
-    "score": 5,
-    "usd": 0.046713250000000005,
+    "score": 4,
+    "usd": 0.043010599999999996,
     "researchUsd": 0,
-    "ms": 38832,
+    "ms": 23822,
     "flags": [],
-    "message": "Hej Freja,\n\nHurtigKøb mærker sikkert det stigende pres på det danske marked, hvor konkurrenter som DBA og Proshop kæmper hårdt om de samme mobile brugere og presser CAC opad. Lignende e-commerce konti ser i øjeblikket 699 bekræftede køb om dagen gennem en optimeringsmodel, der er bygget direkte op om første køb. Den volumen holdes ren via svindelfiltrering, så budgettet går til reelle transaktioner. Med en sæsonpeak på vej kan det give god mening at teste en ekstra kanal op mod jeres nuværende setup. Vil det give mening at tage en hurtig snak om det?"
+    "message": "Hej Freja, HurtigKøb har virkelig fart på med tre nye stillinger inden for vækst og UA alene i denne måned. Det øgede fokus på det danske e-handelsmarked giver god mening nu hvor de sæsonbestemte køb topper. Lignende e-handelskonti opnår i øjeblikket 699 bekræftede køb dagligt gennem optimering direkte mod den første transaktion. Denne volumen leveres med fuld svindelfiltrering og kan skaleres ved at føre video-annoncemateriale over på YouTube og Meta. Vil det give mening at høre mere om hvordan det fungerer for konti som DBA eller Proshop?"
   },
   {
     "id": "fi-Finland",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.0548251,
+    "researchUsd": 0,
+    "ms": 28882,
+    "flags": [],
+    "message": "Hei Aino, NopeaKauppa on avannut peräti kolme uutta kasvun ja käyttäjähankinnan roolia tässä kuussa. Suomen verkkokauppamarkkinan kiristyvä kilpailu ja sesonkihuiput lisäävät painetta hankintakustannuksiin. Samankaltaiset toimijat kuten Tori.fi ja Verkkokauppa skaalaavat tuloksia CPS-mallilla, joka pohjautuu suoraan vahvistettuihin ostoihin. Toimitamme 736 vahvistettua ostoa päivässä vastaaville e-commerce tileille. Volyymi varmistetaan optimoimalla suoraan toteutuneisiin ostoihin ja hyödyntämällä automaattista fraud-suodatusta liikenteen laadun takaamiseksi. Voisiko vastaava CPA-pohjainen malli tukea kasvutavoitteitanne?"
+  },
+  {
+    "id": "cs-CzechRepublic",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0276531,
+    "researchUsd": 0,
+    "ms": 10547,
+    "flags": [],
+    "message": "Dobrý den, Petro,\n\nVšiml jsem si, že RychlyTrh v posledních třech týdnech výrazně rozšiřuje svůj tým o tři nové pozice v oblasti růstu a akvizice uživatelů. Vzhledem k aktuální sezónní špičce v českém e-commerce a rostoucím nákladům na placených sociálních sítích je toto posílení skvělým krokem. Podobné projekty v tomto segmentu dosahují stability kolem 773 potvrzených nákupů denně díky optimalizaci přímo na první nákup v kombinaci s automatickým screeningem kvality provozu. Zvažujete v rámci aktuálního náboru i rozšíření kanálů pro škálování video kreativ mimo platformy Meta a YouTube?"
+  },
+  {
+    "id": "ro-Romania",
     "ok": false,
-    "draftModel": "claude-sonnet-4-6",
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 3,
+    "usd": 0.09901145000000001,
+    "researchUsd": 0,
+    "ms": 50034,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Bună ziua, Ana, deschiderea celor trei roluri noi de growth la PiataRapida arată un impuls excelent pentru cota de piață locală. Într-un context de intensificare a competiției în e-commerce-ul din România, scalarea volumului de tranzacții devine esențială pentru marketplace-uri. Gestionăm campanii similare care ating 810 comenzi confirmate zilnic prin optimizarea directă pe acest eveniment post-instalare. Utilizăm filtrarea fraudelor pentru a asigura calitatea traficului în platforme precum eMAG sau OLX Romania. Acest model de achiziție livrează performanță la nivel de tranzacție confirmată. Credeți că ar merita să analizăm dacă acest volum suplimentar se aliniază cu obiectivele dumneavoastră actuale?"
+  },
+  {
+    "id": "hu-Hungary",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0325498,
+    "researchUsd": 0,
+    "ms": 10117,
+    "flags": [],
+    "message": "Üdvözlöm, Eszter,\n\nA GyorsPiac az elmúlt három hétben három új growth és UA pozíciót is megnyitott, ami komoly bővülési szándékot jelez. A magyar e-kereskedelmi piacon tapasztalható élesedő verseny és a közösségi média növekvő akvizíciós költségei mellett a hatékony skálázás most kiemelt prioritás lehet. Hasonló profilú fiókoknál naponta 847 megerősített vásárlást realizálunk, közvetlenül az első tranzakcióra optimalizálva a kampányokat. Ez a megközelítés a videós kreatívok és a YouTube készletek használatával hatékonyan egészítheti ki a Jófogás vagy az eMAG Hungary mellett futó aktivitásokat, miközben minden forgalom többszintű csalásszűrésen megy keresztül. Érdemes lenne áttekinteniük, hogyan illeszthető ez a volumen az aktuális növekedési terveikbe?"
+  },
+  {
+    "id": "el-Greece",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.10939199999999999,
+    "researchUsd": 0,
+    "ms": 50468,
+    "flags": [],
+    "message": "Γεια σας, Eleni,\n\nΗ πρόσφατη ανακοίνωση για τρεις νέες θέσεις UA και ανάπτυξης στην AgoraFast δείχνει μια έντονη δυναμική ενόψει της εποχιακής αύξησης της ζήτησης. Καθώς ο ανταγωνισμός στο ελληνικό ηλεκτρονικό εμπόριο εντείνεται, η διαχείριση του αυξανόμενου κόστους απόκτησης αποτελεί προτεραιότητα για πλατφόρμες όπως η δική σας. Σε παρόμοιους λογαριασμούς ηλεκτρονικού εμπορίου στην Ελλάδα, όπως στον χώρο όπου δραστηριοποιούνται η Skroutz και το Public.gr, επιτυγχάνουμε 884 επιβεβαιωμένες αγορές την ημέρα μέσω βελτιστοποίησης που στοχεύει σε αυτό το γεγονός μετατροπής με παράλληλο έλεγχο για την αποτροπή απάτης. Θα σας ενδιέφερε να ανταλλάξουμε ορισμένες σύντομες ιδέες σχετικά με τη βελτιστοποίηση σε επίπεδο επιβεβαιωμένης αγοράς για την AgoraFast;\n\nΜε εκτίμηση,"
+  },
+  {
+    "id": "bg-Bulgaria",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
     "iterations": 2,
     "score": 5,
-    "usd": 0.049075999999999995,
+    "usd": 0.0553816,
     "researchUsd": 0,
-    "ms": 36557,
-    "flags": [
-      "writer fell back to claude-sonnet-4-6"
-    ],
-    "message": "Hei Aino, NopeaKauppa operoi markkinassa, jossa asiakashankinnan kustannukset nousevat ja kilpailu kiristyy Suomen verkkokauppasektorilla. Vastaavilla markkinapaikoilla saavutamme tällä hetkellä 736 vahvistettua ostoa päivässä optimoimalla suoraan konversioita vastaan. Hyödynnämme vahvistettuun ostoon perustuvaa optimointia ja automaattista petosseulontaa varmistaaksemme liikenteen laadun. Tori.fi ja Verkkokauppa toimivat samassa kilpailutilanteessa, jossa laadukas CPS-malli auttaa hallitsemaan hankintakustannuksia. Tämä malli voisi tukea tehokkaasti NopeaKaupan tulevaa sesonkikysyntää. Sopisiko teille lyhyt keskustelu aiheesta?"
+    "ms": 20060,
+    "flags": [],
+    "message": "Здравейте, Елена,\n\nТрите нови позиции за растеж и UA в BurzPazar през този месец показват сериозни планове за пазарния Ви дял в България. При засилената конкуренция от страна на eMAG и OLX, сезонният пик в търсенето изисква по-прецизна оптимизация на разходите. Постигаме по 921 потвърдени покупки на ден за сходни акаунти чрез таргетиране директно на ниво първа поръчка. Използваме специализиран фрод контрол, за да гарантираме качеството на всяка реализирана конверсия. Обмисляте ли добавяне на нови канали за придобиване на клиенти през това тримесечие?"
+  },
+  {
+    "id": "sw-Kenya",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.0478236,
+    "researchUsd": 0,
+    "ms": 25415,
+    "flags": [],
+    "message": "Habari Amani,\n\nSokoHaraka imefungua nafasi tatu mpya za growth na UA mwezi huu wakati ushindani wa e-commerce ukizidi kupamba moto Kenya. Ongezeko hili la mahitaji ya msimu linafanya gharama za acquisition kuwa changamoto kubwa. Akaunti za aina hii zinafikia manunuzi 958 yaliyothibitishwa kila siku kupitia optimization ya CPA. Mfumo huu unahakikisha ubora kwa kufanya fraud screening ya kina ili kulinda bajeti yenu. Hii ni njia thabiti ya kupanua soko lenu sambamba na washindani kama Kilimall na Jumia. Je, ungependa kuona jinsi tunavyoweza kusaidia kufikia malengo yenu ya mauzo?"
   },
   {
     "id": "am-Ethiopia",
     "ok": false,
     "draftModel": "gemini-3-flash-preview",
-    "iterations": 3,
-    "score": 3,
-    "usd": 0.09067779999999999,
+    "iterations": 1,
+    "score": 0,
+    "usd": 0.002685,
     "researchUsd": 0,
-    "ms": 80568,
+    "ms": 25213,
     "flags": [
-      "LOW SCORE 3"
+      "LOW SCORE 0"
     ],
-    "message": "ሰላም Selam,\n\nበኢትዮጵያ የኢኮሜርስ ገበያ ውስጥ የደንበኞች ግዢ ፍላጎት በከፍተኛ ሁኔታ እየጨመረ ባለበት በዚህ ወቅት የክፍያ ማስታወቂያዎች የደንበኛ ማግኛ ወጪን (CAC) እየሰቀሉት ይገኛሉ። ለተመሳሳይ የገበያ ተወዳዳሪዎች በቀን ከ995 በላይ የተረጋገጡ ትዕዛዞችን በማድረስ የመጀመሪያ ግዢ ላይ ያተኮረ ውጤት እያስመዘገብን ነው። የጥራት ማጣሪያ ስርዓታችን ትክክለኛ ደንበኞች ብቻ ግዢ እንዲፈጽሙ በማድረግ ትርፋማነትን ያረጋግጣል። በቅርቡ በሸገር ማርኬት እና በጁሚያ ኢትዮጵያ ዙሪያ የሚታዩትን የገበያ ለውጦች ተከትሎ በፈጣን ገበያ የሽያጭ መጠን ላይ ለመወያየት ጥቂት ደቂቃዎችን ማግኘት እንችላለን?"
+    "message": "ሰላም Selam,\n\nFetanGebeya በዚህ ወር ውስጥ ሦስት አዳዲስ የዕድገት እና የ-UA ባለሙያዎችን ለመቅጠር ያወጣው ማስታወቂያ የድርጅቱን መስፋፋት በግልጽ ያሳያል። በኢትዮጵያ የኢኮሜርስ ገበያ ውስጥ ውድድር እየጨመረ ባለበት በዚህ ወቅት Meta እና YouTube ላይ የሚለቀቁ የቪዲዮ ማስታወቂያዎችን ወደ ከፍተኛ ውጤት መቀየር ወሳኝ ነው። ተመሳሳይ የገበያ መድረኮች በቀን ውስጥ ከ995 በላይ የተረጋገጡ ሽያጮችን እንዲያመነጩ በየደረጃው ማመቻቸት ይቻላል። ጥራት ያለው ግብይት እንዲከናወን የመጀመሪያ የግዢ ሂደትን ብቻ መሠረት በማድረግ የማጭበርበር መከላከያ ዘዴዎችን እንጠቀማለን። በበዓላት ወቅት የሚጨምረውን ፍላጎት ለመጠቀም ያላችሁን ስትራቴጂ በጋራ ብንነጋገርበት ፍላጎት ይኖርሻል?"
   },
   {
     "id": "az-Azerbaijan",
-    "ok": false,
-    "draftModel": "claude-sonnet-4-6",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 5,
+    "usd": 0.05258165000000001,
+    "researchUsd": 0,
+    "ms": 29890,
+    "flags": [],
+    "message": "Salam Leyla, TezBazar komandasında bu ay üç yeni growth və UA vəzifəsinin açılması genişlənmə hədəflərinizi göstərir. Azərbaycanda e-ticarət rəqabətinin kəskinləşdiyi bir vaxtda Tap.az və Umico kimi platformalar arasında birbaşa nəticəyə yönəlmək əhəmiyyətlidir. Bənzər e-ticarət layihələrində fırıldaqçılıqdan təmizlənmiş trafik və xüsusi optimizasiya ilə gündəlik 1032 təsdiqlənmiş sifariş həcminə çatılır. Mövsümi tələbatın artdığı bu dövrdə CPA modelimizlə alış sayını artırmağı müzakirə edə bilərik?"
+  },
+  {
+    "id": "et-Estonia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0167125,
+    "researchUsd": 0,
+    "ms": 10706,
+    "flags": [],
+    "message": "Tere, Kadri\n\nKiireTurg hiljutine kolme uue kasvu ja mobiiliturunduse spetsialisti värbamine näitab selget ambitsiooni turuosa laiendamiseks. Praegune hooajaline nõudluse kasv ja tihenev konkurents selliste platvormidega nagu Kaup24 tekitavad aga surve Meta ja YouTube kanalite CAC näitajatele. Sarnased e-kaubanduse kontod saavutavad täna keskmiselt 1069 kinnitatud ostu päevas, optimeerides kampaaniad otse esmase tehingu peale. See lähenemine koos pettustevastase filtreerimisega aitab hoida uute ostjate värbamise kulud kontrolli all. Kas teil oleks huvi vaadata, kuidas need mahud teie praegustesse plaanidesse sobituvad?"
+  },
+  {
+    "id": "hr-Croatia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
     "iterations": 3,
     "score": 4,
-    "usd": 0.07773374999999999,
+    "usd": 0.0685317,
     "researchUsd": 0,
-    "ms": 135934,
+    "ms": 40018,
+    "flags": [],
+    "message": "Poštovana Ivana, BrziTrg je ovog mjeseca otvorio tri nove pozicije za rast i akviziciju korisnika u jeku sezonske potražnje. Na tržištu gdje raste konkurencija brendova poput Njuškala i eKupi, slični ecommerce klijenti dostižu volumen od 1106 potvrđenih kupnji dnevno putem CPA modela. Ovakav pristup temelji se na provjerenom prometu i optimizaciji isključivo prema finalnoj kupnji. Vrijedi li razmijeniti perspektive o skaliranju prodaje na ovaj način?"
+  },
+  {
+    "id": "ka-Georgia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.01626755,
+    "researchUsd": 0,
+    "ms": 10380,
+    "flags": [],
+    "message": "გამარჯობა ნინო,\n\nSwrafiMarket-ის გუნდში სამი ახალი UA სპეციალისტის დამატება ნამდვილად დროული ნაბიჯია ადგილობრივ ბაზარზე მზარდი კონკურენციის ფონზე. საქართველოში ელექტრონული კომერციის სეზონური მოთხოვნის პიკი კარგი შესაძლებლობაა Meta-ს და YouTube-ის კამპანიების მასშტაბირებისთვის.\n\nმსგავსი პროფილის ექაუნთებზე ჩვენი მოდელი დღეში 1143 დადასტურებულ შესყიდვას უზრუნველყოფს. ეფექტიანობა მიიღწევა უშუალოდ პირველი შესყიდვის ივენთზე ოპტიმიზაციით და ფრაუდის სკრინინგით, რაც CAC-ის შენარჩუნებაში ეხმარება ისეთ მოთამაშეებს, როგორიცაა Extra.ge ან MyMarket.\n\nხომ არ განვიხილოთ ამ მოცულობის დამატება თქვენი მიმდინარე CPA არხებისთვის?"
+  },
+  {
+    "id": "km-Cambodia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 5,
+    "usd": 0.06022925,
+    "researchUsd": 0,
+    "ms": 44539,
+    "flags": [],
+    "message": "សួស្ដី Sreyneang\n\nការដែល PsarLoeun បើកជ្រើសរើសបុគ្គលិកផ្នែកកំណើន និង UA ចំនួន ៣ នាក់ក្នុងខែនេះ បង្ហាញពីការត្រៀមខ្លួនសម្រាប់តម្រូវការទីផ្សារតាមរដូវកាល។ ក្នុងស្ថានភាពដែលការប្រកួតប្រជែងជាមួយ Khmer24 និង L192 កំពុងមានសន្ទុះខ្លាំង ការបង្កើនប្រសិទ្ធភាពនៃការចំណាយគឺជារឿងសំខាន់បំផុត។ ដៃគូក្នុងវិស័យ ecommerce ស្រដៀងគ្នាសម្រេចបានការបញ្ជាទិញដែលបានបញ្ជាក់ចំនួន ១១៨០ ដងក្នុងមួយថ្ងៃ តាមរយៈការធ្វើប្រសិទ្ធភាពកម្រិត CPA។ លទ្ធផលនេះកើតចេញពីការផ្ដោតលើការបញ្ជាទិញដែលបានបញ្ជាក់ និងការប្រើប្រាស់បច្ចេកវិទ្យាត្រួតពិនិត្យដើម្បីទប់ស្កាត់លំហូរទិន្នន័យមិនល្អ។ តើអ្នកចង់សាកល្បងបង្កើនចំនួនការបញ្ជាទិញបន្ថែមសម្រាប់ PsarLoeun ដែរឬទេ?"
+  },
+  {
+    "id": "lt-Lithuania",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.0373733,
+    "researchUsd": 0,
+    "ms": 21525,
+    "flags": [],
+    "message": "Labas, Ruta. Šį mėnesį jūsų atidarytos trys naujos pozicijos augimo ir UA komandose rodo aktyvų pasiruošimą sezoniniam paklausos šuoliui. Lietuvos rinkoje stiprėjant konkurencijai su Pigu.lt ar Skelbiu, padedame stabilizuoti CPA kaštus optimizuodami srautą tiesiogiai pagal pirmojo pirkimo įvykį. Panašaus profilio paskyrose pasiekiame 1217 patvirtintų pirkimų per dieną tūrį, naudojant papildomą apsaugą nuo netikro srauto. Ar būtų įdomu pasidalinti įžvalgomis, kaip šie tūriai galėtų papildyti jūsų dabartinę strategiją?"
+  },
+  {
+    "id": "lv-Latvia",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 2,
+    "usd": 0.0460894,
+    "researchUsd": 0,
+    "ms": 29072,
     "flags": [
-      "writer fell back to claude-sonnet-4-6"
+      "LOW SCORE 2"
     ],
-    "message": "Salam Leyla, TezBazar üçün Azərbaycandakı kəskin rəqabət və mövsümi tələbat dövründə müştəri cəlb etmə xərclərini tənzimləmək xüsusi önəm kəsb edir. Tap.az və Umico kimi platformaların olduğu bu bazarda biz tərəfdaşlarımıza birbaşa nəticəyə görə ödəniş (CPS) modeli təklif edirik. Oxşar layihələrdə saxta trafikin qarşısını alan skrininq mexanizmləri ilə gündəlik 1032 təsdiqlənmiş satınalma həcminə çatırıq. Bütün kampaniyalarınızı birbaşa təsdiqlənmiş satınalma metrikinə görə optimallaşdıraraq real satışları artıra bilərik. Bu yanaşmanın sizin performans hədəflərinizə necə uyğunlaşacağını qısa müzakirə edə bilərik?"
+    "message": "Sveika, Līga!\n\nAtrsTirgus pēdējo trīs nedēļu laikā izsludinātās vakances izaugsmes komandā liecina par nopietniem mērogošanās mērķiem. Pieaugošā konkurence un izmaksas Meta kanālos liek meklēt alternatīvus veidus, kā efektīvi piesaistīt pircējus Latvijas tirgū. Līdzīgos e-komercijas projektos mērķtiecīga video reklāmu virzīšana ļauj sasniegt virs 1254 apstiprinātiem pirkumiem dienā. CPS modelis apvienojumā ar stingru krāpniecisko darījumu filtru nodrošina, ka investīcijas atbilst reāliem ieņēmumiem, līdzīgi kā to redzam 220.lv vai SS.lv segmentā. Vai būtu vērts apspriest šādu pieeju jūsu jauno komandas biedru atbalstam?"
+  },
+  {
+    "id": "my-Myanmar",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 3,
+    "usd": 0.0292398,
+    "researchUsd": 0,
+    "ms": 18115,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "မင်္ဂလာပါ Thiri\n\nMyanZay အနေနဲ့ ဒီလထဲမှာ growth နဲ့ UA တာဝန်ယူမဲ့သူတွေ ထပ်မံခေါ်ယူနေတာ တွေ့ရလို့ ဝမ်းသာပါတယ်။ မြန်မာနိုင်ငံ e-commerce ဈေးကွက်မှာ ပြိုင်ဆိုင်မှုတွေ ပြင်းထန်လာတာနဲ့အမျှ Meta နဲ့ YouTube ads တွေမှာ acquisition cost တက်လာတာ သတိထားမိမှာပါ။ အလားတူလုပ်ငန်းတွေမှာတော့ ပထမအကြိမ် ဝယ်ယူမှုအထိ အောင်မြင်အောင် fraud screening စနစ်နဲ့ လုပ်ဆောင်ပေးတဲ့အခါ တစ်ရက်ကို အမှန်တကယ် ဝယ်ယူမှုအကြိမ်ရေ ၁၂၉၁ ခုအထိ တိုးတက်လာတာ တွေ့ရပါတယ်။ Shop.com.mm လို ပြိုင်ဘက်တွေကြားမှာ အခုလို ရာသီအလိုက် အရောင်းအဝယ် မြင့်တက်လာချိန်ကို အမိအရဖမ်းဆုပ်နိုင်ဖို့ ဒီထက်ပိုပြီး scale လုပ်ဖို့ စဉ်းစားနေပါသလား။"
   },
   {
     "id": "si-SriLanka",
     "ok": false,
     "draftModel": "gemini-3-flash-preview",
     "iterations": 3,
-    "score": 3,
-    "usd": 0.08723729999999999,
+    "score": 2,
+    "usd": 0.06314030000000001,
     "researchUsd": 0,
-    "ms": 134927,
+    "ms": 71299,
     "flags": [
-      "LOW SCORE 3"
+      "LOW SCORE 2"
     ],
-    "message": "ආයුබෝවන් Nimali, ශ්‍රී ලංකාවේ ඊ-කොමර්ස් වෙළඳපොළේ Daraz.lk හා ikman වැනි ආයතන සමඟ තරඟකාරීත්වය තීව්‍ර වෙමින් පවතින අතර, සෘතුමය ඉල්ලුම ඉහළ යන කාලවලදී පාරිභෝගිකයන් අත්පත් කරගැනීමේ පිරිවැය WeleFast වෙත විශේෂ අභියෝගයක් ඉදිරිපත් කළ හැකිය. සමාන ඊ-කොමර්ස් ගිණුම් සඳහා වංචා-පිරික්සූ CPS ප්‍රශස්ත කිරීම් හරහා දිනකට තහවුරු කළ ඇණවුම් 1,328 දක්වා ලබාගෙන ඇති බව අපගේ දත්ත සාක්ෂ්‍ය කරයි. WeleFast සඳහා එවැනිම ප්‍රවේශයක් ගැළපේදැයි කෙටි සාකච්ඡාවකට ඔබ කැමතිද?"
+    "message": "ආයුබෝවන් Nimali,\n\nWeleFast ආයතනය පසුගිය සති තුන තුළ නව වර්ධන සහ පරිශීලක අත්පත් කරගැනීමේ භූමිකාවන් කිහිපයක් සඳහා බඳවා ගැනීම් ආරම්භ කර තිබීම ඉතා වැදගත් පියවරක්.\n\nශ්‍රී ලංකාවේ ඊ-කොමර්ස් වෙළඳපොළ තුළ තරඟකාරීත්වය ඉහළ යන පසුබිමක සහ පාරිභෝගිකයින් මිලදී ගැනීමේ පිරිවැය (CAC) වැඩි වෙමින් පවතින අවස්ථාවක, වීඩියෝ නිර්මාණ හරහා සෘජුවම අලෙවියක් තහවුරු වන පරිදි මෙහෙයුම් පුළුල් කිරීම සාර්ථක ප්‍රතිඵල ගෙන දෙනු ඇත.\n\nඅපගේ ප්‍රධාන අවධානය යොමු වන්නේ හුදු ලියාපදිංචි කිරීම් වලට වඩා තහවුරු කළ මිලදී ගැනීම් (confirmed purchases) ලබා දීම කෙරෙහි වන අතර, දැනටමත් දිනකට 1328 කට අධික තහවුරු කළ ඇණවුම් ප්‍රමාණයක් මෙවැනිම ගිණුම් සඳහා ලබා දෙමින් පවතී.\n\nමෙම ක්‍රමය මඟින් වංචනික ගනුදෙනු (fraud) පෙරීමකට ලක් කරමින් සැබෑ ගනුදෙනුකරුවන් වැඩි කරගැනීමට හැකියාව ලැබෙනු ඇත.\n\nDaraz සහ ikman වැනි වෙළඳපොළවල් පවතින ක්ෂේත්‍රයක මෙවැනි වර්ධනයක් ඇති කරගැනීම පිළිබඳව කෙටි සාකච්ඡාවකට ඔබ කැමතිද?"
+  },
+  {
+    "id": "sl-Slovenia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.0434201,
+    "researchUsd": 0,
+    "ms": 27281,
+    "flags": [],
+    "message": "Živijo Nina, HitriTrg je ta mesec z objavo treh novih delovnih mest za rast in UA očitno v močnem zagonu. Glede na vse večjo konkurenco trgovin, kot sta Bolha in Mimovrste, postaja obvladovanje stroškov ključno za ohranjanje donosnosti. Optimizacija na nivoju prvega nakupa pri podobnih projektih dosega 1365 potrjenih naročil dnevno ob strogem preverjanju kakovosti prometa. Takšen pristop omogoča varno skaliranje na nove kanale s CPA modelom brez tveganja za prevare. Bi bilo smiselno, da se na kratko slišimo o podpori vaši novi ekipi s temi volumni?"
+  },
+  {
+    "id": "sr-Serbia",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 3,
+    "score": 4,
+    "usd": 0.0646326,
+    "researchUsd": 0,
+    "ms": 42497,
+    "flags": [],
+    "message": "Zdravo Milica,\n\nBrzaPijaca je ovog meseca otvorila tri UA i growth pozicije. Tržište Srbije beleži sezonski skok potražnje dok konkurencija koju predvode KupujemProdajem i Gigatron nastavlja da raste. Slični marketplace nalozi trenutno ostvaruju 1402 potvrđene kupovine dnevno kroz CPA optimizaciju. Tehnologija za proveru prevara (fraud screening) obezbeđuje isključivo stvarnu aktivnost korisnika, čime se povećava volumen bez gubitka kvaliteta u e-commerce segmentu. Da li ste otvoreni za kratku razmenu informacija o optimizaciji prema potvrđenoj kupovini?"
   },
   {
     "id": "tr-TR-followup",
-    "ok": false,
+    "ok": true,
     "draftModel": "gemini-3-flash-preview",
     "iterations": 2,
-    "score": 3,
-    "usd": 0.05393850000000001,
+    "score": 4,
+    "usd": 0.07558190000000001,
     "researchUsd": 0,
-    "ms": 29394,
-    "flags": [
-      "LOW SCORE 3"
-    ],
-    "message": "Baran Bey, Hepsiburada'nın onaylı satın alma odaklı modele geçişiyle ilgili paylaştığım notun üzerinden geçmek istedim. Trendyol gibi rakiplerin de yer aldığı pazarda artan CAC maliyetlerine karşı, bizde trafik henüz onay aşamasındayken fraud taramasından geçerek doğrudan satışa optimize ediliyor. Bu yapıyla günde 1.200 onaylı satın alma hacmine çıkmamız HızlıPazar tarafında da ilgi çeker mi?"
+    "ms": 26465,
+    "flags": [],
+    "message": "Merhaba Baran Bey, Hepsiburada'nın onaylı satın alma bazlı modele geçişinden bahsetmiştik. Bu ay açtığınız üç yeni büyüme ve UA pozisyonu Türkiye'deki artan edinim maliyetleri karşısında operasyonu genişlettiğinizi gösteriyor. Trendyol gibi rakiplerin olduğu bu pazarda fraud taramalı ve doğrudan satış odaklı optimizasyonla günlük 1.200 onaylı satın alma hacmini koruyoruz. Küçük bir segmentte test etmek isterseniz detayları paylaşabilirim?"
+  },
+  {
+    "id": "en-GB-followup",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 4,
+    "usd": 0.05175764999999999,
+    "researchUsd": 0,
+    "ms": 16115,
+    "flags": [],
+    "message": "Following up on the confirmed purchase optimisation I mentioned for the UK market. I noticed you opened three growth roles this month, so our ability to scale 1,400 daily purchases with fraud screening might be timely given rising acquisition costs. Worth a brief chat whilst you are growing the team?"
+  },
+  {
+    "id": "es-AR-followup",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 4,
+    "usd": 0.0159901,
+    "researchUsd": 0,
+    "ms": 5960,
+    "flags": [],
+    "message": "Hola Sofía, paso por última vez sobre el programa de 650 primeras compras diarias que te comenté. Vi que abrieron tres roles de growth este mes y me pareció oportuno ver si podíamos aliviar la carga de CAC en Argentina con nuestro modelo de compra validada. Si el timing no es el mejor, lo dejamos acá y te libero la bandeja?"
   }
 ]

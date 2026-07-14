@@ -4,6 +4,7 @@ import { db, followupsTable, prospectsTable, usersTable } from "@workspace/db";
 import { verifyOpenToken } from "../lib/followupLinkToken";
 import { appPublicUrl } from "../lib/appPublicUrl";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
+import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
 
 const router: IRouter = Router();
 
@@ -56,6 +57,7 @@ router.get(
           userId: prospectsTable.userId,
           prospectName: prospectsTable.prospectName,
           company: prospectsTable.company,
+          linkedinUrl: prospectsTable.linkedinUrl,
           followupPaused: prospectsTable.followupPaused,
           replied: prospectsTable.replied,
           userName: usersTable.name,
@@ -97,6 +99,26 @@ router.get(
       const who = escapeHtml(row.prospectName ?? "Prospect");
       const co = row.company ? ` at ${escapeHtml(row.company)}` : "";
 
+      // Channel-aware primary action. WhatsApp/Telegram can re-attempt the
+      // prefilled deep link ("Retry open"); LinkedIn cannot prefill, so its
+      // primary action opens the profile (paste the copied message there).
+      const isLinkedin = row.channel === "linkedin";
+      const linkedinProfileUrl =
+        isLinkedin && row.linkedinUrl
+          ? generateLinkedinLink(row.linkedinUrl, messageBody)
+          : "";
+      const intro =
+        isLinkedin && linkedinProfileUrl
+          ? "LinkedIn can't pre-fill a message. Copy it below, open the profile, and paste."
+          : isLinkedin
+            ? "LinkedIn can't pre-fill a message. Copy it below and paste it into the chat."
+            : "Copy the message below, or tap <strong>Retry open</strong> to try the chat link again.";
+      const primaryBtn = isLinkedin
+        ? linkedinProfileUrl
+          ? `<a class="btn" href="${escapeHtml(linkedinProfileUrl)}" target="_blank" rel="noopener">Open LinkedIn profile</a>`
+          : ""
+        : `<a class="btn" href="${retryUrl}">Retry open</a>`;
+
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -114,11 +136,11 @@ router.get(
 </head>
 <body>
   <h1>Follow up with ${who}${co}</h1>
-  <p class="muted">Channel: ${escapeHtml(row.channel)}. Copy the message below, or tap <strong>Retry open</strong> to try the chat link again.</p>
+  <p class="muted">Channel: ${escapeHtml(row.channel)}. ${intro}</p>
   <textarea readonly id="msg">${escapeHtml(messageBody)}</textarea>
-  <p><button type="button" onclick="navigator.clipboard.writeText(document.getElementById('msg').value)">Copy message</button></p>
+  <p><button type="button" class="btn btn-outline" onclick="navigator.clipboard.writeText(document.getElementById('msg').value)">Copy message</button></p>
   <div class="actions">
-    <a class="btn" href="${retryUrl}">Retry open</a>
+    ${primaryBtn}
     <form method="POST" action="${confirmUrl}" style="margin:0">
       <button class="btn" type="submit">Yes, I sent it</button>
     </form>

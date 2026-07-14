@@ -102,7 +102,7 @@ export function renderDigestEmail(name: string | null, rows: DueRow[]): string {
   const n = rows.length;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
   <p>Hi ${escapeHtml(name ?? "there")},</p>
-  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message, you review it in WhatsApp/Telegram, and press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
+  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message and opens WhatsApp, Telegram, or LinkedIn with it ready, so all you do is press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
   <table style="width:100%;border-collapse:collapse;">${items}</table>
   <p style="color:#6b7280;font-size:12px;margin-top:16px;">Sent by Chat Followuper. You send each message yourself.</p>
 </div>`;

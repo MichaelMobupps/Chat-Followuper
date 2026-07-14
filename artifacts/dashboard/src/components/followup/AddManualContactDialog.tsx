@@ -32,15 +32,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   useAddManualContact,
+  useClassifySeed,
   usePrepareFirstMessage,
 } from "@/hooks/use-manual-ingest";
 import {
   TICKERS,
   TICKER_LABELS,
+  verticalToTicker,
+  type ClassifiedSeed,
   type ManualIngestChannel,
   type Ticker,
 } from "@/lib/api/manual-ingest";
@@ -111,8 +114,10 @@ export function AddManualContactDialog({
   const { toast } = useToast();
   const add = useAddManualContact();
   const prepare = usePrepareFirstMessage();
+  const classify = useClassifySeed();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [contextOpen, setContextOpen] = useState(false);
+  const [detected, setDetected] = useState<ClassifiedSeed | null>(null);
 
   // Client-side hint validation. The submit button is enabled when all
   // four required fields are non-empty AND the phone matches E.164 shape.
@@ -125,10 +130,20 @@ export function AddManualContactDialog({
       : channel === "linkedin"
         ? linkedinLooksValid(phoneTrimmed)
         : PHONE_RE.test(phoneTrimmed) || HANDLE_RE.test(phoneTrimmed);
+  // A raw URL in the Company field must be resolved via "Detect" first — the
+  // BE stores company (max 200) and would otherwise persist the literal URL.
+  const companyTrimmed = form.company.trim();
+  const companyLooksLikeUrl =
+    /^(https?:\/\/|www\.)/i.test(companyTrimmed) ||
+    /\b(play\.google\.com|apps\.apple\.com|itunes\.apple\.com)\b/i.test(
+      companyTrimmed,
+    );
   const canSubmit =
     form.firstName.trim().length > 0 &&
     phoneLooksValid &&
-    form.company.trim().length > 0 &&
+    companyTrimmed.length > 0 &&
+    companyTrimmed.length <= 200 &&
+    !companyLooksLikeUrl &&
     form.ticker !== null &&
     !add.isPending;
 
@@ -139,6 +154,50 @@ export function AddManualContactDialog({
   function reset() {
     setForm(EMPTY);
     setContextOpen(false);
+    setDetected(null);
+  }
+
+  // Ask-less onboarding: paste a company name OR a store/website URL, and let
+  // the backend classifier fill company + product type (and reveal the derived
+  // sub-vertical / country / language). Everything stays editable afterwards.
+  function handleDetect() {
+    const seed = form.company.trim();
+    if (!seed || classify.isPending) return;
+    classify.mutate(
+      { seed },
+      {
+        onSuccess: ({ classified }) => {
+          if (!classified.company) {
+            toast({
+              title: "Couldn't resolve a company",
+              description:
+                "Type the company name manually, then add the contact.",
+              variant: "destructive",
+            });
+            return;
+          }
+          setDetected(classified);
+          const ticker = verticalToTicker(classified.vertical);
+          setForm((prev) => ({
+            ...prev,
+            company: classified.company || prev.company,
+            ticker,
+          }));
+          toast({
+            title: "Detected",
+            description: `${classified.company} — ${TICKER_LABELS[ticker]} · ${classified.subVertical} · ${classified.country || "market TBD"}`,
+          });
+        },
+        onError: (err) => {
+          toast({
+            title: "Could not auto-detect",
+            description:
+              err instanceof ApiError ? (err.code ?? err.message) : String(err),
+            variant: "destructive",
+          });
+        },
+      },
+    );
   }
 
   function handleSubmit() {
@@ -217,7 +276,9 @@ export function AddManualContactDialog({
           <DialogTitle>Add a contact</DialogTitle>
           <DialogDescription>
             Send follow-ups to someone already in your {CHANNEL_NAME[channel]}.
-            We figure out the right pitch from the company and product type.
+            Paste a company name or a store / website URL and hit{" "}
+            <strong>Detect</strong> — we figure out the product type,
+            sub-vertical, market and language for you.
           </DialogDescription>
         </DialogHeader>
 
@@ -272,15 +333,60 @@ export function AddManualContactDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="manual-company">Company</Label>
-            <Input
-              id="manual-company"
-              value={form.company}
-              onChange={(e) => update("company", e.target.value)}
-              placeholder="MobUpps"
-              maxLength={200}
-              data-testid="manual-company"
-            />
+            <Label htmlFor="manual-company">Company or store / website URL</Label>
+            <div className="flex gap-2">
+              <Input
+                id="manual-company"
+                value={form.company}
+                onChange={(e) => {
+                  update("company", e.target.value);
+                  if (detected) setDetected(null);
+                }}
+                placeholder="MobUpps — or paste a Google Play / App Store / website URL"
+                // Wide enough to hold a pasted URL; Detect resolves it to the
+                // short company name the BE stores (company cap is 200).
+                maxLength={2000}
+                data-testid="manual-company"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDetect}
+                disabled={companyTrimmed.length === 0 || classify.isPending}
+                data-testid="manual-detect"
+                title="Let AI figure out the product type, sub-vertical, country and language"
+              >
+                {classify.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                <span className="ml-1.5">Detect</span>
+              </Button>
+            </div>
+            {companyLooksLikeUrl && !classify.isPending && (
+              <p className="text-xs text-muted-foreground">
+                Looks like a URL — click <strong>Detect</strong> to resolve the
+                company before adding.
+              </p>
+            )}
+            {!companyLooksLikeUrl && companyTrimmed.length > 200 && (
+              <p className="text-xs text-muted-foreground">
+                Company name is too long ({companyTrimmed.length}/200). Shorten
+                it, or paste a URL and click <strong>Detect</strong>.
+              </p>
+            )}
+            {detected && (
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="manual-detected"
+              >
+                Detected: {detected.subVertical} ·{" "}
+                {detected.country || "market TBD"} · {detected.language}
+                {detected.webSearchUsed ? " (web-verified)" : ""}. Adjust
+                anything below if needed.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

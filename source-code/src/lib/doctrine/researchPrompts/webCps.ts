@@ -68,6 +68,8 @@ CRITICAL RULES:
 
 8. COMPLIANCE AWARENESS — For regulated web verticals (gambling, fintech, lending, insurance, health, adult), surface the compliance angle. MobUpps has compliant-publisher pools for these categories.
 
+9. FRESH DATED HOOK + AD INTELLIGENCE — Use web search to find the SINGLE best fresh, dated hook for THIS brand right now: a recent hiring push (growth / performance / affiliate / partnerships roles), a funding round, a site or product launch, geo expansion, an award, a leadership hire, a partnership, a campaign or ads spotted in the wild, press, or a regulatory tailwind that favors their vertical. Prefer the most recent, most specific signal and record its approximate date/recency and source. ALSO assess ad presence: does the brand run video/YouTube ads (check the Google Ads Transparency Center) or Meta/Facebook ads (check the Meta Ad Library)? If they run YouTube/video ads, note a concrete CTV angle. Confirm the acquisition model (this is a CPS/affiliate prospect, but note if they also buy CPA/CPC elsewhere) so the writer speaks in confirmed-sale terms and never uses install/in-app language. HARD RULE — never invent a hook, a date, or ad activity: if you cannot find a real, dated signal, set fresh_hook to "" and the ad-intel booleans to false. A fabricated hook is far worse than none.
+
 OUTPUT — Return ONLY valid JSON matching this exact structure:
 
 {
@@ -82,6 +84,14 @@ OUTPUT — Return ONLY valid JSON matching this exact structure:
   "market_context": "2 sentences on the web CPS landscape in this prospect's actual market for this exact sub-vertical",
   "prospect_specific_hook": "1 sentence on what specifically about this brand makes them an interesting prospect right now",
   "prospect_primary_growth_problem": "1 sentence on the most likely growth challenge (cancellation rate? affiliate fraud? publisher mix? compliance?)",
+  "fresh_hook": "the single best fresh, dated hook for this brand right now (1 sentence), or \"\" if none found — NEVER invented",
+  "hook_type": "hiring | funding | launch | new_version | geo_expansion | award | leadership_hire | partnership | ads_in_wild | press | regulatory_tailwind | ad_activity | fallback_relevance | none",
+  "hook_source": "where the hook came from (e.g. 'LinkedIn job post', 'TechCrunch', 'Google Ads Transparency Center', 'Meta Ad Library', 'AppGoblin'), or \"\"",
+  "hook_date_or_recency": "approximate date or recency (e.g. '2026-06' or 'last 3 weeks'), or \"\"",
+  "runs_youtube_ads": true or false — does the brand run YouTube/video ads per the Google Ads Transparency Center; false if unknown,
+  "runs_meta_ads": true or false — does the brand run Meta/Facebook ads per the Meta Ad Library; false if unknown,
+  "ctv_angle": "a concrete CTV/video angle if they run video ads (1 sentence), else \"\"",
+  "acquisition_model": "CPS | CPA | CPC | mixed | unknown",
   "why_argument": "Core WHY argument in English: what peers in the same market are doing that this prospect should match",
   "validation_argument": "Core VALIDATION argument in English: confirmed-sale volume and quality MobUpps can deliver, anchored to the calibrated daily volume",
   "how_argument": "Core HOW argument in English: publisher curation, fraud filtering, attribution, compliance approach",

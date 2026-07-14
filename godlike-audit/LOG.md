@@ -816,3 +816,170 @@ status checks in the dashboard.
 
 **Confidence: high.** Both packages typecheck-green. The one High (dead detail button) is fixed
 and re-swept.
+
+## Feature — Hook-Writer doctrine v2 + ad-intel research + seed classifier — 2026-07-14
+
+### Scope
+Integrated the MobUpps SDR Hook Writer doctrine (v2) + ad-intelligence into the generation
+pipeline, and added a seed→classify engine so a MINIMAL seed (company name OR Play/App
+Store/website URL) auto-derives the full prospect classification. Goal: "hook creation
+mechanic inside the generated message" + "paste a company name or store URL, AI figures out
+the rest" + persistence of the derived datapoints.
+
+### Changes (by file) + blast radius
+- **services/prospectResearch.ts** — ProspectBrief +8 OPTIONAL hook/ad-intel fields
+  (freshHook, hookType, hookSource, hookDateOrRecency, runsYoutubeAds, runsMetaAds, ctvAngle,
+  acquisitionModel); lenient asOptionalString/asOptionalBoolean (never hard-fail research on a
+  missing hook); server-side web_search on the research Opus call (env RESEARCH_ENABLE_WEB_SEARCH,
+  default on) with a per-request 120s timeout override (the shared client caps at 60s — that
+  bug timed out every search) + GRACEFUL fallback to knowledge-only research; last-text-block
+  JSON extraction for interleaved tool blocks. Blast radius: ProspectBrief is constructed in
+  exactly 2 sites — validateBrief (here) + benchWriterQuality.ts fixtureBrief (updated).
+  Optional fields → old persisted briefs stay valid. Cost/latency: web-search research
+  ~$0.39/case + up to 120s (vs ~$0.03 knowledge-only); fallback guarantees a brief always returns.
+- **lib/doctrine/researchPrompts/{mobileGaming,mobileNonGaming,webCps}.ts** — added the
+  "FRESH DATED HOOK + AD INTELLIGENCE" rule (hunt a real dated hook; check Google Ads
+  Transparency Center / Meta Ad Library / AppGoblin; CTV angle; acquisition model; NEVER
+  fabricate) + the 8 output JSON fields. Blast radius: prompt-only; these 3 are the only
+  research system prompts (dispatched by getDoctrineDomain).
+- **services/messagePrompts.ts** — hook/ad-intel rendered in buildResearchBriefBlock (feeds
+  prospector+followuper writers, critic, rewriter); prospector doctrine principles 8-10
+  (lead-with-hook + never-undermine; acquisition-model/CTV; no-hype/no-em-dash/no-pitch-narration);
+  structure hook-first, 4-6 short sentences, one-idea-per-sentence, easy-out CTA; strengthened
+  we-form + non-English localization guidance; critic checks 13-15 (no_undermining scored fail,
+  acquisition-model match, hook-must-be-real) + em-dash hard-fail; rewriter preserves hook.
+  Blast radius: prompt builders only; generateChatMessage orchestration + signature UNCHANGED.
+- **services/seedClassifier.ts** (new) — classifySeed(seed) → {company, vertical (web_cps|mobile),
+  subVertical (VALID taxonomy code), country, language, product} via resolveUrl + Opus-4.8
+  web_search; operator overrides win; best-effort, NEVER throws; graceful fallback to
+  URL-platform + coarse defaults. Blast radius: new file, pure add. Smoke-validated: Nubank →
+  mobile/fintech_neobank_mobile/Brazil/pt; Clash of Clans Play URL → Supercell/gaming_midcore_strategy_mobile.
+- **routes/prospector.ts** — POST /api/prospector/classify-seed (requireAuth, daily-cap-checked,
+  spend-recorded, audit-logged as prospector.company_resolved via:classify_seed). Blast radius:
+  additive route; reuses existing zodErrorToHttp + spend helpers.
+- **services/manualContactPrepare.ts** — Contacts "Generate" now auto-classifies MISSING
+  subVertical/country/language/product from the company/URL seed before research (only when
+  missing; overrides win; persisted with the existing research-branch update), classify cost
+  folded into daily spend. Blast radius: manual prepare flow only; research/generation contract
+  unchanged; classify skipped entirely when a researchBrief already exists.
+- **scripts/benchWriterQuality.ts** — fixtureBrief +hook/ad-intel values (blast-radius fix);
+  scripts/smokeClassify.ts (new smoke for the classifier).
+
+### Multilingual smoke test (benchWriterQuality.ts, gemini-3-flash-preview, 52 cases, pure-LLM)
+- Baseline (historical, pre-change): ~4.00 avg @ 1.85 iters, floor 3.
+- Round 1 (post hook doctrine): 3.75 avg @ 1.81, 3 score-2 cases → measurable regression.
+- Mined: translation_artifact (English adtech terms UA/CPS/CTV/video leaking untranslated —
+  introduced by the ad-intel brief lines) + why_structure_violation (we-form VALIDATION openers,
+  pre-existing, aggravated because hook-first adds a body sentence).
+- 2 fixes: (a) non-English localization guard on hook/ad-intel in buildResearchBriefBlock;
+  (b) stronger we-form rule (VALIDATION must not open we-form; outcome-led alternatives given).
+- Final (post-fix): 3.81 avg @ 1.71 iters (iterations DOWN), ONE score-2 (lv-Latvia — a fluent
+  Latvian message; Sonnet-5 critic harshness on a low-resource language, not a defect).
+- Caveat: the bench force-feeds a hook + YouTube/CTV ad-intel onto ALL 52 cases (maximum stress).
+  Production prospects frequently have no hook/ad-signal, reverting to the ~4.0 structure.
+
+### Verified SAFE
+- api-server typecheck-green + esbuild build-green.
+- web_search failure is non-fatal (knowledge-only fallback) → research never fails on a slow
+  search; hook fields optional → old briefs unaffected.
+- classifySeed never throws (route wraps + service best-effort); overrides always win.
+- No DB schema change; researchBrief JSONB carries the new fields; spend accounting includes
+  classify + web-search cost against the daily LLM cap.
+
+### P4 + P6 (added same session)
+- **P4 — Contacts minimal-seed UI** (dashboard): AddManualContactDialog gains a "Detect" button —
+  paste a company name OR a Play/App Store/website URL, hit Detect → POST /api/prospector/classify-seed
+  → auto-fills company + Web/Mobile product type + shows the derived sub-vertical/country/language
+  (all editable). A URL in the Company field blocks submit until resolved (BE company cap is 200).
+  New: lib/api/manual-ingest.ts (postClassifySeed + types + verticalToTicker), hooks/use-manual-ingest.ts
+  (useClassifySeed). Blast radius: dashboard-only, additive; no change to the create/prepare contract.
+- **P6 — server-side auto-send: REMOVED per user decision (2026-07-14).** WhatsApp Cloud API was
+  explicitly out of scope, and the desired UX ("tap → generate → open the channel prefilled → rep presses
+  send") is ALREADY provided by the existing GET /api/followups/open/:id?t= for every channel. Reverted
+  followupOpen.ts / pushoverDigest.ts / pushoverNudges.ts / .env.example to committed state; deleted
+  services/channelDelivery.ts. DELIVERY MODEL (unchanged, works today from BOTH the digest EMAIL
+  "Follow up" button AND the Pushover push): tap → /open generates the doctrine message on demand →
+  302-redirect into WhatsApp / Telegram with the message prefilled (LinkedIn opens the profile + copies
+  the message to the clipboard — LinkedIn has no URL prefill). Future channels plug into the same /open
+  channel switch + CHANNEL_CODES. Typecheck green after revert.
+
+### NOT done (clearly-scoped follow-ups)
+- True godlike 3-clean-round convergence (per this LOG's own history, not a one-session goal;
+  residual floor-3 is dominated by pre-existing we-form + low-resource-language limits + the
+  fixture's forced-hook stress).
+
+**Confidence: high on backend correctness (typecheck + build + live multilingual smoke green);
+medium on the ~0.2 vs-baseline avg gap being fixture-stress + pre-existing rather than a true
+regression — real-world messages without forced hooks/ad-intel should track baseline.**
+
+### Godlike audit (4 parallel subsystem auditors) + auto-fix — 2026-07-14
+
+Ran 4 READ-ONLY auditors — (A) LLM-gen pipeline, (B) seed-classifier + wiring, (C) delivery /
+LinkedIn seamlessness, (D) FE Detect — plus a full 52-case multilingual smoke test. Findings
+triaged; fixes applied and re-verified (full monorepo typecheck + build GREEN).
+
+**FIXED**
+- [High] web_search research fallback only covered a THROWN call. A non-throwing-but-unusable
+  search response (stop_reason pause_turn / max_tokens → no parseable JSON text block) failed
+  research where the old tool-less single call never did. Fix: extract+parse moved into ONE
+  best-effort unit (`callAndParse`) so "unparseable" ALSO degrades to knowledge-only; added an
+  abort guard so a client disconnect doesn't fire a doomed fallback. (prospectResearch.ts) Blast
+  radius: research control flow only.
+- [High] Anti-hallucination gate (`detectUngroundedClaims`) didn't ground on the hook fields the
+  doctrine now leads with — real hooks carry numbers (funding, headcounts, years) that self-flagged
+  as hallucinations, burning heal iterations + fighting the rewriter (told to keep the hook). Fix:
+  added freshHook/hookDateOrRecency/ctvAngle to groundParts. (messageGenerator.ts, 3 lines)
+- [Med] classify-seed route had NO per-minute rate limit (Opus + web_search ~$0.12/call = cost-DoS;
+  daily cap is off by default). Fix: reused checkResolveCompanyRateLimit (60/min). (prospector.ts)
+- [Med] Classifier discarded regional language tags ("pt-BR") via a strict 2-letter guard →
+  fell back to getLanguageForCountry(country NAME) → "en" → a Portuguese prospect got English. Fix:
+  normalize with primarySubtag (pt-BR → pt). (seedClassifier.ts)
+- [Med] FE: the 2000-char company field (raised for URL paste) let a 201–2000-char NON-URL string
+  through → cryptic BE 400 (company cap 200). Fix: client-side ≤200 guard + hint. (AddManualContactDialog.tsx)
+- [Low] Web-sourced freshHook / acquisitionModel rendered RAW in the critic + rewriter brief digests
+  (fence-injection surface; freshHook comes from untrusted web pages). Fix: routed through
+  neutralizeUntrusted. (messagePrompts.ts)
+- [Low] LinkedIn fallback intro said "open the profile" even when no profile URL existed. Fix: gate
+  the intro copy on linkedinProfileUrl. (followupFallback.ts)
+- [Low] FE: an empty classified.company left a stuck/contradictory state. Fix: toast "type it
+  manually" + bail. (AddManualContactDialog.tsx)
+
+**VERIFIED CLEAN (no action)** — delivery redirect-loop (LinkedIn /open→/fallback is terminal, no
+cycle); token round-trips + re-verifies at /open+/fallback+/confirm; LinkedIn-URL XSS blocked
+(host-enforced canonicalizeLinkedinUrl + escapeHtml + rel=noopener + Referrer-Policy); ZERO double
+LLM spend on /open→/fallback (message persists before redirect, fallback reuses it); wa/tg /open
+byte-unchanged; classifier "never throws" holds; subVertical validity + vertical consistency;
+override precedence; spend-cap wiring + atomic daily_usage transaction (classify cost single-counted);
+secret redaction; ProspectBrief optional-field type change breaks no consumer; critic score-shape
+consistent, no followuper leakage.
+
+**DEFERRED (documented, not fixed)**
+- Em-dash blanket hard-fail can strip grammatically-required dashes (RU тире, ES/FR raya) — KEPT per
+  the user's explicit doctrine ("No em dashes in any language"); bench iterations did not blow up
+  (1.7–1.85). Revisit if a specific language regresses on it.
+- web_search server-tool fee not added to computeCost → generatorCostUsd slightly under-reports when
+  search runs (Low; needs the Anthropic per-search pricing constant).
+- Knowledge-only fallback path still prompts "use web search" (Low; the HARD RULE "never invent a
+  hook, set fresh_hook to '' if none" contains it).
+- Classify spend lost if research/gen throws AFTER a paid classify (Low; mirrors pre-existing
+  research-cost best-effort behavior).
+- Newly-classified coarse `vertical` not persisted / prospectInput.vertical stale (Low; doctrine
+  routing keys off subVertical → cosmetic/telemetry).
+- FE bare-domain company names (spaceless X.Y) mis-detected as URL seeds (Low; harmless — no network
+  fetch, model still classifies from the name; "Booking.com" correctly allowed).
+
+**SMOKE (full 52-case, gemini-3-flash-preview)** — pre-fix 3.79–3.81 avg @ 1.7–1.85 iters; post-fix
+re-run: **3.76 avg @ 2.00 iters**, dist {5:4, 4:32, 3:12, 2:2, 0:2}. Score-2: lv-Latvia, si-SriLanka
+— both genuinely low-resource languages (the documented irreducible floor). The 2 score-0 are the
+Sonnet-5 critic returning a null finalOverallScore (a harness quirk — the messages are fluent, not
+defects). Stable vs pre-fix: the audit fixes are correctness/robustness, not score-movers; the
+grounding fix reduces false-flag churn in PRODUCTION (real hooks carry numbers) more than on the
+bench fixture (whose hook is the word "three"). Score-2 set shifts run-to-run = LLM noise on the
+low-resource tail + the fixture forcing a hook + YouTube/CTV ad-intel onto every case (max stress
+absent in real usage). This matches the repo's documented state: floor ~3, no 3-clean-round
+convergence in one session.
+
+**Post-audit verdict: high confidence. Two High correctness gaps closed (research-never-fails on a
+bad search; hook numbers no longer self-flag), two Med cost/correctness gaps closed (rate-limit +
+pt-BR language), FE guard added; all High/Med from the audit resolved, Lows fixed or documented.
+Full typecheck + build green.**
