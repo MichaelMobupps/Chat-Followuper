@@ -1339,3 +1339,83 @@ hook, not the deploy.
 
 **Green after fixes:** build exit 0 · `pnpm run test` 37/37 · **e2e 8/8 real Chromium** ·
 smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5.
+
+### "Generate message" in the Add dialog — write before the contact exists (2026-07-14)
+
+**Why, again.** The user asked for a "generate message button" three times while looking at the
+Add-a-contact dialog. Prod DID already have the feature (verified empirically: the live bundle is
+byte-identical to the branch build — `index-Bz-pAlmc.js`, same hash, `first-message-preview-dialog` and
+`preview-send` present), and "Add contact" already generated + opened the preview. But asking three
+times IS the finding: the affordance was wrong, whatever the flow did underneath. They chose the real
+thing over relabelling the button.
+
+**The constraint that shaped the design.** prepareFirstMessage needs a prospectId, and the progress
+store is keyed by one — but the whole point is that the contact doesn't exist yet. And
+followupMessageService throws `research_not_complete` when researchBrief is null, so a contact saved
+with a message but NO brief would break at send-next. That makes the draft **all-or-nothing**.
+
+**Built:** POST /prospects/preview-first-message runs classify→research→generate with no prospect row
+and parks {message, brief, classified, company} in an in-memory draft store under a client-generated
+draftId (30-min TTL, single-use, userId-scoped keys); GET /prospects/preview-progress/:draftId +
+a "draft" progress scope drive the in-dialog bar; manual-ingest create takes an optional draftId,
+claims the draft, and persists message + brief + classification in one insert. Rate-limited (shares the
+regenerate window) + daily-cap pre-checked: unlike prepare, a preview has NO cached short-circuit — it
+is always fresh spend.
+
+**The brief never goes on the wire.** Returning it and letting the client POST it back would make an
+LLM prompt input client-controlled (the follow-up writer eats the stored brief, and researchBrief isn't
+writable through any route). The message IS client-supplied — the SDR edits it — but that grants
+nothing new, since PATCH /prospects/:id already admits firstMessageBody.
+
+**Godlike audit — 2 parallel auditors. Both Highs were ORDERING bugs, mirror images of each other:**
+- **[High] research spend booked too late.** previewFirstMessage booked research + generation together
+  at the end, so a generation failure lost the research spend entirely. The prepare path has the same
+  ordering but is accidentally protected by persisting the brief first; here there's no row, so it
+  turned a bounded pre-existing gap into unbounded cap evasion (the cap is a read-then-check, so
+  repeated failing generations would never trip it). Now booked immediately after research, and the
+  terminal insert books ONLY generation — double-counting would have inflated the cap and the digest.
+- **[High] the draft was consumed too early.** consumeDraft ran BEFORE the insert, so a
+  `duplicate_phone` 409 — a routine SDR mistake — destroyed the message they had just reviewed and
+  edited; fixing the phone and resubmitting silently paid for a second generation. Split into
+  peekDraft + deleteDraft; the draft is spent only once the row is really in the DB. New smoke case.
+- **[High] Esc/outside-click/X desynced the draft from its message.** The Cancel button's `disabled`
+  was decorative — Radix routes all three straight to handleOpenChange → reset(), which nulled draftId
+  while the mutation kept running; its onSuccess then set draftMessage with draftId NULL. Reopening
+  showed the previous company's paid message above copy promising it would be saved, while submit
+  (needing both) silently dropped it and the contacts page paid AGAIN. The sibling dialog already had
+  the guard; this one didn't copy it.
+- **[High] editing Company after Generate silently destroyed the reviewed message.** The BE's mismatch
+  guard is right (the brief researched the old company) but was server-side-silent: the textarea kept
+  showing the message and promising to save it. Now the draft is visibly invalidated when company,
+  ticker, or Detect (which rewrites both) changes drift from what was researched.
+- **[Med]** `daily_cap_reached` matched nothing — the server throws `daily_cap_exceeded` — so a capped
+  SDR read the raw code. **[Med]** nothing told the SDR that Generate costs money or takes ~40s; the
+  code said so twice in comments and the UI said neither.
+- **[Low]** a dead `if (vertical !== ...)` branch that couldn't execute; a comment describing behaviour
+  that couldn't happen; route-ordering fragility documented at the mount point (the literal-segment
+  preview routes are safe only because prospects.ts has no POST /prospects/:id — a future one would
+  swallow them silently).
+
+**VERIFIED CLEAN** — the all-or-nothing invariant holds on every branch (the auditor tried to break it
+and couldn't): a client sending firstMessageBody WITHOUT a draftId gets it ignored; an expired,
+mismatched or cross-tenant draft degrades to a plain draft contact. Draft keys are userId-scoped, so
+user B can't claim user A's. The plain add path is byte-identical (no draft → the spread contributes
+nothing; the BE fields are .optional() on a .strict() schema). ManualContactsSection remains dead code.
+The progress freeze/flash class of bug can't occur here at all — a fresh draftId per run means the key
+is never reused, so a stale terminal entry is impossible (the `running`/useFreshProgress plumbing is
+redundant belt-and-braces, kept for consistency).
+
+**New smoke `smoke:draft` — 18/18, ZERO LLM spend** (seeds the draft store directly, so the create path
+runs without the writer; the preview route's own guards are all rejected before any model call).
+Asserts the all-or-nothing invariant, edit-wins-but-brief-from-server, the 409-survives-the-draft fix,
+company-mismatch, cross-tenant isolation, and the route schema guards.
+
+**Green:** build exit 0 · `pnpm run test` 37/37 · e2e 8/8 real Chromium · **smoke:draft 18/18** ·
+smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5 · smoke:bulk PASS (shares the
+create route — unaffected).
+
+**DOCUMENTED, NOT FIXED:** an abandoned draft is paid-for and discarded (the SDR generated, then closed
+the dialog) — inherent to generate-before-save, now at least signposted in the UI copy. The draft store
+is in-memory, so an autoscale instance switch between preview and create loses the draft → the contact
+saves messageless and the row's Generate button does the real run: one wasted preview, never a broken
+contact. Same single-process assumption prepareProgress already documents.

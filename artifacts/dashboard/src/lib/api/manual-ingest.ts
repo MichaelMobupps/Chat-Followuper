@@ -46,6 +46,15 @@ export interface ManualIngestCreateInput {
   company: string;
   ticker: Ticker;
   prePlatformContext?: string | null;
+  /**
+   * Claim a message written by postPreviewFirstMessage before this contact
+   * existed. The BE pairs it with the server-side research brief and persists
+   * both, or — if the draft is gone — creates a plain draft contact instead
+   * (a message without its brief would break follow-ups).
+   */
+  draftId?: string;
+  /** The SDR's edited version of the drafted message. Needs draftId. */
+  firstMessageBody?: string;
 }
 
 /**
@@ -61,6 +70,13 @@ export interface ManualIngestProspect {
   vertical: string | null;
   country: string | null;
   sourceMode: string;
+  /**
+   * Set when the create claimed a draft (the Add dialog's "Generate message"),
+   * so the caller can tell an already-written contact from one that still needs
+   * a run. The route returns the whole inserted row, so this was always on the
+   * wire — the type just didn't say so.
+   */
+  firstMessageBody: string | null;
 }
 
 export function getManualIngestSettings(): Promise<ManualIngestSettings> {
@@ -161,6 +177,50 @@ export interface PrepareFirstMessageResult {
   deepLinkUrl: string | null;
   researchCostUsd?: number;
   generationCostUsd?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Preview: write a first message BEFORE the contact is created ("Generate
+// message" in the Add dialog). The result is parked server-side under draftId;
+// passing that draftId to postManualIngest persists it without re-generating.
+// The research brief is deliberately NOT returned — it stays server-side so the
+// follow-up writer's inputs can't be client-supplied.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface PreviewFirstMessageInput {
+  draftId: string;
+  channel: ManualIngestChannel;
+  firstName: string;
+  company: string;
+  vertical: "web_cps" | "mobile";
+  prePlatformContext?: string | null;
+}
+
+export interface PreviewFirstMessageResult {
+  draftId: string;
+  message: string;
+  classified: {
+    vertical: string;
+    subVertical: string;
+    country: string;
+    language: string;
+    product: string;
+  };
+}
+
+export function postPreviewFirstMessage(
+  input: PreviewFirstMessageInput,
+): Promise<PreviewFirstMessageResult> {
+  return apiFetch<PreviewFirstMessageResult>(
+    "/api/prospects/preview-first-message",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function getPreviewProgress(draftId: string): Promise<PrepareProgress> {
+  return apiFetch<PrepareProgress>(
+    `/api/prospects/preview-progress/${encodeURIComponent(draftId)}`,
+  );
 }
 
 export function postPrepareFirstMessage(

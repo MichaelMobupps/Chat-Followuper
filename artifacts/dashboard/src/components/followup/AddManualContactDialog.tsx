@@ -37,7 +37,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useAddManualContact,
   useClassifySeed,
+  usePreviewFirstMessage,
+  usePreviewProgress,
 } from "@/hooks/use-manual-ingest";
+import { useFreshProgress } from "@/hooks/use-live-progress";
+import { PrepareProgressBar } from "@/components/followup/PrepareProgressBar";
 import {
   TICKERS,
   TICKER_LABELS,
@@ -80,6 +84,35 @@ const CHANNEL_NAME: Record<ManualIngestChannel, string> = {
   telegram: "Telegram",
   linkedin: "LinkedIn",
 };
+
+/**
+ * Draft ids are opaque correlation keys, not secrets — they're scoped by userId
+ * server-side, so guessing one buys nothing. randomUUID where available (it
+ * needs a secure context), with a plain-random fallback so the button still
+ * works on an http:// origin. Charset matches the BE's ^[A-Za-z0-9_-]+$.
+ */
+function newDraftId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `d${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** The preview route's error codes, in words an SDR can act on. */
+function previewErrorCopy(err: unknown): string {
+  const code = err instanceof ApiError ? (err.code ?? err.message) : String(err);
+  switch (code) {
+    case "rate_limited":
+      return "Too many messages written in the last minute — wait a moment and try again.";
+    // The server's actual code (llmSpendCap.ts throws DailyLlmCapExceededError →
+    // app.ts maps it to 429 daily_cap_exceeded). An earlier guess at
+    // "daily_cap_reached" matched nothing, so a capped SDR read the raw code.
+    case "daily_cap_exceeded":
+      return "Today's AI budget is used up. You can still add the contact and generate the message tomorrow.";
+    default:
+      return code;
+  }
+}
 
 interface Props {
   channel: ManualIngestChannel;
@@ -127,9 +160,20 @@ export function AddManualContactDialog({
   const { toast } = useToast();
   const add = useAddManualContact();
   const classify = useClassifySeed();
+  const preview = usePreviewFirstMessage();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [contextOpen, setContextOpen] = useState(false);
   const [detected, setDetected] = useState<ClassifiedSeed | null>(null);
+  // A message written before the contact exists. `draftId` is what the create
+  // call passes so the BE can pair the (editable) text with the research brief
+  // it kept server-side. Null message = nothing generated yet.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftMessage, setDraftMessage] = useState<string | null>(null);
+  const previewProgress = useFreshProgress(
+    usePreviewProgress(draftId, { running: preview.isPending }).data,
+    preview.isPending,
+    draftId,
+  );
 
   // Client-side hint validation. The submit button is enabled when all
   // four required fields are non-empty AND the phone matches E.164 shape.
@@ -150,6 +194,18 @@ export function AddManualContactDialog({
     /\b(play\.google\.com|apps\.apple\.com|itunes\.apple\.com)\b/i.test(
       companyTrimmed,
     );
+  // The company + product type must be settled before we spend money writing a
+  // message about them, but the identifier (phone/handle/URL) is irrelevant to
+  // the writer — so Generate is available before it's filled in.
+  const canGenerate =
+    form.firstName.trim().length > 0 &&
+    companyTrimmed.length > 0 &&
+    companyTrimmed.length <= 200 &&
+    !companyLooksLikeUrl &&
+    form.ticker !== null &&
+    !preview.isPending &&
+    !add.isPending;
+
   const canSubmit =
     form.firstName.trim().length > 0 &&
     phoneLooksValid &&
@@ -157,7 +213,28 @@ export function AddManualContactDialog({
     companyTrimmed.length <= 200 &&
     !companyLooksLikeUrl &&
     form.ticker !== null &&
-    !add.isPending;
+    !add.isPending &&
+    // Don't let a generate be orphaned by a submit landing mid-run: the draft
+    // wouldn't exist yet, so the contact would save without its message.
+    !preview.isPending;
+
+  /**
+   * Throw away a generated message once the form drifts from what it was
+   * written about.
+   *
+   * AUDIT [High/Med] — the BE refuses to spend a draft on a different company
+   * (its brief researched the old one), and it takes the draft's classification
+   * over the SDR's ticker. Both are the right server-side calls, but they were
+   * SILENT: the textarea kept showing the message above copy promising it would
+   * be saved, then the contact saved without it and the page paid for a second
+   * generation — with the SDR's edits gone. Better to visibly drop it here, so
+   * "Generate message" reappears and the choice is theirs.
+   */
+  function invalidateDraft() {
+    if (draftId === null && draftMessage === null) return;
+    setDraftId(null);
+    setDraftMessage(null);
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -167,6 +244,47 @@ export function AddManualContactDialog({
     setForm(EMPTY);
     setContextOpen(false);
     setDetected(null);
+    setDraftId(null);
+    setDraftMessage(null);
+  }
+
+  /**
+   * Write the message now, before the contact exists.
+   *
+   * Real spend on every click (there's no cached-message short-circuit to fall
+   * into — a preview is always a fresh write), which is why it's an explicit
+   * button rather than something that fires on open.
+   */
+  function handleGenerate() {
+    if (!canGenerate || form.ticker === null) return;
+    // A fresh id per run: it keys both the progress entry and the server-side
+    // draft, so a re-generate can't be confused with the previous attempt.
+    const id = newDraftId();
+    setDraftId(id);
+    setDraftMessage(null);
+    preview.mutate(
+      {
+        draftId: id,
+        channel,
+        firstName: form.firstName.trim(),
+        company: companyTrimmed,
+        vertical: form.ticker === "web" ? "web_cps" : "mobile",
+        prePlatformContext: form.prePlatformContext.trim() || undefined,
+      },
+      {
+        onSuccess: (res) => {
+          setDraftMessage(res.message);
+        },
+        onError: (err) => {
+          setDraftId(null);
+          toast({
+            title: "Could not write the message",
+            description: previewErrorCopy(err),
+            variant: "destructive",
+          });
+        },
+      },
+    );
   }
 
   // Ask-less onboarding: paste a company name OR a store/website URL, and let
@@ -195,6 +313,9 @@ export function AddManualContactDialog({
             company: classified.company || prev.company,
             ticker,
           }));
+          // Detect rewrites company + ticker, so any message generated against
+          // the old values is now stale — same reason as the field handlers.
+          invalidateDraft();
           toast({
             title: "Detected",
             description: `${classified.company} — ${TICKER_LABELS[ticker]} · ${classified.subVertical} · ${classified.country || "market TBD"}`,
@@ -214,6 +335,7 @@ export function AddManualContactDialog({
 
   function handleSubmit() {
     if (!canSubmit || form.ticker === null) return;
+    const trimmedDraft = draftMessage?.trim();
     add.mutate(
       {
         channel,
@@ -222,6 +344,12 @@ export function AddManualContactDialog({
         company: form.company.trim(),
         ticker: form.ticker,
         prePlatformContext: form.prePlatformContext.trim() || undefined,
+        // Claim the pre-written message. Both fields or neither: the BE only
+        // honours firstMessageBody alongside a draftId whose server-side entry
+        // (which holds the research brief) still exists.
+        ...(draftId && trimmedDraft
+          ? { draftId, firstMessageBody: trimmedDraft }
+          : {}),
       },
       {
         onSuccess: (prospect) => {
@@ -255,6 +383,14 @@ export function AddManualContactDialog({
   }
 
   function handleOpenChange(next: boolean) {
+    // AUDIT [High] — the Cancel button's `disabled` was decorative: Radix routes
+    // Esc, outside-click and the corner X straight here. Closing mid-run called
+    // reset(), nulling draftId while the mutation kept going — its onSuccess
+    // then set draftMessage with NO draftId, so reopening showed the previous
+    // company's paid message above copy promising it would be saved, while
+    // handleSubmit (which needs BOTH) silently dropped it and the contacts page
+    // paid for a second generation. Same guard the preview dialog already uses.
+    if (!next && preview.isPending) return;
     if (!next) reset();
     onOpenChange(next);
   }
@@ -331,6 +467,9 @@ export function AddManualContactDialog({
                 onChange={(e) => {
                   update("company", e.target.value);
                   if (detected) setDetected(null);
+                  // The draft researched the OLD company — the BE would refuse
+                  // to spend it, so don't keep showing it as if it'll be saved.
+                  invalidateDraft();
                 }}
                 placeholder="MobUpps — or paste a Google Play / App Store / website URL"
                 // Wide enough to hold a pasted URL; Detect resolves it to the
@@ -394,7 +533,13 @@ export function AddManualContactDialog({
                     type="button"
                     role="radio"
                     aria-checked={active}
-                    onClick={() => update("ticker", t)}
+                    onClick={() => {
+                      update("ticker", t);
+                      // A draft carries the classification from the run that
+                      // wrote it, and the BE takes that over this toggle — so a
+                      // post-Generate flip would be silently ignored. Drop it.
+                      if (form.ticker !== t) invalidateDraft();
+                    }}
                     data-testid={`manual-ticker-${t}`}
                     className={cn(
                       "flex h-10 items-center justify-center rounded-md border text-sm font-medium transition-all",
@@ -450,13 +595,72 @@ export function AddManualContactDialog({
               </div>
             )}
           </div>
+
+          {/* Generate message — write and review the message HERE, before the
+              contact is saved. The result is parked server-side under draftId;
+              "Add contact" claims it, so nothing is generated twice. */}
+          <div className="space-y-1.5 border-t pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="manual-message">First message</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                data-testid="manual-generate"
+                title="Research the company and write the first message now"
+              >
+                {preview.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                <span className="ml-1.5">
+                  {draftMessage === null ? "Generate message" : "Regenerate"}
+                </span>
+              </Button>
+            </div>
+
+            {preview.isPending ? (
+              <div className="py-2" data-testid="manual-generating">
+                <PrepareProgressBar progress={previewProgress} />
+              </div>
+            ) : draftMessage !== null ? (
+              <>
+                <Textarea
+                  id="manual-message"
+                  value={draftMessage}
+                  onChange={(e) => setDraftMessage(e.target.value)}
+                  rows={7}
+                  // Mirrors the BE cap (firstMessageBody max 20000).
+                  maxLength={20000}
+                  data-testid="manual-message"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {draftMessage.length} characters · saved with the contact when
+                  you click <strong>Add contact</strong>.
+                </p>
+              </>
+            ) : (
+              // Say what it costs and how long it takes. The code knew both and
+              // the UI said neither — an SDR shouldn't discover that a button
+              // spends money by clicking it.
+              <p className="text-xs text-muted-foreground">
+                Optional — <strong>Generate message</strong> researches{" "}
+                {companyTrimmed || "the company"} and writes the first message
+                now. Takes up to a minute and uses your AI budget. You can skip
+                it and generate from their row later instead.
+              </p>
+            )}
+          </div>
         </div>
 
         <DialogFooter>
           <Button
             variant="ghost"
             onClick={() => handleOpenChange(false)}
-            disabled={add.isPending}
+            disabled={add.isPending || preview.isPending}
           >
             Cancel
           </Button>

@@ -16,11 +16,15 @@ import {
 import {
   getManualIngestSettings,
   getPrepareProgress,
+  getPreviewProgress,
   patchManualIngestSettings,
   postClassifySeed,
   postManualIngest,
   postManualIngestBulk,
   postPrepareFirstMessage,
+  postPreviewFirstMessage,
+  type PreviewFirstMessageInput,
+  type PreviewFirstMessageResult,
   type ClassifiedSeed,
   type ClassifySeedInput,
   type ManualIngestBulkInput,
@@ -193,5 +197,50 @@ export function useClassifySeed(): UseMutationResult<
 > {
   return useMutation<{ classified: ClassifiedSeed }, ApiError, ClassifySeedInput>({
     mutationFn: (input) => postClassifySeed(input),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Preview ("Generate message" in the Add dialog) — no prospect exists yet, so
+// the run is keyed by a client-generated draftId. No cache side-effects: the
+// caller reads the message into a textarea, and the create call claims the
+// server-side draft by id.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function usePreviewFirstMessage(): UseMutationResult<
+  PreviewFirstMessageResult,
+  ApiError,
+  PreviewFirstMessageInput
+> {
+  return useMutation<PreviewFirstMessageResult, ApiError, PreviewFirstMessageInput>({
+    mutationFn: (input) => postPreviewFirstMessage(input),
+  });
+}
+
+/**
+ * Same polling contract as usePrepareProgress, including the `running` escape —
+ * a draftId is fresh per run so a stale terminal entry is unlikely, but the
+ * server still parks ready/error for 15 minutes and a retried draftId would hit
+ * the identical race. Cheaper to be consistent than to reason about why not.
+ */
+export function usePreviewProgress(
+  draftId: string | null,
+  opts?: { running?: boolean },
+): UseQueryResult<PrepareProgress, ApiError> {
+  const running = opts?.running ?? false;
+  return useQuery<PrepareProgress, ApiError>({
+    queryKey: ["preview-progress", draftId],
+    queryFn: () => getPreviewProgress(draftId!),
+    enabled: draftId !== null,
+    refetchInterval: (query) => {
+      const stage = query.state.data?.stage;
+      if (query.state.errorUpdateCount >= 3) return false;
+      if (running) return 1200;
+      if (stage === "ready" || stage === "error") return false;
+      if (stage === "idle" && query.state.dataUpdateCount >= 10) return false;
+      return 1200;
+    },
+    gcTime: 0,
+    staleTime: 0,
   });
 }

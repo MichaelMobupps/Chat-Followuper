@@ -36,7 +36,7 @@ export type PrepareStage =
   | "ready"        // done — message available
   | "error";       // failed — `error` carries a short reason code
 
-type ProgressScope = "prospect" | "followup";
+type ProgressScope = "prospect" | "followup" | "draft";
 
 export interface PrepareProgressEntry {
   stage: PrepareStage;
@@ -137,6 +137,28 @@ export function getFollowupProgress(
   followupId: number,
 ): PrepareProgressEntry | null {
   return getProgress(userId, "followup", followupId);
+}
+
+// ── Draft scope (preview-first-message, before any prospect row exists) ──
+//
+// Keyed by a client-generated draftId rather than a prospectId: the whole point
+// of the preview is that the contact hasn't been created yet. Same
+// (userId, scope, id) key shape, so one tenant still can't read another's run.
+
+export function setDraftProgress(
+  userId: string,
+  draftId: string,
+  stage: PrepareStage,
+  error?: string,
+): void {
+  setProgress(userId, "draft", draftId, stage, error);
+}
+
+export function getDraftProgress(
+  userId: string,
+  draftId: string,
+): PrepareProgressEntry | null {
+  return getProgress(userId, "draft", draftId);
 }
 
 /** Test hook. */

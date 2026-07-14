@@ -48,6 +48,8 @@ import { requireAuth } from "../middlewares/auth";
 import { uniqueViolationCode } from "../lib/dbErrors";
 import { detectCountry } from "../lib/geoGate";
 import { canonicalizeLinkedinUrl } from "../services/channels/linkedin";
+import { peekDraft, deleteDraft } from "../services/firstMessageDrafts";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -1186,6 +1188,14 @@ const manualIngestBodySchema = z
     company: z.string().trim().min(1).max(200),
     ticker: z.enum(TICKERS),
     prePlatformContext: z.string().trim().max(5000).nullable().optional(),
+    // Claim a message written by POST /prospects/preview-first-message before
+    // this contact existed ("Generate message" in the Add dialog). Optional:
+    // every existing caller omits it and gets today's behaviour exactly.
+    draftId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
+    // The SDR's (possibly edited) version of that message. Only honoured
+    // alongside a draftId whose server-side entry still exists — see the
+    // all-or-nothing note at the insert.
+    firstMessageBody: z.string().trim().min(1).max(20000).optional(),
   })
   .strict();
 
@@ -1348,6 +1358,39 @@ router.post(
       }
     }
 
+    // Claim a pre-written message, if the dialog generated one.
+    //
+    // ALL-OR-NOTHING, on purpose. followupMessageService throws
+    // `research_not_complete` when researchBrief is null, so persisting the
+    // message WITHOUT its brief would create a contact whose follow-ups break at
+    // send-next — strictly worse than not persisting it. If the draft is gone
+    // (TTL, restart, or another autoscale instance), we fall through to a plain
+    // draft contact: no message, status "draft", and the row's Generate button
+    // runs the real pipeline and sets body + brief together. One wasted preview
+    // beats a broken contact.
+    //
+    // The brief comes from the SERVER-side draft, never the wire. The message
+    // does come from the client (the SDR edits it in a textarea) — that grants
+    // nothing new, since PATCH /prospects/:id already admits firstMessageBody.
+    // PEEK, don't consume: the insert below can still 409 on duplicate_phone —
+    // a routine mistake, not an edge case. Consuming here meant that 409
+    // destroyed the message the SDR had just reviewed and edited, so fixing the
+    // phone and resubmitting silently paid for a second generation. The draft is
+    // deleted only once the row is really in the DB.
+    const draft = body.draftId ? peekDraft(user.id, body.draftId) : null;
+    // Guard against a draft being spent on a different company than the one it
+    // researched — the form is editable after Generate, so the two can diverge.
+    const draftMatches =
+      draft !== null &&
+      draft.company.trim().toLowerCase() === body.company.trim().toLowerCase();
+    if (draft && !draftMatches) {
+      logger.warn(
+        { userId: user.id, draftId: body.draftId },
+        "manual-ingest: draft company mismatch; ignoring pre-written message",
+      );
+    }
+    const useDraft = draft !== null && draftMatches;
+
     const inserted = await db
       .insert(prospectsTable)
       .values({
@@ -1358,10 +1401,23 @@ router.post(
         sourceMode: "manual",
         prospectName: body.firstName,
         company: body.company,
-        vertical: tickerToCoarseVertical(body.ticker),
-        country,
+        vertical: useDraft
+          ? draft!.classified.vertical
+          : tickerToCoarseVertical(body.ticker),
+        country: useDraft ? draft!.classified.country || country : country,
         prePlatformContext: body.prePlatformContext ?? null,
         firstMessageChannel: body.channel,
+        ...(useDraft
+          ? {
+              // The SDR's edit wins over the generated text; the brief and the
+              // classification are the run's, not the client's.
+              firstMessageBody: body.firstMessageBody?.trim() || draft!.message,
+              researchBrief: draft!.brief,
+              subVertical: draft!.classified.subVertical,
+              language: draft!.classified.language,
+              product: draft!.classified.product,
+            }
+          : {}),
       })
       .onConflictDoNothing({
         target: [prospectsTable.userId, prospectsTable.phone],
@@ -1381,6 +1437,11 @@ router.post(
     }
 
     const prospect = inserted[0]!;
+
+    // The row exists now, so the draft is genuinely spent — release it. Only
+    // when it was actually USED: a mismatched draft (different company) wasn't
+    // persisted, so leave it for a corrected resubmit to claim.
+    if (useDraft && body.draftId) deleteDraft(user.id, body.draftId);
 
     try {
       await db.insert(actionLogsTable).values({

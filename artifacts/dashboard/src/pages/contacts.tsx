@@ -227,8 +227,13 @@ export default function ContactsPage() {
     void runGenerate(target);
   }
 
-  // Freshly added contact — same path, straight from the Add dialog.
+  // Freshly added contact. If the dialog already wrote the message ("Generate
+  // message" → the BE persisted it with its research brief), there is nothing
+  // to run: the row lands "ready" and the SDR has already reviewed the text.
+  // Kicking off a generate here would be a no-op POST at best (the BE
+  // short-circuits on the stored body) and a confusing empty preview at worst.
   function handleAdded(prospect: ManualIngestProspect) {
+    if (prospect.firstMessageBody?.trim()) return;
     const target: PreviewTarget = {
       id: prospect.id,
       prospectName: prospect.prospectName ?? null,
