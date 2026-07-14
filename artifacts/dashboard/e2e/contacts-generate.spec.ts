@@ -99,6 +99,33 @@ test.describe("Contacts generate → preview", () => {
     await expect(page.getByTestId("contacts-generate-p1")).toBeVisible();
   });
 
+  test("a row needing a message offers NO way to send unreviewed", async ({
+    page,
+  }) => {
+    // Regression guard for the audit's Med finding: a draft row used to render
+    // BOTH "Generate" and a PRIMARY "Generate & send" that went straight to the
+    // composer — no bar, no preview. Every bulk-added contact is a draft, so the
+    // styling steered the SDR onto the one path this feature doesn't cover.
+    // Generate is now the only action; sending happens from the preview.
+    await stubBase(page);
+    await page.goto("/contacts");
+
+    await expect(page.getByTestId("contacts-generate-p1")).toBeVisible();
+    await expect(page.getByTestId("contacts-send-p1")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Generate & send/i })).toHaveCount(0);
+  });
+
+  test("a row WITH a message offers Send, not Generate", async ({ page }) => {
+    await stubBase(page, [
+      prospectRow({ status: "ready", firstMessageBody: MSG }),
+    ]);
+    await page.goto("/contacts");
+
+    await expect(page.getByTestId("contacts-send-p1")).toBeVisible();
+    await expect(page.getByTestId("contacts-send-p1")).toHaveText(/Send follow-up/);
+    await expect(page.getByTestId("contacts-generate-p1")).toHaveCount(0);
+  });
+
   test("Generate opens the preview, streams the staged bar, then shows the message", async ({
     page,
   }) => {

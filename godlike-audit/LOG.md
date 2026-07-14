@@ -1278,3 +1278,64 @@ preview already spends one `prepare`).
 `pnpm run build` exit 0 · `pnpm run test` → 37/37 (db 3/3 + dashboard 34/34) ·
 `pnpm --filter @workspace/dashboard test:e2e` → **6/6 real Chromium** ·
 smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5. **Nothing outstanding.**
+
+### Pre-publish godlike audit + blast radius — 2026-07-14
+
+Two parallel read-only auditors over the session's 3 commits, framed as a PUBLISH gate (what breaks the
+deploy / changes prod behaviour) rather than a code review.
+
+**Deploy: CLEAR — nothing blocked publishing.** The big worry (test deps reaching prod) was unfounded,
+and verified five ways rather than argued: @playwright/test 1.55.0 / playwright / playwright-core have
+NO install-time browser download (modern playwright moved it into the explicit `npx playwright
+install`); pnpm 10 blocks lifecycle scripts unless allowlisted and `pnpm-workspace.yaml
+onlyBuiltDependencies` doesn't list playwright; `.modules.yaml pendingBuilds: []`; ~25MB total; and the
+shipped bundle can't include them (vite walks from index.html; esbuild uses explicit entryPoints, and
+already had "playwright" in `external`). Also corrected two of my own assumptions: **the deploy never
+runs root build/typecheck/test** — build commands come from per-artifact `.replit-artifact/artifact.toml`
+— and **`main` is the wrong diff base** (it's far behind; `HEAD~3` = eec3077 "Published your App" is the
+deployed baseline). No migration in the diff → Republish is safe with prod at 0018. Lockfile: zero
+production resolutions changed. 429 shape verified empirically against Express 5. `_regenRateMap` holds
+≤10 timestamps/user and sweeps at >5000 → no leak.
+
+**Blast radius on the follow-up page: CLEAN.** The auditor tried hard to break the send-next flow and
+couldn't. `running: generatingFollowup !== null` is correct on every path *by construction* — `running`
+and `runKey` derive from one state, so they can't disagree — and the bar's entire lifetime sits inside
+`running === true`, so the only frames useFreshProgress can hide are ones `onSettled` would tear down
+milliseconds later. On that page the change is a strict improvement. Cached-message skip (no bar) is
+unchanged, not a regression.
+
+**FIXED**
+- **[Med] the feature was incomplete on its most-clicked surface.** A draft row rendered BOTH "Generate"
+  (outline) and a PRIMARY "Generate & send" that called handlePrepareAndSend directly — no
+  `generatingId`, so no bar; no `previewTarget`, so no preview. Every bulk-added contact lands `draft`
+  (neither BulkAddDialog nor the BE bulk route generates), so the styling actively steered the SDR onto
+  the exact path this feature exists to fix. Verbatim the problem the commit message claimed to solve.
+  Now a row needing a message gets ONE action — Generate → preview → Send from there; a row with a
+  message gets "Send follow-up". Two new browser tests lock it: a draft row exposes no send-unreviewed
+  path, a ready row exposes no Generate.
+- **[Low] the Generate button's spinner was unreachable.** `canGenerate` required `!busy` and gated the
+  button's EXISTENCE, so clicking made it vanish rather than spin. Now gated on `disabled`, not render.
+- **[Low] raw machine codes reached the SDR.** `err.code` was toasted verbatim: a rate-limited rep read
+  literally "rate_limited", a refused regenerate read "already_sent". New `generateErrorCopy` maps the
+  codes this flow can actually produce (rate_limited / already_sent / missing_company / geo_blocked) to
+  copy that says what to do; anything else still falls through to the code.
+- **[Low] @playwright/test wasn't actually pinned** — `^1.55.0`, a caret, while the config comment
+  insisted it was held at 1.55.0. Not theoretical: an orphaned 1.61.1 was already in .pnpm from a
+  non-frozen resolve. Now exact `1.55.0`.
+- **[Low] the follow-up bar green-checked "Researching company"** — a stage follow-ups never run (they
+  reuse the persisted brief; prepareProgress.ts says so outright). New `skipResearch` prop; the
+  follow-up call site passes it. The bar no longer claims work the pipeline didn't do.
+- **[Low] a comment on ChannelFollowupPage's resetQueries described the OTHER call site's mechanics** —
+  there it's a genuine no-op (gcTime:0 + the observer already unsubscribed), so it can't "restart" a
+  frozen poller; `running` is what does the work. Corrected rather than deleted.
+
+**Documented, NOT changed:** the rate limit is per-process, so autoscale makes the real ceiling 10×N/min
+per user and a restart resets the window — a burst guard, not a spend ceiling (the daily cap is the
+spend bound, and it's off unless LLM_DAILY_SPEND_CAP_USD is set). `refetchOnWindowFocus` (bare
+QueryClient) + sticky `generatingId` means a parked "Ready" bar can vanish on tab-back after the 15-min
+server TTL, and a short cached run can trigger a ~12s poll burst — bounded, no leak. `[postMerge]
+timeoutMs = 20000` may be tight for a cold-store install now (~25MB more) — affects the agent's merge
+hook, not the deploy.
+
+**Green after fixes:** build exit 0 · `pnpm run test` 37/37 · **e2e 8/8 real Chromium** ·
+smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5.

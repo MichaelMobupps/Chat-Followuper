@@ -31,16 +31,34 @@ const STAGE_INDEX: Record<string, number> = Object.fromEntries(
 interface Props {
   progress: PrepareProgress | undefined;
   className?: string;
+  /**
+   * Drop the "Researching company" step. Follow-up generation reuses the
+   * persisted research brief and never runs research (followupMessageService;
+   * prepareProgress.ts says so outright: "Follow-ups skip researching"), so it
+   * goes queued → writing → finalizing → ready. Rendering the shared stage list
+   * there put a green check on research that never happened — the bar claiming
+   * work the pipeline didn't do.
+   */
+  skipResearch?: boolean;
 }
 
-export function PrepareProgressBar({ progress, className }: Props) {
+export function PrepareProgressBar({
+  progress,
+  className,
+  skipResearch = false,
+}: Props) {
   if (!progress || progress.stage === "idle") return null;
+
+  const stages = skipResearch
+    ? STAGES.filter((s) => s.key !== "researching")
+    : STAGES;
+  const stageIndex = skipResearch
+    ? Object.fromEntries(stages.map((s, i) => [s.key, i]))
+    : STAGE_INDEX;
 
   const isError = progress.stage === "error";
   const isDone = progress.stage === "ready";
-  const currentIdx = isError
-    ? -1
-    : STAGE_INDEX[progress.stage] ?? 0;
+  const currentIdx = isError ? -1 : stageIndex[progress.stage] ?? 0;
 
   return (
     <div
@@ -72,7 +90,7 @@ export function PrepareProgressBar({ progress, className }: Props) {
             Failed{progress.error ? ` — ${progress.error}` : ""}. Try again.
           </span>
         ) : (
-          STAGES.map((stage, idx) => {
+          stages.map((stage, idx) => {
             const isCurrent = idx === currentIdx && !isDone;
             const isPast = idx < currentIdx || isDone;
             return (

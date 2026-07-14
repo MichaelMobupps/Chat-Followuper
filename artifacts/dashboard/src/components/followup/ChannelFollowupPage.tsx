@@ -209,11 +209,13 @@ export function ChannelFollowupPage({ channel }: Props) {
     // message returns in one round-trip with nothing to watch.
     const next = item.derived.nextScheduled;
     if (next && !next.generatedMessage?.trim()) {
-      // Clear the client cache so the bar starts blank rather than on the last
-      // run's frame. NOTE: this alone does NOT restart a poller that a previous
-      // run parked on a terminal entry — the entry lives on the SERVER for a
-      // 15-min TTL, so the next GET re-reads it and re-freezes the interval.
-      // The `running` flag on useFollowupProgress is what actually fixes that.
+      // Belt-and-braces cache clear. Unlike the Contacts call site, this one is
+      // a no-op in practice: useFollowupProgress sets gcTime:0 and the previous
+      // run set generatingFollowup back to null, which unsubscribed the observer
+      // and evicted the query entirely — so there's nothing here to reset and no
+      // active observer to refetch. What actually keeps a previous run's parked
+      // terminal entry (server-side, 15-min TTL) from freezing the bar is the
+      // `running` flag below, plus useFreshProgress hiding the stale frame.
       void queryClient.resetQueries({
         queryKey: ["followup-progress", next.id],
       });
@@ -689,9 +691,15 @@ function FollowupRow({
           {[prospect.title, prospect.company].filter(Boolean).join(" · ") ||
             "—"}
         </div>
-        {/* Phase I: staged progress while this row's follow-up generates. */}
+        {/* Phase I: staged progress while this row's follow-up generates.
+            skipResearch: follow-ups reuse the persisted research brief, so this
+            run never researches — don't green-check a step that didn't run. */}
         {progress ? (
-          <PrepareProgressBar progress={progress} className="mt-2 max-w-md" />
+          <PrepareProgressBar
+            progress={progress}
+            className="mt-2 max-w-md"
+            skipResearch
+          />
         ) : null}
         {/* F-B: compact expandable per-stage schedule. */}
         {stageRows.length > 0 ? (

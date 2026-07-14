@@ -73,6 +73,31 @@ function statusVariant(
   return "outline";
 }
 
+/**
+ * Turn a generate/regenerate failure into something an SDR can act on.
+ *
+ * The raw `err.code` was being toasted verbatim, so a rate-limited rep read
+ * literally "rate_limited" and a refused regenerate read "already_sent" —
+ * machine codes, with no hint of what to do next. These two are the errors the
+ * preview flow can actually produce; anything else falls through to the code,
+ * which is still better than a bare 500 for the unexpected cases.
+ */
+function generateErrorCopy(err: unknown): string {
+  const code = err instanceof ApiError ? (err.code ?? err.message) : String(err);
+  switch (code) {
+    case "rate_limited":
+      return "Too many regenerates in the last minute — wait a moment and try again.";
+    case "already_sent":
+      return "This message was already sent, so it can't be rewritten. Send a follow-up instead.";
+    case "missing_company":
+      return "Add a company for this contact first — the writer needs something to research.";
+    case "geo_blocked":
+      return "This prospect's country is blocked for this channel.";
+    default:
+      return code;
+  }
+}
+
 function toPreviewTarget(prospect: ProspectListItem): PreviewTarget {
   return {
     id: prospect.id,
@@ -174,8 +199,7 @@ export default function ContactsPage() {
       // The POST never succeeded — there is no server-side run to poll (the
       // progress entry is either absent or terminal-error). Clear the id so
       // the disabled query stops polling instead of reading "idle" forever.
-      const description =
-        err instanceof ApiError ? (err.code ?? err.message) : String(err);
+      const description = generateErrorCopy(err);
       // Everything here is superseded-run-guarded, the toast included: a stale
       // run rejecting after a newer one took over must not raise a red "could
       // not generate" over a run that is working fine.
@@ -466,10 +490,15 @@ export default function ContactsPage() {
                   row.status !== "sent" &&
                   row.status !== "phone-pending" &&
                   hasId;
-                // "Generate" (message-only) is offered while the row still
-                // needs a message. Once ready/sent, the send button takes over.
-                const canGenerate =
-                  row.status === "draft" && !busy && !generateElsewhere;
+                // A row that still needs a message gets exactly ONE action:
+                // Generate, which opens the preview. It used to ALSO render
+                // "Generate & send" as the primary button, which went straight
+                // to the composer — no bar, no preview, no review. Every
+                // bulk-added contact lands as "draft" (neither BulkAddDialog nor
+                // the BE bulk route generates), so the styling was steering the
+                // SDR to the one path this feature doesn't cover. Sending now
+                // happens from the preview, where the message can be read first.
+                const needsMessage = row.status === "draft";
                 const showProgress = generatingId === row.id;
                 return (
                   <TableRow key={row.id}>
@@ -502,11 +531,15 @@ export default function ContactsPage() {
                         </span>
                       ) : (
                         <div className="flex items-center justify-end gap-2">
-                          {canGenerate ? (
+                          {needsMessage ? (
+                            // Gated (not hidden) while busy, so the button can
+                            // actually show its spinner. The old gate gated the
+                            // button's own EXISTENCE on !busy, so clicking it
+                            // made it vanish rather than spin — the spinner
+                            // branch was unreachable.
                             <Button
                               size="sm"
-                              variant="outline"
-                              disabled={busy}
+                              disabled={busy || generateElsewhere}
                               onClick={() => handleGenerate(row)}
                               data-testid={`contacts-generate-${row.id}`}
                             >
@@ -517,21 +550,21 @@ export default function ContactsPage() {
                               )}
                               Generate
                             </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            disabled={!canSend || busy}
-                            onClick={() => handlePrepareAndSend(row)}
-                          >
-                            {busy ? (
-                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            ) : (
-                              <Send className="h-4 w-4 mr-1" />
-                            )}
-                            {row.status === "ready"
-                              ? "Send follow-up"
-                              : "Generate & send"}
-                          </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              disabled={!canSend || busy}
+                              onClick={() => void handlePrepareAndSend(row)}
+                              data-testid={`contacts-send-${row.id}`}
+                            >
+                              {busy ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <Send className="h-4 w-4 mr-1" />
+                              )}
+                              Send follow-up
+                            </Button>
+                          )}
                         </div>
                       )}
                     </TableCell>
