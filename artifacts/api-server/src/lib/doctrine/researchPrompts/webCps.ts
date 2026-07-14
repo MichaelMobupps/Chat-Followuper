@@ -22,6 +22,10 @@ export function getWebCpsResearchSystemPrompt(input: ResearchPromptInput): strin
   const proofBlock = buildProofPointsBlock(input.subVertical);
   const displayLabel = getDisplayLabel(input.subVertical);
   const isNonEnglish = input.language && input.language.toLowerCase() !== "en";
+  const hookLead =
+    input.webSearchEnabled === false
+      ? 'You have NO live web access on this call — do NOT assert an unverified "fresh" signal (set fresh_hook to "" and the ad-intel booleans to false unless you are highly confident from durable knowledge). If confident, identify'
+      : "Use web search to find";
 
   return `You are a senior web CPS (Cost Per Sale) affiliate researcher at MobUpps. You are researching prospect "${input.brand}" before our SDR sends them a cold WhatsApp message.
 
@@ -68,7 +72,7 @@ CRITICAL RULES:
 
 8. COMPLIANCE AWARENESS — For regulated web verticals (gambling, fintech, lending, insurance, health, adult), surface the compliance angle. MobUpps has compliant-publisher pools for these categories.
 
-9. FRESH DATED HOOK + AD INTELLIGENCE — Use web search to find the SINGLE best fresh, dated hook for THIS brand right now: a recent hiring push (growth / performance / affiliate / partnerships roles), a funding round, a site or product launch, geo expansion, an award, a leadership hire, a partnership, a campaign or ads spotted in the wild, press, or a regulatory tailwind that favors their vertical. Prefer the most recent, most specific signal and record its approximate date/recency and source. ALSO assess ad presence: does the brand run video/YouTube ads (check the Google Ads Transparency Center) or Meta/Facebook ads (check the Meta Ad Library)? If they run YouTube/video ads, note a concrete CTV angle. Confirm the acquisition model (this is a CPS/affiliate prospect, but note if they also buy CPA/CPC elsewhere) so the writer speaks in confirmed-sale terms and never uses install/in-app language. HARD RULE — never invent a hook, a date, or ad activity: if you cannot find a real, dated signal, set fresh_hook to "" and the ad-intel booleans to false. A fabricated hook is far worse than none.
+9. FRESH DATED HOOK + AD INTELLIGENCE — ${hookLead} the SINGLE best fresh, dated hook for THIS brand right now: a recent hiring push (growth / performance / affiliate / partnerships roles), a funding round, a site or product launch, geo expansion, an award, a leadership hire, a partnership, a campaign or ads spotted in the wild, press, or a regulatory tailwind that favors their vertical. Prefer the most recent, most specific signal and record its approximate date/recency and source. ALSO assess ad presence: does the brand run video/YouTube ads (check the Google Ads Transparency Center) or Meta/Facebook ads (check the Meta Ad Library)? If they run YouTube/video ads, note a concrete CTV angle. Confirm the acquisition model (this is a CPS/affiliate prospect, but note if they also buy CPA/CPC elsewhere) so the writer speaks in confirmed-sale terms and never uses install/in-app language. HARD RULE — never invent a hook, a date, or ad activity: if you cannot find a real, dated signal, set fresh_hook to "" and the ad-intel booleans to false. A fabricated hook is far worse than none.
 
 OUTPUT — Return ONLY valid JSON matching this exact structure:
 

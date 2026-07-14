@@ -21,7 +21,7 @@
 
 import { anthropic } from "../lib/anthropic";
 import { withAnthropicRetry } from "./anthropicRetry";
-import { computeCost, type CostBreakdown } from "../lib/pricing";
+import { computeCost, webSearchFeeUsd, type CostBreakdown } from "../lib/pricing";
 import { logger } from "../lib/logger";
 import {
   getResearchSystemPrompt,
@@ -474,6 +474,7 @@ export async function researchProspect(
     sdrContextNotes: sanitizeContextNotes(input.sdrContextNotes),
     apolloOrgIndustry: input.apolloOrgIndustry,
     apolloEmployeeCount: input.apolloEmployeeCount,
+    webSearchEnabled: RESEARCH_WEB_SEARCH_ENABLED,
   };
 
   // Re-validate after sanitization. The sanitizer can strip a brand name
@@ -528,7 +529,13 @@ export async function researchProspect(
               model: RESEARCH_MODEL,
               // Web search needs headroom for the interleaved tool_use blocks.
               max_tokens: useWebSearch ? 3200 : 2500,
-              system: systemPrompt,
+              // Build the system prompt to match THIS call's web-access mode so
+              // the knowledge-only fallback doesn't claim it can search the web
+              // (which could nudge it to assert a training-recalled hook as fresh).
+              system: getResearchSystemPrompt({
+                ...promptInput,
+                webSearchEnabled: useWebSearch,
+              }),
               messages: [{ role: "user", content: userPrompt }],
               // Server-side web search for fresh-hook + ad-intel grounding.
               // Cast: SDK typings lack the partner web_search tool variant.
@@ -622,7 +629,13 @@ export async function researchProspect(
 
   const inputTokens = response.usage?.input_tokens ?? 0;
   const outputTokens = response.usage?.output_tokens ?? 0;
-  const cost = computeCost(RESEARCH_MODEL, inputTokens, outputTokens);
+  // Web search bills a per-request fee not reflected in token counts. Cast:
+  // SDK usage typings may omit the partner-tool server_tool_use field.
+  const webSearchReqs = Number(
+    (response.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+  );
+  const baseCost = computeCost(RESEARCH_MODEL, inputTokens, outputTokens);
+  const cost = { ...baseCost, usd: baseCost.usd + webSearchFeeUsd(webSearchReqs) };
 
   emitLlmSubstage(emitter, {
     stage: "research",

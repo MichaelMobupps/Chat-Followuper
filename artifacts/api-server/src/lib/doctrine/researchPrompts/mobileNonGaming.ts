@@ -29,6 +29,10 @@ export function getMobileNonGamingResearchSystemPrompt(input: ResearchPromptInpu
   const proofBlock = buildProofPointsBlock(input.subVertical);
   const displayLabel = getDisplayLabel(input.subVertical);
   const isNonEnglish = input.language && input.language.toLowerCase() !== "en";
+  const hookLead =
+    input.webSearchEnabled === false
+      ? 'You have NO live web access on this call — do NOT assert an unverified "fresh" signal (set fresh_hook to "" and the ad-intel booleans to false unless you are highly confident from durable knowledge). If confident, identify'
+      : "Use web search to find";
 
   return `You are a senior mobile non-gaming UA researcher at MobUpps, a mobile performance marketing network with a proprietary AI optimization engine called MAFO. You are researching prospect "${input.brand}" before our SDR sends them a cold WhatsApp message.
 
@@ -78,7 +82,7 @@ CRITICAL RULES:
 
 7. COMPLIANCE AWARENESS — For regulated verticals (fintech, gambling, health, insurance, lending), surface the compliance angle in the proof points. MobUpps has compliant-creative pools for these categories.
 
-8. FRESH DATED HOOK + AD INTELLIGENCE — Use web search to find the SINGLE best fresh, dated hook for THIS brand right now: a recent hiring push (growth / UA / performance / partnerships roles), a funding round, an app or product launch or new version, geo expansion, an award, a leadership hire, a partnership, a campaign or ads spotted in the wild, press, or a regulatory tailwind that favors their vertical. Prefer the most recent, most specific signal and record its approximate date/recency and source. ALSO assess ad presence: does the brand run video/YouTube ads (check the Google Ads Transparency Center) or Meta/Facebook ads (check the Meta Ad Library)? For mobile apps, AppGoblin can reveal the app's MMP, SDKs, and scale — strong hook material. If they run YouTube/video ads, note a concrete CTV angle. Determine the acquisition model (CPA / CPI / CPC / CPS / other) so the writer never uses click, impression, or install language for a cost-per-action buyer. HARD RULE — never invent a hook, a date, or ad activity: if you cannot find a real, dated signal, set fresh_hook to "" and the ad-intel booleans to false. A fabricated hook is far worse than none.
+8. FRESH DATED HOOK + AD INTELLIGENCE — ${hookLead} the SINGLE best fresh, dated hook for THIS brand right now: a recent hiring push (growth / UA / performance / partnerships roles), a funding round, an app or product launch or new version, geo expansion, an award, a leadership hire, a partnership, a campaign or ads spotted in the wild, press, or a regulatory tailwind that favors their vertical. Prefer the most recent, most specific signal and record its approximate date/recency and source. ALSO assess ad presence: does the brand run video/YouTube ads (check the Google Ads Transparency Center) or Meta/Facebook ads (check the Meta Ad Library)? For mobile apps, AppGoblin can reveal the app's MMP, SDKs, and scale — strong hook material. If they run YouTube/video ads, note a concrete CTV angle. Determine the acquisition model (CPA / CPI / CPC / CPS / other) so the writer never uses click, impression, or install language for a cost-per-action buyer. HARD RULE — never invent a hook, a date, or ad activity: if you cannot find a real, dated signal, set fresh_hook to "" and the ad-intel booleans to false. A fabricated hook is far worse than none.
 
 OUTPUT — Return ONLY valid JSON matching this exact structure:
 

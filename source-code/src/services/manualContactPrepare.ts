@@ -9,9 +9,9 @@ import {
   type Prospect,
 } from "@workspace/db";
 import { getLanguageForCountry } from "../lib/geoGate";
-import { isValidSubVertical } from "../lib/doctrine/taxonomy";
+import { isValidSubVertical, getDoctrineDomain } from "../lib/doctrine/taxonomy";
 import { classifySeed } from "./seedClassifier";
-import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
+import { assertUnderDailyLlmCap, recordDailyLlmSpend } from "../lib/llmSpendCap";
 import { usageBucketDate } from "../lib/usageBucket";
 import { researchProspect, type ProspectBrief } from "./prospectResearch";
 import { LoggingProgressEmitter } from "./progressEvents";
@@ -164,10 +164,13 @@ export async function prepareFirstMessage(params: {
   let subVertical = isValidSubVertical(prospect.subVertical ?? "")
     ? (prospect.subVertical as string)
     : "";
+  let vertical =
+    prospect.vertical === "web_cps" || prospect.vertical === "mobile"
+      ? prospect.vertical
+      : "";
   let country = prospect.country ?? "";
   let language = prospect.language ?? "";
   let product = prospect.product ?? "";
-  let classifyCostUsd = 0;
 
   const hasBrief =
     !!prospect.researchBrief && typeof prospect.researchBrief === "object";
@@ -193,10 +196,20 @@ export async function prepareFirstMessage(params: {
         product: product || undefined,
       });
       subVertical = classified.subVertical;
+      vertical = classified.vertical || vertical;
       country = classified.country || country;
       language = classified.language || language;
       product = classified.product || product;
-      classifyCostUsd = classified.costUsd;
+      if (classified.costUsd > 0) {
+        // Book the classify spend NOW (not only in the terminal txn) so it isn't
+        // lost if research/generation throws before that transaction runs.
+        await recordDailyLlmSpend(userId, classified.costUsd).catch((e) =>
+          logger.warn(
+            { err: String(e) },
+            "manual prepare: classify spend record failed",
+          ),
+        );
+      }
     } catch (err) {
       logger.warn(
         { err: String(err) },
@@ -208,6 +221,10 @@ export async function prepareFirstMessage(params: {
   // Fill any remaining gaps with the coarse platform defaults.
   if (!isValidSubVertical(subVertical))
     subVertical = defaultSubVertical(prospect.vertical);
+  // Keep the coarse vertical consistent with the (now-final) sub-vertical.
+  if (vertical !== "web_cps" && vertical !== "mobile") {
+    vertical = getDoctrineDomain(subVertical) === "webCps" ? "web_cps" : "mobile";
+  }
   if (!language) language = country ? getLanguageForCountry(country) : "en";
   if (!product) product = defaultProduct(prospect.vertical);
 
@@ -246,6 +263,7 @@ export async function prepareFirstMessage(params: {
       .update(prospectsTable)
       .set({
         researchBrief: brief,
+        vertical,
         language,
         subVertical,
         product,
@@ -257,7 +275,7 @@ export async function prepareFirstMessage(params: {
   const prospectInput: ProspectInput = {
     prospectName: prospect.prospectName ?? "",
     company: prospect.company ?? "",
-    vertical: prospect.vertical ?? "",
+    vertical,
     subVertical,
     product,
     country,
@@ -299,6 +317,7 @@ export async function prepareFirstMessage(params: {
       .set({
         firstMessageBody: finalMessage,
         firstMessageChannel: channel,
+        vertical,
         language,
         subVertical,
         product,
@@ -316,17 +335,13 @@ export async function prepareFirstMessage(params: {
         userId,
         date: today,
         messagesGenerated: 1,
-        anthropicSpendUsd: (
-          researchCostUsd +
-          generationCostUsd +
-          classifyCostUsd
-        ).toFixed(4),
+        anthropicSpendUsd: (researchCostUsd + generationCostUsd).toFixed(4),
       })
       .onConflictDoUpdate({
         target: [dailyUsageTable.userId, dailyUsageTable.date],
         set: {
           messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd + classifyCostUsd).toFixed(4)} AS numeric)`,
+          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
         },
       });
   });

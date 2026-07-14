@@ -19,7 +19,7 @@
  */
 import { anthropic } from "../lib/anthropic";
 import { withAnthropicRetry } from "./anthropicRetry";
-import { computeCost } from "../lib/pricing";
+import { computeCost, webSearchFeeUsd } from "../lib/pricing";
 import { logger } from "../lib/logger";
 import { resolveUrl, type ResolvedUrlType } from "./urlResolver";
 import {
@@ -288,11 +288,16 @@ export async function classifySeed(
     if (last) parsed = parseJsonObject(last.text);
 
     if (resp.usage) {
-      costUsd = computeCost(
-        CLASSIFIER_MODEL,
-        resp.usage.input_tokens ?? 0,
-        resp.usage.output_tokens ?? 0,
-      ).usd;
+      // Include the server-side web_search per-request fee (not in token counts).
+      const webSearchReqs = Number(
+        (resp.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+      );
+      costUsd =
+        computeCost(
+          CLASSIFIER_MODEL,
+          resp.usage.input_tokens ?? 0,
+          resp.usage.output_tokens ?? 0,
+        ).usd + webSearchFeeUsd(webSearchReqs);
     }
   } catch (err) {
     // Total failure — fall back to URL/platform-derived defaults below.

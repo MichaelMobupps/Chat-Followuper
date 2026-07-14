@@ -122,3 +122,17 @@ export function sumCosts(costs: CostBreakdown[]): CostBreakdown {
     { inputTokens: 0, outputTokens: 0, usd: 0 },
   );
 }
+
+/**
+ * Anthropic server-side web_search tool fee — billed PER REQUEST, SEPARATE from
+ * token cost (it is NOT reflected in usage.input_tokens/output_tokens). ~$10 per
+ * 1,000 searches. Count requests via usage.server_tool_use.web_search_requests.
+ * Without this, every web-search-enabled research/classify call under-reports
+ * its true spend against the daily cap. (Re-verify the rate at the pricing URL
+ * above when Anthropic changes it.)
+ */
+export const WEB_SEARCH_COST_PER_REQUEST = 0.01;
+
+export function webSearchFeeUsd(requests: number): number {
+  return Math.max(0, Number(requests) || 0) * WEB_SEARCH_COST_PER_REQUEST;
+}

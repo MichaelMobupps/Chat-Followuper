@@ -953,20 +953,28 @@ override precedence; spend-cap wiring + atomic daily_usage transaction (classify
 secret redaction; ProspectBrief optional-field type change breaks no consumer; critic score-shape
 consistent, no followuper leakage.
 
-**DEFERRED (documented, not fixed)**
+**DEFERRED ITEMS — NOW IMPLEMENTED (2026-07-14 follow-up, per user "add all the deferred stuff except
+the delivery provider")** — typecheck + build green:
+- web_search server-tool fee now booked. New pricing.webSearchFeeUsd (WEB_SEARCH_COST_PER_REQUEST =
+  $0.01 = ~$10/1000) added to research (prospectResearch) + classify (seedClassifier) cost from
+  usage.server_tool_use.web_search_requests, so generatorCostUsd/costUsd no longer under-report.
+- Knowledge-only research path no longer claims web access. New ResearchPromptInput.webSearchEnabled
+  flag; the 3 prompts word the FRESH-HOOK rule per mode; prospectResearch builds the system prompt per
+  call (web-search vs fallback) so the tool-less path is told NOT to assert an unverified fresh signal.
+- Classify spend booked immediately (recordDailyLlmSpend right after a successful classify) so it
+  isn't lost if research/generation throws before the terminal txn; removed from the txn to avoid
+  double-count.
+- Newly-classified coarse `vertical` now persisted + passed to prospectInput, and normalized from the
+  final subVertical (getDoctrineDomain) so stored vertical/subVertical stay consistent.
+
+**STILL DEFERRED (documented)**
 - Em-dash blanket hard-fail can strip grammatically-required dashes (RU тире, ES/FR raya) — KEPT per
-  the user's explicit doctrine ("No em dashes in any language"); bench iterations did not blow up
-  (1.7–1.85). Revisit if a specific language regresses on it.
-- web_search server-tool fee not added to computeCost → generatorCostUsd slightly under-reports when
-  search runs (Low; needs the Anthropic per-search pricing constant).
-- Knowledge-only fallback path still prompts "use web search" (Low; the HARD RULE "never invent a
-  hook, set fresh_hook to '' if none" contains it).
-- Classify spend lost if research/gen throws AFTER a paid classify (Low; mirrors pre-existing
-  research-cost best-effort behavior).
-- Newly-classified coarse `vertical` not persisted / prospectInput.vertical stale (Low; doctrine
-  routing keys off subVertical → cosmetic/telemetry).
+  the user's explicit doctrine ("No em dashes in any language"); bench iterations stayed 1.7–2.0.
 - FE bare-domain company names (spaceless X.Y) mis-detected as URL seeds (Low; harmless — no network
-  fetch, model still classifies from the name; "Booking.com" correctly allowed).
+  fetch, model still classifies from the name; "Booking.com" correctly allowed — no clean fix that
+  wouldn't false-block real dotted company names).
+- True godlike 3-clean-round bench convergence (not a one-session goal; low-resource-language floor).
+- Server-side auto-send / delivery provider — EXCLUDED by product decision (no WhatsApp Cloud API).
 
 **SMOKE (full 52-case, gemini-3-flash-preview)** — pre-fix 3.79–3.81 avg @ 1.7–1.85 iters; post-fix
 re-run: **3.76 avg @ 2.00 iters**, dist {5:4, 4:32, 3:12, 2:2, 0:2}. Score-2: lv-Latvia, si-SriLanka
