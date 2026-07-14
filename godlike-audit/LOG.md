@@ -1419,3 +1419,51 @@ the dialog) — inherent to generate-before-save, now at least signposted in the
 is in-memory, so an autoscale instance switch between preview and create loses the draft → the contact
 saves messageless and the row's Generate button does the real run: one wasted preview, never a broken
 contact. Same single-process assumption prepareProgress already documents.
+
+### Verifier round on the Add-dialog fixes + the dialog gets tests (2026-07-14)
+
+Asked "all bugs fixed?" — the honest answer was "every one that's been FOUND", with two gaps: this
+round's fixes hadn't been adversarially verified (every prior round, a verifier proved one of my fixes
+wrong), and the new dialog had ZERO test coverage — verified by argument only, which is the exact
+failure mode this whole session has been about. Closed both.
+
+**The verifier was right again — 4 of 6 fixes held, 2 didn't:**
+- **[Med] my comment justifying the vertical normalization was PROVABLY FALSE.** It claimed the line
+  "normalizes a disagreement (classifier says web, toggle said mobile)". classifySeed *echoes back* the
+  vertical it's given ("derived from sub-vertical UNLESS the operator explicitly overrode it") and we
+  always give it the toggle — so `vertical = classified.vertical || vertical` was a self-assignment
+  dressed as a fallback, and the line I'd made unconditional let the MODEL's sub-vertical override the
+  SDR's explicit toggle. That contradicts every other path (manualContactPrepare only derives when
+  vertical is blank). Real: toggle "Mobile" on Temu → model answers a web sub-vertical → row stores
+  web_cps while the Mobile button still looks selected — and the same contact added WITHOUT Generate
+  stores mobile. Same inputs, two answers, decided by which button was pressed. Fixed: the toggle wins,
+  never re-derived. vertical/subVertical may disagree — tolerated exactly as on the prepare path, and
+  inert (every doctrine lookup keys off subVertical).
+- **[Med] invalidateDraft missed firstName and prePlatformContext.** Both feed the paid run and NEITHER
+  is guarded server-side (the BE compares company only) — and firstName is the *greeting*: generate for
+  "Yaron", correct it to "Dana", and the contact saves as Dana carrying a message that opens "Hi
+  Yaron". The most visible drift there is, straight through.
+- **[Low]** the close-guard covered preview.isPending but not add.isPending, though its own premise
+  covered both — Esc mid-create resets the form, and if that create then 409s (the exact case peekDraft
+  exists for) the surviving server draft is unreachable → regenerate and pay twice.
+- **[Low]** a never-settling preview was an inescapable modal (the guard blocks Esc/X/outside-click,
+  apiFetch sets no timeout, the mutation no retry) — reload-only. Bounded with a 4-min AbortSignal.
+
+**Verified CORRECT (no change):** the spend reorder books research exactly once, same table/bucket/
+rounding, no race (both are upserts on the daily_usage PK, Postgres serialises them) and
+`messagesGenerated: 1` still yields 1 because recordDailyLlmSpend deliberately doesn't bump it;
+peek→insert→delete is right on all four paths (the 409's `return` precedes the delete; a thrown 23505
+leaks the draft rather than consuming it — correct, no row was created); the Radix guard genuinely
+blocks Esc/outside-click/X (traced through useControllableState — `open` is controlled from
+contacts.tsx, so returning early leaves it open); the ticker comparison is render-time, not a stale
+closure; `daily_cap_exceeded` matches app.ts's body through lib/api.ts's `code ?? error` parsing.
+
+**The dialog now has tests — 14 new (48 total).** They assert exactly what broke: the draft is dropped
+when company / firstName / ticker / context drift; re-picking the SAME ticker doesn't drop it; Esc can't
+close mid-run; draftId + firstMessageBody go together or not at all; the plain add path sends a
+byte-identical body; and both error codes render as words, not machine codes.
+**Verified they catch the bugs:** with the Esc guard and the firstName invalidation removed, exactly
+those 2 tests fail and the other 46 pass.
+
+**Green:** build exit 0 · `pnpm run test` **51/51** (db 3 + dashboard 48) · e2e 8/8 real Chromium ·
+smoke:draft 18/18 · smoke:regenerate 13/13 · smoke:chatfollowup 17/17 · smokeDeliveryFlow 5/5.

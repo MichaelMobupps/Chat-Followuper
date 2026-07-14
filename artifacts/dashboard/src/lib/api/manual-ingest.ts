@@ -208,12 +208,28 @@ export interface PreviewFirstMessageResult {
   };
 }
 
+/**
+ * The dialog blocks Esc/outside-click/X while this is in flight (closing mid-run
+ * desyncs the draft from its message), which makes a never-settling request an
+ * inescapable modal — reload-only. apiFetch sets no timeout and the mutation no
+ * retry, so bound it here. 4 minutes is far above the observed worst case
+ * (classify + research + the writer chain run ~40-120s) and only exists so the
+ * trap has a floor.
+ */
+const PREVIEW_TIMEOUT_MS = 240_000;
+
 export function postPreviewFirstMessage(
   input: PreviewFirstMessageInput,
 ): Promise<PreviewFirstMessageResult> {
   return apiFetch<PreviewFirstMessageResult>(
     "/api/prospects/preview-first-message",
-    { method: "POST", body: JSON.stringify(input) },
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      ...(typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+        ? { signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS) }
+        : {}),
+    },
   );
 }
 

@@ -229,6 +229,13 @@ export function AddManualContactDialog({
    * be saved, then the contact saved without it and the page paid for a second
    * generation — with the SDR's edits gone. Better to visibly drop it here, so
    * "Generate message" reappears and the choice is theirs.
+   *
+   * Every input the run consumed invalidates it, NOT just the ones the server
+   * guards. The server only compares company, so `firstName` and
+   * `prePlatformContext` drift straight through — and firstName is the
+   * *greeting*: generate for "Yaron", fix the name to "Dana", and the contact
+   * saves as Dana carrying a message that opens "Hi Yaron". Silent, wrong, and
+   * the most visible drift there is.
    */
   function invalidateDraft() {
     if (draftId === null && draftMessage === null) return;
@@ -390,7 +397,13 @@ export function AddManualContactDialog({
     // company's paid message above copy promising it would be saved, while
     // handleSubmit (which needs BOTH) silently dropped it and the contacts page
     // paid for a second generation. Same guard the preview dialog already uses.
-    if (!next && preview.isPending) return;
+    //
+    // `add` counts too, for the same reason Cancel disables on both: escaping
+    // mid-create resets the form, and if that create then 409s on duplicate_phone
+    // (exactly the case peekDraft keeps the draft alive for), the draftId is gone
+    // client-side and the surviving server draft is unreachable — regenerate and
+    // pay twice.
+    if (!next && (preview.isPending || add.isPending)) return;
     if (!next) reset();
     onOpenChange(next);
   }
@@ -415,7 +428,11 @@ export function AddManualContactDialog({
               id="manual-firstName"
               autoFocus
               value={form.firstName}
-              onChange={(e) => update("firstName", e.target.value)}
+              onChange={(e) => {
+                update("firstName", e.target.value);
+                // The generated message greets this name by hand.
+                invalidateDraft();
+              }}
               placeholder="Yaron"
               maxLength={100}
               data-testid="manual-first-name"
@@ -581,9 +598,12 @@ export function AddManualContactDialog({
               <div className="space-y-1.5 pt-1">
                 <Textarea
                   value={form.prePlatformContext}
-                  onChange={(e) =>
-                    update("prePlatformContext", e.target.value)
-                  }
+                  onChange={(e) => {
+                    update("prePlatformContext", e.target.value);
+                    // Context is fed to the writer (sdrContextNotes), so a
+                    // message written before it was pasted simply ignored it.
+                    invalidateDraft();
+                  }}
                   placeholder="Paste your last message to them — Followuper picks up where the conversation left off."
                   maxLength={5000}
                   rows={4}

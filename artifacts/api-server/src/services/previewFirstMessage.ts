@@ -23,7 +23,7 @@ import { sql } from "drizzle-orm";
 import { db, dailyUsageTable, usersTable, ACTION_TYPES, actionLogsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getLanguageForCountry } from "../lib/geoGate";
-import { isValidSubVertical, getDoctrineDomain } from "../lib/doctrine/taxonomy";
+import { isValidSubVertical } from "../lib/doctrine/taxonomy";
 import { classifySeed } from "./seedClassifier";
 import { recordDailyLlmSpend } from "../lib/llmSpendCap";
 import { usageBucketDate } from "../lib/usageBucket";
@@ -103,7 +103,10 @@ export async function previewFirstMessage(params: {
       vertical: vertical === "web_cps" ? "web_cps" : "mobile",
     });
     subVertical = classified.subVertical;
-    vertical = classified.vertical || vertical;
+    // NOT `vertical = classified.vertical`: classifySeed echoes back whatever
+    // vertical it was given (seedClassifier: "derived from sub-vertical UNLESS
+    // the operator explicitly overrode it"), and we always give it the toggle —
+    // so that assignment was a self-assignment dressed up as a fallback.
     country = classified.country || country;
     language = classified.language || language;
     product = classified.product || product;
@@ -125,12 +128,21 @@ export async function previewFirstMessage(params: {
   }
 
   if (!isValidSubVertical(subVertical)) subVertical = defaultSubVertical(vertical);
-  // Keep the coarse vertical consistent with the (now-final) sub-vertical.
-  // Unlike the prepare path, `vertical` here is never empty — it's seeded from
-  // the dialog's Web/Mobile toggle and only ever reassigned to a classifier
-  // value — so this normalizes a DISAGREEMENT (classifier says web, toggle said
-  // mobile) rather than filling a blank.
-  vertical = getDoctrineDomain(subVertical) === "webCps" ? "web_cps" : "mobile";
+  // The SDR's Web/Mobile toggle WINS — `vertical` is never re-derived here.
+  //
+  // AUDIT [Med]: it briefly was. Deriving it from the model's sub-vertical
+  // contradicted the policy every other path follows (seedClassifier: derive
+  // "unless the operator explicitly overrode it"; manualContactPrepare only
+  // derives when vertical is neither web_cps nor mobile — i.e. blank). Since the
+  // dialog always sends an explicit vertical, deriving meant the model could
+  // silently flip it: toggle "Mobile" on Temu, the model answers a web
+  // sub-vertical, and the row stores web_cps while the Mobile button still looks
+  // selected — and the SAME contact added without Generate would store mobile.
+  // Same inputs, two answers, decided by which button was pressed.
+  //
+  // vertical and subVertical can therefore disagree. That's tolerated here
+  // exactly as it is on the prepare path, and it's inert: every doctrine lookup
+  // (firewall, proofPoints, eventCatalog, researchPrompts) keys off subVertical.
   if (!language) language = country ? getLanguageForCountry(country) : "en";
   if (!product) product = defaultProduct(vertical);
 
