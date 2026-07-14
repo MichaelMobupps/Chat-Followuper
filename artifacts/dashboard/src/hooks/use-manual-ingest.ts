@@ -115,16 +115,35 @@ export function usePrepareFirstMessage(): UseMutationResult<
 
 export function usePrepareProgress(
   prospectId: string | null,
+  opts?: { running?: boolean },
 ): UseQueryResult<PrepareProgress, ApiError> {
+  const running = opts?.running ?? false;
+  // Keeping the poller alive stops the bar FREEZING on a stale terminal entry;
+  // suppressing the stale FRAME itself is useFreshProgress's job at the call
+  // site (masking here would mean spreading React Query's tracked-result proxy,
+  // which permanently degrades prop tracking to notifyOnChangeProps:"all" —
+  // #trackedProps is add-only — and re-renders the 50-row table on every poll).
   return useQuery<PrepareProgress, ApiError>({
     queryKey: ["prepare-progress", prospectId],
     queryFn: () => getPrepareProgress(prospectId!),
     enabled: prospectId !== null,
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
-      if (stage === "ready" || stage === "error") return false;
       // Repeated fetch failures — stop rather than hammer a broken endpoint.
       if (query.state.errorUpdateCount >= 3) return false;
+      // AUDIT [High] — while the POST is in flight, a terminal stage can only
+      // be a STALE entry from an earlier run of this same prospect: the server
+      // parks ready/error for a 15-min TTL, and our GET can reach it before the
+      // POST does (resetQueries refetches synchronously, whereas mutateAsync
+      // defers its fetch by a microtask — so the POST-then-reset source order
+      // does NOT put the POST on the wire first). Believing that entry stopped
+      // the poller dead for the whole run: a frozen 100% "Ready" bar under a
+      // "Writing your first message…" title on every Regenerate, and the
+      // previous failure's red bar through every retry. Keep polling while the
+      // caller says a run is live — the route stamps "queued" as its first act,
+      // so the bar self-corrects within one interval instead of freezing.
+      if (running) return 1200;
+      if (stage === "ready" || stage === "error") return false;
       // "idle" = no run registered server-side. Allow a grace window for the
       // just-fired POST to write its "queued" entry (the first GET can race
       // it), then stop: a rejected POST, a mid-run server restart (in-memory

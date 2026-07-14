@@ -35,8 +35,16 @@ export const PrepareFirstMessageParams = zod.object({
   id: zod.coerce.string().uuid(),
 });
 
+export const prepareFirstMessageBodyForceDefault = false;
+
 export const PrepareFirstMessageBody = zod.object({
   channel: zod.enum(["whatsapp", "telegram", "linkedin"]).optional(),
+  force: zod
+    .boolean()
+    .default(prepareFirstMessageBodyForceDefault)
+    .describe(
+      "Regenerate. By default a prospect that already has a firstMessageBody short-circuits and the stored message is returned (status already_ready, no LLM spend). Set true to re-run the writer and overwrite it — real spend, rate-limited to 10\/min per user, and rejected with 409 already_sent once the first message has gone out.",
+    ),
 });
 
 export const PrepareFirstMessageResponse = zod.object({

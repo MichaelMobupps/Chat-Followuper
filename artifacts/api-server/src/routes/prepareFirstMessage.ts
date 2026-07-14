@@ -14,8 +14,56 @@ const router: IRouter = Router();
 const bodySchema = z
   .object({
     channel: z.enum(["whatsapp", "telegram", "linkedin"]).optional(),
+    // Regenerate: re-run the writer even if a message is already cached.
+    // Default false keeps every existing caller on the free cached path.
+    force: z.boolean().optional(),
   })
   .strict();
+
+// ── Regenerate rate limit (AUDIT [High]) ──────────────────────────────────
+//
+// Before `force`, this route was cheap to repeat: a prospect with a cached
+// firstMessageBody short-circuited to a single DB read, so hammering it burned
+// nothing and no limit was needed. `force:true` re-runs the writer→critic→lint
+// chain on EVERY call (and full research when the brief is missing), which
+// turns the endpoint into a cost-DoS surface.
+//
+// assertUnderDailyLlmCap is not sufficient on its own: it's off unless
+// LLM_DAILY_SPEND_CAP_USD is set (.env.example ships it empty), and it's a
+// read-then-check pre-check, so N concurrent calls all read the same
+// pre-increment total and all pass. This bounds the concurrent burst; the cap
+// bounds the daily total. Same sliding-window shape as prospector.ts's
+// checkResolveCompanyRateLimit (kept local — that one is module-private).
+//
+// Only `force` calls are limited: the cached path stays free, so a normal
+// add → generate → send flow can never trip this.
+const REGEN_WINDOW_MS = 60_000;
+const REGEN_MAX_CALLS = 10;
+const REGEN_MAP_MAX_USERS = 5000;
+const _regenRateMap = new Map<string, number[]>();
+
+function checkRegenRateLimit(userId: string): {
+  ok: boolean;
+  resetMs: number;
+} {
+  const now = Date.now();
+  const cutoff = now - REGEN_WINDOW_MS;
+  // Bounded memory: drop fully-expired entries once the map gets large.
+  if (_regenRateMap.size > REGEN_MAP_MAX_USERS) {
+    for (const [uid, calls] of _regenRateMap) {
+      if (calls.length === 0 || calls[calls.length - 1]! <= cutoff) {
+        _regenRateMap.delete(uid);
+      }
+    }
+  }
+  const fresh = (_regenRateMap.get(userId) ?? []).filter((t) => t > cutoff);
+  if (fresh.length >= REGEN_MAX_CALLS) {
+    return { ok: false, resetMs: fresh[0]! + REGEN_WINDOW_MS - now };
+  }
+  fresh.push(now);
+  _regenRateMap.set(userId, fresh);
+  return { ok: true, resetMs: REGEN_WINDOW_MS };
+}
 
 function senderNameFor(req: Request): string {
   const user = req.user!;
@@ -53,6 +101,21 @@ router.post(
     const channel =
       body.channel && isChannelCode(body.channel) ? body.channel : undefined;
 
+    const force = body.force === true;
+
+    // Rate-limit BEFORE stamping progress: a rejected call starts no run, so
+    // it must not overwrite the progress entry of one that's actually live.
+    if (force) {
+      const rl = checkRegenRateLimit(user.id);
+      if (!rl.ok) {
+        res
+          .status(429)
+          .setHeader("Retry-After", String(Math.ceil(rl.resetMs / 1000)))
+          .json({ error: "rate_limited" });
+        return;
+      }
+    }
+
     // Progress (Phase H): mark the run as accepted before any pipeline work
     // so the FE's first poll already sees a live entry.
     setPrepareProgress(user.id, prospectId, "queued");
@@ -63,6 +126,7 @@ router.post(
         userId: user.id,
         senderName: senderNameFor(req),
         channel,
+        force,
       });
       res.status(200).json(result);
     } catch (err) {
@@ -80,6 +144,12 @@ router.post(
       }
       if (msg === "no_phone" || msg === "no_telegram_identifier") {
         res.status(409).json({ error: msg });
+        return;
+      }
+      // Regenerate refused: the first message already went out, and rewriting
+      // it would leave the follow-up chain citing text the prospect never saw.
+      if (msg === "already_sent") {
+        res.status(409).json({ error: "already_sent" });
         return;
       }
       if (err instanceof GeoGateBlockedError) {

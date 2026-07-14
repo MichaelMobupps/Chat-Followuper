@@ -146,6 +146,12 @@ export interface ManualIngestBulkResponse {
 
 export interface PrepareFirstMessageInput {
   channel?: ManualIngestChannel;
+  /**
+   * Regenerate: re-run the writer even when a message is already cached.
+   * Only the preview dialog's "Regenerate" sets this — every other caller
+   * omits it and gets the cached (already-paid, zero-spend) message back.
+   */
+  force?: boolean;
 }
 
 export interface PrepareFirstMessageResult {

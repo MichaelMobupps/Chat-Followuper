@@ -97,15 +97,25 @@ export function useSendNextFollowup(): UseMutationResult<
 
 export function useFollowupProgress(
   followupId: number | null,
+  opts?: { running?: boolean },
 ): UseQueryResult<FollowupProgress, ApiError> {
+  const running = opts?.running ?? false;
   return useQuery<FollowupProgress, ApiError>({
     queryKey: ["followup-progress", followupId],
     queryFn: () => getFollowupProgress(followupId!),
     enabled: followupId !== null,
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
-      if (stage === "ready" || stage === "error") return false;
       if (query.state.errorUpdateCount >= 3) return false;
+      // Same fix as usePrepareProgress — this hook had the identical bug. The
+      // server parks ready/error for a 15-min TTL and our GET beats the POST,
+      // so believing a terminal stage froze the bar for the whole retry (the
+      // caller's resetQueries only clears the CLIENT cache; the next GET re-reads
+      // the same stale server entry and re-freezes the interval). While a run is
+      // live, keep polling: the route stamps "queued" first thing, so the bar
+      // self-corrects within one interval.
+      if (running) return 1200;
+      if (stage === "ready" || stage === "error") return false;
       // Grace window for the POST→"queued" race, then stop on persistent idle.
       if (stage === "idle" && query.state.dataUpdateCount >= 10) return false;
       return 1200;

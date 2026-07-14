@@ -64,6 +64,7 @@ import {
   useMarkProspectReplied,
   useSendNextFollowup,
 } from "@/hooks/use-followups";
+import { useFreshProgress } from "@/hooks/use-live-progress";
 import {
   LIST_STATUSES,
   type Followup,
@@ -138,7 +139,19 @@ export function ChannelFollowupPage({ channel }: Props) {
 
   const query = useListFollowups({ channel, status, perPage: 50 });
   const sendNext = useSendNextFollowup();
-  const followupProgress = useFollowupProgress(
+  // `generatingFollowup` is set only when generation will really run and is
+  // cleared in onSettled, so it IS the "run in flight" signal. Passing it as
+  // `running` keeps the poll alive through the previous run's parked terminal
+  // entry, and useFreshProgress hides that stale frame until this run reports
+  // in — otherwise a retry showed the last failure's red bar over a live run.
+  const generatingNow = generatingFollowup !== null;
+  const followupProgressQuery = useFollowupProgress(
+    generatingFollowup?.followupId ?? null,
+    { running: generatingNow },
+  );
+  const followupProgress = useFreshProgress(
+    followupProgressQuery.data,
+    generatingNow,
     generatingFollowup?.followupId ?? null,
   );
   const markReplied = useMarkProspectReplied();
@@ -196,8 +209,11 @@ export function ChannelFollowupPage({ channel }: Props) {
     // message returns in one round-trip with nothing to watch.
     const next = item.derived.nextScheduled;
     if (next && !next.generatedMessage?.trim()) {
-      // A previous run may have parked this query on a terminal ready/error
-      // entry, which stops its refetch interval for good — reset restarts it.
+      // Clear the client cache so the bar starts blank rather than on the last
+      // run's frame. NOTE: this alone does NOT restart a poller that a previous
+      // run parked on a terminal entry — the entry lives on the SERVER for a
+      // 15-min TTL, so the next GET re-reads it and re-freezes the interval.
+      // The `running` flag on useFollowupProgress is what actually fixes that.
       void queryClient.resetQueries({
         queryKey: ["followup-progress", next.id],
       });
@@ -484,7 +500,7 @@ export function ChannelFollowupPage({ channel }: Props) {
                   onSendNext={() => handleSendNext(item)}
                   progress={
                     generatingFollowup?.prospectId === item.prospect.id
-                      ? followupProgress.data
+                      ? followupProgress
                       : undefined
                   }
                   onEdit={() => {

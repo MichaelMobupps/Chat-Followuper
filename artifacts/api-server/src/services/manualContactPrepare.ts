@@ -94,8 +94,22 @@ export async function prepareFirstMessage(params: {
   userId: string;
   senderName: string;
   channel?: ChannelCode;
+  /**
+   * Regenerate: skip the cached-message short-circuit and re-run the writer
+   * even when firstMessageBody is already set. Off by default — every existing
+   * caller (add-flow, row Generate, prepare-and-send) keeps the cheap cached
+   * path. Only the preview dialog's explicit "Regenerate" sets it, so a
+   * re-write is always a deliberate, user-initiated spend.
+   *
+   * Cost: usually writer-only, because research/classify are gated on
+   * `hasBrief` and a regenerated prospect normally already has its brief. That
+   * is NOT guaranteed — if researchBrief is null (or was never persisted), a
+   * forced run re-runs classify + research too, at full price. Rejected for an
+   * already-sent prospect (see the firstMessageSentAt guard below).
+   */
+  force?: boolean;
 }): Promise<PrepareFirstMessageResult> {
-  const { prospectId, userId, senderName } = params;
+  const { prospectId, userId, senderName, force = false } = params;
   const start = Date.now();
 
   const [prospectRows, userRows] = await Promise.all([
@@ -130,11 +144,27 @@ export async function prepareFirstMessage(params: {
 
   const channel = resolveChannel(prospect, params.channel);
 
+  // AUDIT [High] — the cached-message short-circuit below used to be the only
+  // thing protecting an already-SENT prospect's body, and `force` walks past
+  // it. Overwriting it corrupts the follow-up chain: followupMessageService
+  // feeds the stored firstMessageBody + firstMessageSentAt to the writer as
+  // "what you already sent on <date>", so every later follow-up would cite a
+  // message the prospect never received. Status stays "sent" (it keys off
+  // firstMessageSentAt), so nothing would surface the swap to the SDR either.
+  // Regenerating is only meaningful BEFORE the first send.
+  if (force && prospect.firstMessageSentAt) {
+    throw new Error("already_sent");
+  }
+
   // L10: the cached-message short-circuit must come BEFORE the spend-cap check.
   // Returning an already-generated (already-paid) message does no LLM work, so
   // a capped user should still be able to fetch it. (followupMessageService
   // already orders it this way.)
-  if (prospect.firstMessageBody?.trim()) {
+  //
+  // `force` (Regenerate) deliberately bypasses this: the caller wants a NEW
+  // message, which is real LLM work, so it falls through to the spend-cap
+  // pre-check below like any other generating path.
+  if (!force && prospect.firstMessageBody?.trim()) {
     let deepLinkUrl: string | null = null;
     try {
       deepLinkUrl = buildDeepLink(channel, prospect, prospect.firstMessageBody);
@@ -269,7 +299,15 @@ export async function prepareFirstMessage(params: {
         product,
         country: country || prospect.country,
       })
-      .where(eq(prospectsTable.id, prospectId));
+      // AUDIT [Low] — scope on userId like the terminal txn does. Not an IDOR
+      // today (the row was already SELECTed under a userId filter above), but
+      // an unscoped write here is one refactor away from becoming one.
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      );
   }
 
   const prospectInput: ProspectInput = {
@@ -366,14 +404,27 @@ export async function prepareFirstMessage(params: {
     logger.warn({ err }, "manual prepare: audit log failed");
   }
 
-  let deepLinkUrl: string;
+  let deepLinkUrl: string | null;
   try {
     deepLinkUrl = buildDeepLink(channel, prospect, finalMessage);
   } catch (err) {
     if (err instanceof GeoGateBlockedError) {
       throw err;
     }
-    throw err;
+    // AUDIT [Med] — on a REGENERATE the new body is already committed above, so
+    // rethrowing here (no_phone / no_telegram_identifier / no_linkedin_identifier
+    // when the requested channel doesn't match the prospect's identifiers) would
+    // 409 the call AFTER destroying the message the SDR already had, and after
+    // billing for the rewrite. Degrade to a null link instead — exactly what the
+    // cached path does — so the message survives and is still reviewable; the
+    // caller reports "link unavailable". First-generate keeps throwing: there
+    // was no prior message to lose, and the hard error is the useful signal.
+    if (!force) throw err;
+    logger.warn(
+      { err: String(err), prospectId, channel },
+      "manual prepare: regenerated message saved but deep link unavailable",
+    );
+    deepLinkUrl = null;
   }
 
   // Progress (Phase H): done — the FE stops polling on "ready".

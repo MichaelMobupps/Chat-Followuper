@@ -37,7 +37,6 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useAddManualContact,
   useClassifySeed,
-  usePrepareFirstMessage,
 } from "@/hooks/use-manual-ingest";
 import {
   TICKERS,
@@ -45,6 +44,7 @@ import {
   verticalToTicker,
   type ClassifiedSeed,
   type ManualIngestChannel,
+  type ManualIngestProspect,
   type Ticker,
 } from "@/lib/api/manual-ingest";
 import { ApiError } from "@/lib/api";
@@ -85,8 +85,21 @@ interface Props {
   channel: ManualIngestChannel;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When true (Contacts page), kick off research + message generation after ingest. */
-  prepareAfterAdd?: boolean;
+  /**
+   * Called after a successful ingest with the newly created prospect.
+   *
+   * Replaces the old `prepareAfterAdd` boolean, which fired the prepare
+   * mutation from INSIDE this dialog — right as the dialog unmounted, so the
+   * run had no visible progress and no preview: the SDR only saw two toasts
+   * and then the message appeared, unreviewed, in the composer.
+   *
+   * The Contacts page now owns the run instead (it already holds the
+   * single-flight generatingId + the progress poller), which lets it show the
+   * staged bar on the new row AND in the preview dialog. A caller that omits
+   * this (only ManualContactsSection, itself dead code post-F-E) simply adds
+   * without generating — the same as passing prepareAfterAdd={false} did.
+   */
+  onAdded?: (prospect: ManualIngestProspect) => void;
 }
 
 interface FormState {
@@ -109,11 +122,10 @@ export function AddManualContactDialog({
   channel,
   open,
   onOpenChange,
-  prepareAfterAdd = false,
+  onAdded,
 }: Props) {
   const { toast } = useToast();
   const add = useAddManualContact();
-  const prepare = usePrepareFirstMessage();
   const classify = useClassifySeed();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [contextOpen, setContextOpen] = useState(false);
@@ -218,35 +230,13 @@ export function AddManualContactDialog({
           const co = prospect.company ?? form.company.trim();
           toast({
             title: "Contact added",
-            description: prepareAfterAdd
-              ? `${name} from ${co} — writing your first message…`
-              : `${name} from ${co}.`,
+            description: `${name} from ${co}.`,
           });
           reset();
           onOpenChange(false);
-          if (prepareAfterAdd) {
-            prepare.mutate(
-              { prospectId: prospect.id, input: { channel } },
-              {
-                onSuccess: () => {
-                  toast({
-                    title: "Message ready",
-                    description: `${name} — click Generate & send when you're ready.`,
-                  });
-                },
-                onError: (err) => {
-                  toast({
-                    title: "Contact added; message prep failed",
-                    description:
-                      err instanceof ApiError
-                        ? err.code ?? err.message
-                        : String(err),
-                    variant: "destructive",
-                  });
-                },
-              },
-            );
-          }
+          // The page takes it from here: it starts generation, shows the
+          // staged bar, and opens the preview. Errors surface there.
+          onAdded?.(prospect);
         },
         onError: (err) => {
           if (toastDuplicateContactError(err, toast)) return;

@@ -9,4 +9,6 @@ import type { PrepareFirstMessageRequestChannel } from "./prepareFirstMessageReq
 
 export interface PrepareFirstMessageRequest {
   channel?: PrepareFirstMessageRequestChannel;
+  /** Regenerate. By default a prospect that already has a firstMessageBody short-circuits and the stored message is returned (status already_ready, no LLM spend). Set true to re-run the writer and overwrite it — real spend, rate-limited to 10/min per user, and rejected with 409 already_sent once the first message has gone out. */
+  force?: boolean;
 }
