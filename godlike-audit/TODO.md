@@ -25,6 +25,78 @@ Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chat
 
 ---
 
+## 🔴 IN FLIGHT (2026-07-14) — RESUME HERE AFTER AN SSH DROP
+
+Two threads open. Everything below is UNCOMMITTED unless it says otherwise.
+
+### A. LLM cost work (in progress)
+
+1. **[DOING] `pricing.ts` — claude-sonnet-5 intro rate is WRONG and it's live.**
+   The table says `$3.00/$15.00`; Anthropic bills **$2.00/$10.00 per MTok through
+   **2026-08-31**, reverting to $3/$15 after. **`CRITIC_MODEL = claude-sonnet-5`**, so every
+   critic call is over-reported by **50%** right now — and so is every bench dollar figure in
+   this folder. Fix must be **date-aware**: hardcoding either number is wrong half the time
+   (2.0 is wrong from Sep 1; 3.0 is wrong today). Verified against the claude-api skill's
+   authoritative pricing table, not memory.
+2. **[NEXT] `RESEARCH_MODEL` is a hard const** (`prospectResearch.ts:43` =
+   `"claude-opus-4-7"`), unlike the writer chain which is env-overridable. Make it
+   `process.env.RESEARCH_MODEL || "claude-opus-4-7"` so the A/B needs no code edit per arm.
+3. **[NEXT] Bench research: opus-4-7 vs sonnet-5.** Only **2** bench cases run real research
+   (`en-US-research`, `tr-TR-research` — `research: "real"`), ~$0.39–0.52 each ⇒ ~$2 for both
+   arms. Cost delta is deterministic and trustworthy at n=2; **quality is NOT** — treat any
+   score difference as directional only. Use `BENCH_TAG=research-ab` per arm (the report stem
+   now carries BENCH_TAG + subsetN, so runs can't clobber the committed 52-case baseline —
+   that trap already ate it once today; recovered via git).
+4. **[THEN] Decide.** claude-sonnet-5 is **−60% vs opus-4-7 today** ($2/$10 vs $5/$25), −40%
+   after Aug 31, keeps 1M context and `web_search_20260209` dynamic filtering, and is the
+   near-Opus agentic tier. **claude-haiku-4-5 is OUT** despite $1/$5: it is not eligible for
+   `web_search_20260209` (would fall back to unfiltered `web_search_20250305` — more input
+   tokens, worse briefs), caps at 200K context, and `effort` ERRORS on it.
+   ⚠️ **TRAP if switching:** Opus 4.7 with `thinking` omitted = **thinking OFF** (today's
+   behaviour). Sonnet 5 with `thinking` omitted = **adaptive thinking ON**. A naive model-string
+   swap silently ADDS thinking tokens + latency. Set `thinking: {type:"disabled"}` to match
+   today, or enable deliberately with `effort: "low"`. Tokenizer is the same family as Opus 4.7,
+   so token counts carry over (the "+30%" figure is vs Sonnet 4.6, not vs Opus).
+
+### B. Admin dashboard for michael@mobupps.com (NOT STARTED)
+
+Infrastructure already exists — extend, don't rebuild: `ADMIN_EMAILS` allowlist
+(`lib/admin.ts`), `requireAdmin` middleware, `routes/admin.ts` (`/admin/whoami`,
+`/admin/activity`, `/admin/ops-dashboard`, `/admin/audit-export.csv`), `pages/admin-ops.tsx`.
+Add michael@mobupps.com to `ADMIN_EMAILS`.
+
+User chose (2026-07-14): **user-level kill switch** + **per-call ledger table**.
+
+1. **Migration 0019** — `users.followups_paused` (bool, default false) + new `llm_calls`
+   ledger (user_id, task, model, tokens, cost_usd, prospect_id?, created_at; indexes on
+   (user_id, created_at), model, task).
+2. **Ledger writes.** `callLLMRole()` (`lib/llm/router.ts:377`) is the chokepoint for
+   writer/critic/lint and already returns `{model, provider, cost}` — but NOT userId. Two
+   services bypass it and call `anthropic.messages.create` directly: `seedClassifier.ts` and
+   `prospectResearch.ts` (+ `messageSummarizer.ts`, dead code per L11). Thread an explicit
+   `ledger: {userId, prospectId?}` through the 3 service entry points (generateChatMessage,
+   researchProspect, classifySeed) → into `LlmCallInput`. Explicit > AsyncLocalStorage for an
+   accounting ledger; unattributed rows must surface as their own row, never hide.
+3. **DATA GAP (tell the user again if asked):** `modelMetadata.draftModel/criticModel/
+   rewriterModel` exist per call but are **discarded at the log boundary** — action_logs keeps
+   iterations + finalOverallScore only. So **per-model history cannot be reconstructed**; the
+   ledger only covers data from deploy onward.
+4. **Kill switch** — gate `users.followups_paused` in EVERY send path: digest
+   (`fetchDueRows`), pushover, send-next route, `/open`. Miss one and the switch leaks.
+5. **Admin routes + FE page.**
+
+### Live-verified facts (2026-07-14) — don't re-derive
+- **gemini-3.5-flash NOW SERVES** on this key (probed: OK 16.4s; 3-flash-preview OK 16.3s). The
+  router comment claiming it "503s (not provisioned)" is STALE. The chain silently promoted
+  itself to the $1.50/$9.00 primary — **~3× the $0.50/$3.00 fallback** — with no deploy. The
+  committed 52-case bench (3.90 avg / 1.90 iters) measured **3-flash-preview 52/52**, i.e. the
+  FALLBACK, not what prod now runs. A full A/B (both arms pinned, `BENCH_TAG=ab`) was launched;
+  if `/tmp/armA.log` / `/tmp/armB.log` are gone, it must be re-run.
+- Grey-area routing (casino|betting|crypto|forex) keys off **subVertical only** — the coarse
+  vertical is only ever web_cps|mobile and can never match. Asserted in `smoke:parity`.
+
+---
+
 ## ⭐ SESSION 14 — CONTACTS: generate → preview → confirm (2026-07-14). Answers Murat's Q.
 
 **Why:** first-message generation was INVISIBLE and UNREVIEWABLE. Adding a contact fired
