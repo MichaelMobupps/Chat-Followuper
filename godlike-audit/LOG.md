@@ -971,11 +971,23 @@ the delivery provider")** — typecheck + build green:
 0 errors, 0 wrong-script, 52/52 served by the intended writer; score-2 only lv-Latvia + si-SriLanka
 (low-resource floor). Best run of the session — the deferred batch broke nothing.**
 
-**NOT runtime-driven (no live server/browser/Pushover/phone available here): the delivery button flow
-(email/Pushover → /open → channel prefilled / LinkedIn copy-page) and the FE Detect button are
-typecheck + build + code-audit verified but NOT clicked end-to-end. Ad-intel accuracy (JS-heavy
-ad-library SPAs), classifier accuracy at scale, and production web_search cost/latency (~$0.39 +
-≤120s per new prospect, on by default) are genuine best-effort/unknown-at-scale, not defects.**
+**RUNTIME-VERIFIED (2026-07-14 follow-up) — two new HTTP/DB smokes drive the flows end-to-end on the
+live DB (seed → exercise → assert → cleanup):**
+- `scripts/smokeDeliveryFlow.ts` — mounts the real followupOpen+followupFallback routers, seeds
+  wa/tg/li prospects+followups, asserts `/open` routing per channel over HTTP: **5/5 PASS** —
+  whatsapp→wa.me prefill (prospect phone), telegram→t.me prefill, linkedin→`/fallback` copy-page
+  (message + Copy + "Open LinkedIn profile"), and NO redirect loop. Confirms the LinkedIn
+  seamlessness fix at runtime.
+- `scripts/smokeContactGenerate.ts` — seeds a company-ONLY contact ("Nubank"), runs
+  prepareFirstMessage (real classify→research→generate): **10/10 PASS** — auto-classified
+  mobile/fintech_neobank_mobile/Brazil/pt, generated a 624-char Portuguese doctrine message, and
+  PERSISTED the coarse vertical (deferred fix) + all 8 hook/ad-intel brief fields. Confirms the
+  Contacts generate chain + deferred persistence at runtime.
+
+**Still not runtime-driven (browser-only): the React Detect BUTTON click — but its backend
+(classify-seed route + service) is verified. Ad-intel accuracy (JS-heavy ad-library SPAs),
+classifier-at-scale, and prod web_search cost/latency (~$0.39 + ≤120s per new prospect, on by
+default) remain best-effort/observable-in-prod — not defects.**
 
 **STILL DEFERRED (documented)**
 - Em-dash blanket hard-fail can strip grammatically-required dashes (RU тире, ES/FR raya) — KEPT per
