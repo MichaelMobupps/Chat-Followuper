@@ -139,10 +139,36 @@ Both arms landed (`-ab.md/.json`, committed `6bcafe0`, 52 cases each). Analysed 
   env sets `LLM_GEMINI_MODEL=gemini-3.5-flash` too) means **prod is already running roughly half
   its writers on 3-flash-preview** — via a failed call + retry each time. Pinning
   `LLM_GEMINI_MODEL=gemini-3-flash-preview` buys: no fallback churn, −12s/case, quality ≥, cost ≈.
-- **NOT YET KNOWN — check before deciding:** *why* 3.5-flash fails 52% of the time. The bench ran
-  at concurrency 3, so this may be rate/quota shedding rather than a model property, in which
-  case prod at concurrency 1 may fall back far less. The router logs a warn on fallback; capture
-  it. A single live probe says nothing here — it succeeded (16.4s) while the bench failed 52%.
+- **[ANSWERED 2026-07-15] The 52% is a BENCH ARTIFACT. It is not 3.5-flash's failure rate, and
+  reliability is NOT an argument for switching.** Probed the model directly (breaker bypassed):
+
+  | | concurrency 1 (prod-like) | concurrency 3 (bench-like) |
+  |---|---|---|
+  | run 1 (n=9) | 9/9 | 8/9 — one `503 high demand` |
+  | run 2 (n=12) | 12/12 | 12/12 |
+  | **total** | **21/21 (100%)** | **20/21 (95%)** |
+
+  The one failure was `503: "This model is currently experiencing high demand"` — **transient
+  Google-side capacity, not provisioning or quota on this key**. Run 2 was clean at BOTH
+  concurrencies, so the spike had passed.
+  **How a ~5% error rate became a 52% fallback rate:** the breaker opens on **3 CONSECUTIVE**
+  infra failures (`BREAKER_THRESHOLD=3`) and then sheds EVERY call for **60s**
+  (`BREAKER_COOLDOWN_MS`). `consecutiveFailures` is per-model but **shared across in-flight
+  calls**, so at concurrency 3 one demand spike fails all 3 at once = 3 consecutive = breaker
+  open = ~60s (~4 cases) dumped on sonnet-4-6. 503 spikes are bursty and correlated, not
+  independent, so this compounds. The breaker is working as designed — it just means
+  **fallback% is not a health metric under concurrency**; don't read one as the other again.
+  **Prod concurrency is ~1**: every `generateChatMessage` call site (generateMessage route,
+  previewFirstMessage, followupMessageService, manualContactPrepare) is one-per-request, and the
+  digest scheduler's `Promise.all` fans out across digest TYPES, not per-message. No bulk/batched
+  generation path exists. So prod does not reproduce the bench's conditions.
+- **WHAT SURVIVES as the case for pinning 3-flash-preview: quality + latency, NOT cost or
+  reliability.** 3.96 vs 3.65 and 41.1s vs 53.0s at ~equal cost. **Directional only** (wins 9,
+  ties 8, loses 6 of 23). To settle it, re-run the 3.5 arm clean (~$3.4, 52 cases) and check it
+  serves 52/52 — the existing arm's 25 served cases are validly measured, but they were sampled
+  during a spike window, and n=23 with 8 ties is not a verdict.
+- **DO NOT** justify a switch with "spend rose 3×" (false — see above) or "3.5-flash is
+  unreliable" (false at prod concurrency). Both were plausible and both were wrong.
 
 ### Live-verified facts (2026-07-14) — don't re-derive
 - **gemini-3.5-flash NOW SERVES** on this key (probed: OK 16.4s; 3-flash-preview OK 16.3s). The
