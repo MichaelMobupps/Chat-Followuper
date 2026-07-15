@@ -27,9 +27,12 @@ Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chat
 
 ## 🔴 IN FLIGHT (2026-07-15) — RESUME HERE AFTER AN SSH DROP
 
-Two threads open. Everything below is UNCOMMITTED unless it says otherwise.
+**Working tree is CLEAN — everything below is COMMITTED.** One thread open (B, the admin
+dashboard). Thread A is CLOSED: it asked "can we cut the LLM bill by switching models?" and the
+answer, measured twice and paid for, is **no — not by switching models**. Nothing about the
+production model config changed; the fixes it produced are inert on today's default by design.
 
-### A. LLM cost work (in progress)
+### A. LLM cost work — ✅ CLOSED 2026-07-15 (no production model change)
 
 1. **[DONE `2cbb1b5`] `pricing.ts` — claude-sonnet-5 intro rate.** Fixed date-aware
    (`INTRO_PRICING` overlay + `priceFor(model, at)`), not a swapped constant: $2/$10 through
@@ -50,11 +53,43 @@ Two threads open. Everything below is UNCOMMITTED unless it says otherwise.
    model-conditional so opus's prompt is byte-identical — verified 378/378 renders vs HEAD;
    `smoke:research` 30/30, zero spend). **Every number in `-research-opus47-subset2` /
    `-research-sonnet5-subset2` / `-r2-*` predates the fix.**
-4. **[NEXT — THE ONE OPEN QUESTION] Re-run the A/B on 8 cases, then decide.**
-   `research: "real"` cases are now **8** (was 2 — both were `cps_web_ecom_marketplace`, i.e.
+4. **[DONE `69a6095` — RAN, DECIDED, CLOSED 2026-07-15. Do not re-open without new evidence;
+   this cost ~$7.50 to answer.] The A/B ran on 8 cases. THE −60% SAVING DOES NOT EXIST.**
+
+   | | score | research $/case | latency |
+   |---|---|---|---|
+   | **opus-4-7** (shipped) | 3.75 | **$0.395** | **114s** |
+   | sonnet-5 (+ directive) | **4.12** | $0.464 (**+17.5%**) | 137s |
+
+   Per-case: sonnet-5 wins 4, ties 3, loses 1. Both arms 0 errors, writer pinned
+   `gemini-3-flash-preview`, run AFTER the thinking/search fix.
+   **USER DECISION (2026-07-15): STAY ON opus-4-7. No change shipped.** The switch was
+   authorised as a cost cut; it is not one. Sonnet-5 is *better* quality but costs MORE — a
+   quality/latency trade (+0.38 score for +23s and ~+17% spend), which is a different decision
+   than the one authorised, so it was declined rather than assumed.
+   **THE REAL LESSON, worth more than the decision — `pricing.ts` per-token rates DO NOT PREDICT
+   RESEARCH SPEND.** Cost is dominated by **search fan-out**, not token price: per-case research
+   spend ranged **$0.026–$0.670, a 25× spread WITHIN one model on the same 8 cases**. A cheaper
+   tier that searches harder costs more. Any future "model X is −N% per token, so switch" argument
+   about the research call is invalid on its face unless it measures search volume.
+   **Confound, disclosed:** sonnet-5 gets the SEARCH PROTOCOL block, opus does not (model-
+   conditional by design). So this measured *"opus as shipped" vs "sonnet-5 as we'd ship it"* —
+   correct for ship/don't-ship, wrong for "which model is better". Sonnet-5's extra cost IS its
+   extra searching, which is likely also its extra quality; this bench cannot separate them.
+   At n=8 with a 25× spread, **+17.5% is not claimed as significant** — but the *sign* is
+   opposite the thesis in every reading, which is what settles it.
+   **UNTESTED, the only real cost lever left (~$0.50, ~8 min):** sonnet-5 with the directive
+   **OFF**. Pre-fix (r2, through the timeout bug, so untrustworthy) it ran ~$0.045/case at score
+   3.0 — **~10× cheaper than opus** for ~0.75 less quality. If the bill ever needs cutting, that
+   is where to look, NOT at the model swap. Set `aggressiveSearch: false` for sonnet-5 in
+   `prospectResearch.ts` to test.
+
+   <details><summary>Historical: why the 8 cases exist (n=2 was undecidable)</summary>
+
+   `research: "real"` cases went 2 → 8 (the old pair were both `cps_web_ecom_marketplace`, i.e.
    one doctrine family of three). **n=2 could not resolve a 1-point delta**: opus's own
    run-to-run cost variance on a FIXED case is **4.6×–6.8×** (en-US $0.083→$0.328; tr-TR
-   $0.496→$0.087, r1 vs r2 — both committed). Est. **~$2–4 total**; ~8 min per arm (8 cases at
+   $0.496→$0.087, r1 vs r2 — both committed). ~$2–4 total; ~8 min per arm (8 cases at
    concurrency 3, ~150s each).
    **There is no `bench:writer` package script** — the bench runs via tsx directly, and
    **`BENCH_ONLY` takes explicit ids, not a category.** Verified command, per arm:
@@ -73,11 +108,17 @@ Two threads open. Everything below is UNCOMMITTED unless it says otherwise.
    ⚠️ Reports are keyed by the **writer** model, not the research model under test
    (`BENCH-WRITER-gemini-3-flash-preview-r3-<arm>-subset8.md`). Only BENCH_TAG separates the
    arms — **do not omit it**.
-5. **[THEN] Decide.** claude-sonnet-5 is **−60% vs opus-4-7 today** ($2/$10 vs $5/$25), −40%
-   after Aug 31, keeps 1M context and `web_search_20260209` dynamic filtering, and is the
-   near-Opus agentic tier. **claude-haiku-4-5 is OUT** despite $1/$5: it is not eligible for
-   `web_search_20260209` (would fall back to unfiltered `web_search_20250305` — more input
-   tokens, worse briefs), caps at 200K context, and `effort` ERRORS on it.
+   </details>
+5. **[CLOSED — the premise was false.]** This item used to read *"decide: sonnet-5 is −60% vs
+   opus-4-7 today ($2/$10 vs $5/$25)"*. **That −60% is a per-token rate, and per-token rates do
+   not predict this call's cost** — see 4. Measured, sonnet-5 is **+17.5%**. Kept only for the
+   facts that survive independently of the (dead) cost argument:
+   - **claude-haiku-4-5 is OUT** despite $1/$5: not eligible for `web_search_20260209` (falls
+     back to unfiltered `web_search_20250305` — more input tokens, worse briefs), caps at 200K
+     context, and `effort` ERRORS on it. Given 4, note its $1/$5 says nothing about its spend
+     either — but the eligibility/context blockers rule it out regardless, on their own.
+   - Sonnet-5 keeps 1M context + `web_search_20260209` dynamic filtering and is the near-Opus
+     agentic tier. Still true; just no longer an argument for anything, since it costs more.
    ⚠️ **TRAP if switching:** Opus 4.7 with `thinking` omitted = **thinking OFF** (today's
    behaviour). Sonnet 5 with `thinking` omitted = **adaptive thinking ON**. A naive model-string
    swap silently ADDS thinking tokens + latency. Set `thinking: {type:"disabled"}` to match
