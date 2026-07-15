@@ -18,7 +18,8 @@
     "smoke:parity": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeGeneratorParity.ts",
     "smoke:pricing": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokePricing.ts",
     "smoke:research": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeResearchDirective.ts",
-    "smoke:killswitch": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeKillSwitch.ts"
+    "smoke:killswitch": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeKillSwitch.ts",
+    "smoke:ledger": "FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/smokeLlmLedger.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

@@ -186,7 +186,18 @@ export async function researchStreamRoute(req: Request, res: Response): Promise<
 
     // ── Run research ──
     try {
-      const { brief, cost } = await researchProspect(input, emitter, ctrl.signal);
+      // `ledger` is set HERE, from the session, and deliberately not carried in
+      // from `input` — `input` is parsed from the QUERY STRING, so a ledger
+      // field riding on it would let a caller attribute their spend to another
+      // user by passing {"ledger":{"userId":"..."}}. validateInput happens to
+      // whitelist fields today and would drop it, but that is an implementation
+      // detail one `return {...p}` refactor away from becoming a forgery. The
+      // session is the only trustworthy source of "who is this for".
+      const { brief, cost } = await researchProspect(
+        { ...input, ledger: { userId } },
+        emitter,
+        ctrl.signal,
+      );
       // L2: the Opus research ran and billed — record its spend so it counts
       // toward the daily cap and the admin/weekly rollups (previously the cap
       // pre-check above was self-referentially inert on this route because

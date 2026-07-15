@@ -179,6 +179,7 @@ router.post(
         stage: 0,
         senderName,
         researchBrief: brief,
+        ledger: { userId: user.id, prospectId },
       });
     } catch (err) {
       const errorCode =

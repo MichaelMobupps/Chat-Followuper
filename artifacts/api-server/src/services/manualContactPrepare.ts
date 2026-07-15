@@ -224,6 +224,7 @@ export async function prepareFirstMessage(params: {
         country: country || undefined,
         language: language || undefined,
         product: product || undefined,
+        ledger: { userId, prospectId },
       });
       subVertical = classified.subVertical;
       vertical = classified.vertical || vertical;
@@ -282,6 +283,7 @@ export async function prepareFirstMessage(params: {
           prospect.prePlatformContext ??
           prospect.contextNotes ??
           undefined,
+        ledger: { userId, prospectId },
       },
       new LoggingProgressEmitter(),
     );
@@ -333,6 +335,7 @@ export async function prepareFirstMessage(params: {
     stage: 0,
     senderName,
     researchBrief: brief,
+    ledger: { userId, prospectId },
   });
 
   // Progress (Phase H): message generated — persisting + building link.

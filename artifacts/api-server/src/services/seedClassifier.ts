@@ -20,6 +20,7 @@
 import { anthropic } from "../lib/anthropic";
 import { withAnthropicRetry } from "./anthropicRetry";
 import { computeCost, webSearchFeeUsd } from "../lib/pricing";
+import { recordLlmCall, type LedgerContext } from "../lib/llmLedger";
 import { logger } from "../lib/logger";
 import { resolveUrl, type ResolvedUrlType } from "./urlResolver";
 import {
@@ -50,6 +51,15 @@ export interface ClassifySeedInput {
   country?: string;
   language?: string;
   product?: string;
+  /**
+   * Cost-ledger attribution (2026-07-15). Optional — smokeClassify has no user.
+   *
+   * The row MUST be written inside this service, not derived from its return
+   * value: ClassifiedSeed exposes `costUsd` alone and the token counts are
+   * consumed and dropped below, so a caller physically cannot fill the ledger's
+   * token columns from what it gets back.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface ClassifiedSeed {
@@ -292,12 +302,25 @@ export async function classifySeed(
       const webSearchReqs = Number(
         (resp.usage as any)?.server_tool_use?.web_search_requests ?? 0,
       );
-      costUsd =
-        computeCost(
-          CLASSIFIER_MODEL,
-          resp.usage.input_tokens ?? 0,
-          resp.usage.output_tokens ?? 0,
-        ).usd + webSearchFeeUsd(webSearchReqs);
+      const base = computeCost(
+        CLASSIFIER_MODEL,
+        resp.usage.input_tokens ?? 0,
+        resp.usage.output_tokens ?? 0,
+      );
+      const cost = { ...base, usd: base.usd + webSearchFeeUsd(webSearchReqs) };
+      costUsd = cost.usd;
+
+      // Ledger row (2026-07-15). Written HERE because this is the only scope
+      // where the token counts still exist — `costUsd` is all that escapes to
+      // the caller (see ClassifiedSeed), so a row built outside this function
+      // could never populate input_tokens/output_tokens.
+      await recordLlmCall({
+        ledger: input.ledger,
+        task: "classify",
+        model: CLASSIFIER_MODEL,
+        provider: "anthropic",
+        cost,
+      });
     }
   } catch (err) {
     // Total failure — fall back to URL/platform-derived defaults below.

@@ -22,6 +22,7 @@
 import { anthropic } from "../lib/anthropic";
 import { withAnthropicRetry } from "./anthropicRetry";
 import { computeCost, webSearchFeeUsd, type CostBreakdown } from "../lib/pricing";
+import { recordLlmCall, type LedgerContext } from "../lib/llmLedger";
 import {
   modelNeedsExplicitToolNudge,
   thinkingDisabledFor,
@@ -145,6 +146,16 @@ export interface ResearchInput {
   sdrContextNotes?: string;
   apolloOrgIndustry?: string;
   apolloEmployeeCount?: number;
+  /**
+   * Cost-ledger attribution (2026-07-15). Optional so the bench harness keeps
+   * compiling and stays out of the ledger.
+   *
+   * This is the single most expensive call in the product (~$0.40-0.50 per
+   * prospect against ~$0.02-0.07 for the entire writer chain — measured, see
+   * godlike-audit/), so a ledger that omitted it would misreport the bill by an
+   * order of magnitude. It bypasses callLLMRole, so it writes its own row.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface ResearchResult {
@@ -669,6 +680,20 @@ export async function researchProspect(
   );
   const baseCost = computeCost(RESEARCH_MODEL, inputTokens, outputTokens);
   const cost = { ...baseCost, usd: baseCost.usd + webSearchFeeUsd(webSearchReqs) };
+
+  // Ledger row (2026-07-15). This service calls anthropic.messages.create
+  // directly, bypassing callLLMRole, so it records its own. `cost` here already
+  // includes the per-request web-search fee — which is most of it: search
+  // fan-out, not token price, is what drives this call's spend (measured 25x
+  // per-case variance within one model). A row carrying only the token cost
+  // would be wrong by multiples on exactly the call that matters most.
+  await recordLlmCall({
+    ledger: input.ledger,
+    task: "research",
+    model: RESEARCH_MODEL,
+    provider: "anthropic",
+    cost,
+  });
 
   emitLlmSubstage(emitter, {
     stage: "research",

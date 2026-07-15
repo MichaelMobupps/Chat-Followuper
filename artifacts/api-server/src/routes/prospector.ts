@@ -28,6 +28,7 @@ import {
   recordDailyLlmSpend,
 } from "../lib/llmSpendCap";
 import { computeCost } from "../lib/pricing";
+import { recordLlmCall } from "../lib/llmLedger";
 import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";
 
 // L1: mirror companyResolver's DEFAULT_SONNET_MODEL (not exported) so prospector
@@ -471,14 +472,21 @@ router.post(
 
     // L1: record the Sonnet spend so it counts toward the daily cap + rollups
     // (previously only token counts hit action_logs, never USD in daily_usage).
-    await recordDailyLlmSpend(
-      user.id,
-      computeCost(
-        PROSPECTOR_SONNET_MODEL,
-        result.usage?.inputTokens ?? 0,
-        result.usage?.outputTokens ?? 0,
-      ).usd,
-    ).catch(() => {});
+    const resolveCost = computeCost(
+      PROSPECTOR_SONNET_MODEL,
+      result.usage?.inputTokens ?? 0,
+      result.usage?.outputTokens ?? 0,
+    );
+    await recordDailyLlmSpend(user.id, resolveCost.usd).catch(() => {});
+
+    // Ledger row (2026-07-15) — companyResolver bypasses callLLMRole.
+    await recordLlmCall({
+      ledger: { userId: user.id },
+      task: "resolve_company",
+      model: PROSPECTOR_SONNET_MODEL,
+      provider: "anthropic",
+      cost: resolveCost,
+    });
 
     // Audit fix F9: surface usage to the caller for cost reporting.
     res.status(200).json({
@@ -1343,23 +1351,44 @@ router.post(
     // and admin/weekly rollups. Priced per the model each sub-step actually
     // used. Best-effort — accounting, not the primary flow.
     const u = result.llmUsage;
-    const discoverSpendUsd =
-      computeCost(
-        PROSPECTOR_SONNET_MODEL,
-        u.resolveCompany?.inputTokens ?? 0,
-        u.resolveCompany?.outputTokens ?? 0,
-      ).usd +
-      computeCost(
-        "claude-sonnet-5",
-        u.smartValidator?.inputTokens ?? 0,
-        u.smartValidator?.outputTokens ?? 0,
-      ).usd +
-      computeCost(
-        "claude-opus-4-8",
-        u.opusRescue?.inputTokens ?? 0,
-        u.opusRescue?.outputTokens ?? 0,
-      ).usd;
+    // Per-model, because these are THREE different models at three different
+    // prices (sonnet-4-6 / sonnet-5 / opus-4-8). action_logs sums their tokens
+    // into one number and records no USD at all, which is precisely the blend
+    // the ledger exists to undo.
+    const discoverCosts = [
+      {
+        task: "resolve_company",
+        model: PROSPECTOR_SONNET_MODEL,
+        usage: u.resolveCompany,
+      },
+      { task: "validate_orgs", model: "claude-sonnet-5", usage: u.smartValidator },
+      { task: "opus_rescue", model: "claude-opus-4-8", usage: u.opusRescue },
+    ].map((c) => ({
+      ...c,
+      cost: computeCost(c.model, c.usage?.inputTokens ?? 0, c.usage?.outputTokens ?? 0),
+    }));
+
+    const discoverSpendUsd = discoverCosts.reduce((a, c) => a + c.cost.usd, 0);
     await recordDailyLlmSpend(user.id, discoverSpendUsd).catch(() => {});
+
+    // Ledger rows (2026-07-15). This whole cluster bypasses callLLMRole and was
+    // missed by the original ledger plan — it is real spend on the prospector
+    // path, and a ledger that omitted it would reconcile to the wrong number
+    // while looking complete.
+    //
+    // Only stages that actually RAN get a row: smartValidator and opusRescue are
+    // conditional, and a $0 row for a call that never happened is a lie in the
+    // opposite direction from the one we're fixing.
+    for (const c of discoverCosts) {
+      if (!c.usage) continue;
+      await recordLlmCall({
+        ledger: { userId: user.id },
+        task: c.task,
+        model: c.model,
+        provider: "anthropic",
+        cost: c.cost,
+      });
+    }
 
     res.status(200).json({
       status: result.status,
@@ -1438,6 +1467,9 @@ router.post(
         country: body.country,
         language: body.language,
         product: body.product,
+        // From the session, never from `body` — every other field here is
+        // caller-supplied, and "who pays for this" must not be.
+        ledger: { userId: user.id },
       });
     } catch (err) {
       const safe = redactSecrets(

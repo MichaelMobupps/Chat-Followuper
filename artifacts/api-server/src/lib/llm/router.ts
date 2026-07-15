@@ -47,6 +47,7 @@
 import { anthropic } from "../anthropic";
 import { withAnthropicRetry } from "../../services/anthropicRetry";
 import { computeCost, type CostBreakdown } from "../pricing";
+import { recordLlmCall, type LedgerContext } from "../llmLedger";
 import {
   geminiGenerate,
   isGeminiConfigured,
@@ -84,6 +85,17 @@ export interface LlmCallInput {
   /** Prospect vertical context — drives grey-area routing for the writer. */
   vertical?: string;
   subVertical?: string | null;
+  /**
+   * Cost-ledger attribution (2026-07-15). Optional because offline callers
+   * (bench harness, smoke scripts) have no user — see recordLlmCall, which
+   * skips them rather than writing null-user rows.
+   *
+   * The ledger row is written HERE, per call, and not at the service entry
+   * point: generateChatMessage returns sumCosts(...), which blends 3-7 calls
+   * across 2 providers and 3 models into one CostBreakdown. By that boundary
+   * per-model attribution no longer exists to record.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface LlmCallResult {
@@ -369,12 +381,7 @@ async function callGeminiWithFallback(input: LlmCallInput): Promise<LlmCallResul
 // Public entry point
 // ─────────────────────────────────────────────────────────────────
 
-/**
- * Route one chain-stage call to the policy model. Throws only when BOTH
- * providers fail (or the Anthropic-only critic path fails) — the caller's
- * existing error handling then applies unchanged.
- */
-export async function callLLMRole(role: LlmRole, input: LlmCallInput): Promise<LlmCallResult> {
+function routeLLMRole(role: LlmRole, input: LlmCallInput): Promise<LlmCallResult> {
   switch (role) {
     case "critic":
       // Anthropic-only role per policy. No sampling params are sent anywhere
@@ -394,4 +401,43 @@ export async function callLLMRole(role: LlmRole, input: LlmCallInput): Promise<L
     case "lint":
       return callGeminiWithFallback(input);
   }
+}
+
+/**
+ * Route one chain-stage call to the policy model. Throws only when BOTH
+ * providers fail (or the Anthropic-only critic path fails) — the caller's
+ * existing error handling then applies unchanged.
+ *
+ * Also writes the per-call cost-ledger row (2026-07-15). This is the ONLY
+ * place the writer/critic/lint chain can be ledgered honestly: it is the one
+ * point where the ACTUAL post-fallback model, its provider, and that single
+ * call's cost all exist together. One stage up, generateChatMessage has already
+ * collapsed them via sumCosts into a blend that cannot name a model.
+ */
+export async function callLLMRole(role: LlmRole, input: LlmCallInput): Promise<LlmCallResult> {
+  const result = await routeLLMRole(role, input);
+
+  // Awaited, not fire-and-forget: a local INSERT is ~1ms against an LLM call
+  // measured in seconds, so the latency is noise, and awaiting means the row is
+  // durable before the caller proceeds — which is what makes it testable and
+  // keeps ordering deterministic. recordLlmCall never throws (best-effort by
+  // contract), so this cannot turn an accounting failure into a lost message.
+  //
+  // Placed AFTER the await deliberately: a call that throws is a call that
+  // produced no billable usage figures to record. The provider may still have
+  // charged for a failed request — that is a known, accepted gap, and it is
+  // better than inventing token counts we never received.
+  await recordLlmCall({
+    ledger: input.ledger,
+    // label is already "draft" | "critic" | "rewriter" | "lint" at every call
+    // site — the ledger's `task` column reuses it rather than inventing a
+    // parallel taxonomy that would drift from the logs.
+    task: input.label,
+    model: result.model,
+    provider: result.provider,
+    fallback: result.fallback,
+    cost: result.cost,
+  });
+
+  return result;
 }

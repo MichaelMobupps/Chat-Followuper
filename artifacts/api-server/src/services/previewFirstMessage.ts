@@ -101,6 +101,7 @@ export async function previewFirstMessage(params: {
       seed: seedUrl || company,
       company,
       vertical: vertical === "web_cps" ? "web_cps" : "mobile",
+      ledger: { userId },
     });
     subVertical = classified.subVertical;
     // NOT `vertical = classified.vertical`: classifySeed echoes back whatever
@@ -154,6 +155,8 @@ export async function previewFirstMessage(params: {
       subVertical,
       product,
       sdrContextNotes: params.prePlatformContext ?? undefined,
+      // No prospectId — this path spends before the prospect row exists.
+      ledger: { userId },
     },
     new LoggingProgressEmitter(),
   );
@@ -193,6 +196,10 @@ export async function previewFirstMessage(params: {
     stage: 0,
     senderName,
     researchBrief: brief,
+    // No prospectId: this path deliberately spends BEFORE a prospect row
+    // exists (it previews a first message for an unsaved draft). The spend is
+    // real and must be attributed to the user; the prospect column stays null.
+    ledger: { userId },
   });
 
   setDraftProgress(userId, draftId, "finalizing");

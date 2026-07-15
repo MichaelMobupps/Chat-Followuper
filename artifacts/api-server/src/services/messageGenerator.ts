@@ -43,6 +43,7 @@ import {
 import { summaryLooksMeta, resanitizeStoredSummary } from "./messageSummarizer";
 import { logger } from "../lib/logger";
 import { sumCosts, type CostBreakdown } from "../lib/pricing";
+import type { LedgerContext } from "../lib/llmLedger";
 import type { ChannelCode, GenerationMode } from "../lib/channelRegister";
 import { applyFirewall } from "../lib/doctrine/firewall";
 import { resolveLocale } from "../lib/localeResolver";
@@ -99,6 +100,16 @@ export interface GenerateChatMessageOptions {
   researchBrief?: ProspectBrief;
   /** Human-readable doctrine variant instruction from sequence config. */
   doctrineVariantInstruction?: string;
+  /**
+   * Cost-ledger attribution (2026-07-15). Optional so the bench harness and
+   * smoke scripts — which have no user — keep compiling and stay out of the
+   * ledger. Every PRODUCTION caller passes it; all four have userId already in
+   * scope, so this is a pass-through, not new plumbing.
+   *
+   * Deliberately NOT on MessageContext: that object is handed to the prompt
+   * builders, and billing identity has no business inside a prompt.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface ProspectInput {
@@ -770,6 +781,7 @@ function parseJsonResponse(text: string): { subject?: string; message?: string; 
 
 async function generateDraft(
   ctx: MessageContext,
+  ledger: LedgerContext | undefined,
   attempt = 1,
 ): Promise<{ draft: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
   const maxAttempts = 2;
@@ -790,6 +802,7 @@ async function generateDraft(
     label: "draft",
     vertical: ctx.vertical,
     subVertical: ctx.sub_vertical,
+    ledger,
   });
   const cost = result.cost;
 
@@ -810,7 +823,11 @@ async function generateDraft(
     );
     if (attempt < maxAttempts) {
       logger.info("Retrying draft generation...");
-      const retry = await generateDraft(ctx, attempt + 1);
+      // Ledger threads through the retry too: a retried draft is a SECOND
+      // billable call, and it must appear as its own row — a retry that spends
+      // twice and ledgers once is exactly the under-count this table exists to
+      // stop.
+      const retry = await generateDraft(ctx, ledger, attempt + 1);
       return {
         draft: retry.draft,
         cost: sumCosts([cost, retry.cost]),
@@ -836,10 +853,12 @@ interface CriticResult {
 async function critiqueDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
+  ledger: LedgerContext | undefined,
 ): Promise<{ critique: CriticResult; cost: CostBreakdown; model: string }> {
   // Critic is an Anthropic-only role (claude-sonnet-5) — the judge stays on
   // the stronger model while the writer/lint stages run on the cheap one.
   const result = await callLLMRole("critic", {
+    ledger,
     system: getCriticSystemPrompt(ctx.mode, ctx.channel),
     user: getCriticUserPrompt(ctx, draft),
     maxTokens: 2048,
@@ -875,6 +894,7 @@ async function rewriteDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
   critique: CriticResult,
+  ledger: LedgerContext | undefined,
 ): Promise<{ rewrite: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
   // Lint/rewrite role: gemini-3.5-flash with sonnet-4-6 fallback (503,
   // safety block, missing key). Grey-vertical text that Gemini declines to
@@ -889,6 +909,7 @@ async function rewriteDraft(
     label: "rewriter",
     vertical: ctx.vertical,
     subVertical: ctx.sub_vertical,
+    ledger,
   });
   const cost = result.cost;
 
@@ -1076,7 +1097,7 @@ export async function generateChatMessage(
 
   // ── Stage 1: Draft ──
   // If draft fails after retries, bubble up. No template fallback.
-  const { draft: rawInitialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx);
+  const { draft: rawInitialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx, opts.ledger);
   const initialDraft = preCleanDraft(rawInitialDraft);
   draftModelUsed = draftModel;
   const allCosts: CostBreakdown[] = [draftCost];
@@ -1117,7 +1138,7 @@ export async function generateChatMessage(
     let critique: CriticResult;
     let criticCost: CostBreakdown;
     try {
-      const result = await critiqueDraft(ctx, current);
+      const result = await critiqueDraft(ctx, current, opts.ledger);
       critique = result.critique;
       criticCost = result.cost;
       criticModelUsed = result.model;
@@ -1243,7 +1264,7 @@ export async function generateChatMessage(
     );
 
     try {
-      const { rewrite: rawRewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique);
+      const { rewrite: rawRewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique, opts.ledger);
       const rewrite = preCleanDraft(rawRewrite);
       allCosts.push(rewriteCost);
       rewriterModelUsed = rewriteModel;

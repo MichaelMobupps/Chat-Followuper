@@ -199,6 +199,7 @@ export async function generateAndPersistFollowupMessage(params: {
     previousFollowups,
     researchBrief: brief,
     doctrineVariantInstruction: variantInstruction,
+    ledger: { userId, prospectId: prospect.id },
   });
 
   const costUsd = generated.costEstimate.usd;
