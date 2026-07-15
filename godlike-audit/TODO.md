@@ -45,9 +45,18 @@ is CLOSED (no production change). Thread B (admin dashboard) is built + audited 
    All three are idempotent (`IF NOT EXISTS` + `conrelid`-guarded DO-blocks) and safe to run
    early: the column defaults `false` = today's behaviour, and `llm_calls` is additive. PG16
    stores the non-volatile default in the catalog — no table rewrite, brief metadata lock only.
-   ```
-   pnpm --filter @workspace/db run migrate     # or apply the 3 .sql files by hand
-   ```
+
+   **HOW:** paste **`/RUN-THIS-BEFORE-PUBLISH.sql`** (repo root) into the **Replit SQL Console →
+   Production DB**. It bundles 0019+0020+0021 and ends with a read-only check printing
+   `ALL GOOD — safe to Republish now` or `NOT READY — do NOT Republish`. Validated three ways:
+   against dev-at-head in BEGIN…ROLLBACK, against a *simulated prod-at-0018* (the run that
+   actually matters), and twice back-to-back to prove a double-run is a no-op.
+
+   ⚠️ **`pnpm --filter @workspace/db run migrate` does NOT touch prod — it migrates DEV.**
+   The workspace `DATABASE_URL` is the dev DB (heliumdb); prod is reachable ONLY via the Replit
+   SQL Console or a Republish. Running the pnpm command prints `[migrate] complete` and leaves
+   prod untouched — a success message for work that did not happen, immediately before the one
+   deploy where being wrong logs every rep out. Dev is already at 0021.
 2. **THEN** publish/deploy the code.
 3. **THEN** set the `ADMIN_EMAILS` Replit **Secret** — this is an ENV VAR, not code, and cannot
    be committed. `.env.example` ships it empty and `lib/admin.ts` reads it per-call.
