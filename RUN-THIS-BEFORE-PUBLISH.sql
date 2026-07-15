@@ -1,14 +1,14 @@
 -- ===========================================================================
--- PRODUCTION SETUP — run BEFORE you Publish.   (v2, 2026-07-15)
+-- PRODUCTION SETUP — run BEFORE you Publish.   (v3, 2026-07-15)
 -- ===========================================================================
 --
--- v1 failed in the Replit SQL Console ("Invalid response from Replit driver").
--- The console cannot handle `DO $$ ... $$` blocks. v2 has none — same end
--- result, plain statements only.
+-- THE REPLIT SQL CONSOLE RUNS EXACTLY ONE STATEMENT PER RUN.
+-- That is the single thing to know about this file. It is why v1 failed (it
+-- used `DO $$ ... $$` blocks, which the console's driver rejects outright) and
+-- why v2's STEP 3 failed (four CREATE INDEX lines in one paste).
 --
--- HOW TO RUN: work through STEP 0 → STEP 5 below, ONE step at a time. Select
--- just that step's lines, then Run. Do NOT paste the whole file at once — that
--- is what broke v1.
+-- v3: every step below is ONE statement. Select that step's single line,
+-- press Run, move to the next. Never paste two statements together.
 --
 -- SAFE TO RUN NOW, before the code ships: nothing here changes any behaviour.
 -- The new column defaults to false = "not paused" = exactly what happens today,
@@ -22,7 +22,7 @@
 --
 -- ===========================================================================
 -- STEP 0 — READ ONLY. Changes nothing. Tells us where we are.
--- Run this FIRST, especially after the failed v1 attempt.
+-- Run this any time to see what is already applied. Safe, always.
 -- Expect all zeros on a fresh prod. Any 1s just mean part of v1 got through —
 -- that is fine and safe; the steps below skip whatever already exists.
 -- ===========================================================================
@@ -46,7 +46,8 @@ ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "followups_paused" boolean DEFAULT 
 
 -- ===========================================================================
 -- STEP 2 — the cost ledger table.  (migration 0020)
--- Select the whole CREATE TABLE block including the final );  then Run.
+-- ONE statement (it just spans many lines). Select the whole CREATE TABLE block
+-- including the final );  then Run.
 --
 -- The two foreign keys are declared INLINE here, with the exact names the app
 -- expects. v1 added them afterwards inside DO $$ blocks — that is what the
@@ -69,23 +70,30 @@ CREATE TABLE IF NOT EXISTS "llm_calls" (
 
 
 -- ===========================================================================
--- STEP 3 — the ledger's indexes.  (migration 0020)
--- Four lines. Run them together, or one at a time if the console complains.
+-- STEPS 3-7 — the ledger's five indexes.  (migrations 0020 + 0021)
+--
+-- ONE PER RUN. These are speed only: the app is CORRECT without them, just
+-- slower, so if one refuses to run it is not a reason to stop the deploy.
 -- ===========================================================================
+
+-- STEP 3
 CREATE INDEX IF NOT EXISTS "llm_calls_user_created_idx" ON "llm_calls" ("user_id", "created_at");
+
+-- STEP 4
 CREATE INDEX IF NOT EXISTS "llm_calls_model_idx" ON "llm_calls" ("model");
+
+-- STEP 5
 CREATE INDEX IF NOT EXISTS "llm_calls_task_idx" ON "llm_calls" ("task");
+
+-- STEP 6
 CREATE INDEX IF NOT EXISTS "llm_calls_prospect_id_idx" ON "llm_calls" ("prospect_id");
 
-
--- ===========================================================================
--- STEP 4 — the index the spend page needs.  (migration 0021)
--- ===========================================================================
+-- STEP 7 — the one the spend page reads on every load  (migration 0021)
 CREATE INDEX IF NOT EXISTS "llm_calls_created_idx" ON "llm_calls" ("created_at");
 
 
 -- ===========================================================================
--- STEP 5 — VERIFY. READ ONLY, changes nothing.
+-- STEP 8 — VERIFY. READ ONLY, changes nothing.
 --
 -- You want:   ALL GOOD - safe to Republish now
 --
