@@ -146,7 +146,13 @@ export interface AdminActivityEvent {
 }
 
 export interface AdminActivityRep {
-  user: { id: string; email: string; name: string | null };
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    /** Admin kill switch (2026-07-15) — see POST followups-pause below. */
+    followupsPaused: boolean;
+  };
   totalSpendUsd: number;
   totalEventCount: number;
   recentEventCount: number;
@@ -163,10 +169,69 @@ export interface AdminActivityResponse {
   eventCap: number;
 }
 
+/** One model's slice of the per-call ledger. */
+export interface AdminLlmSpendModel {
+  model: string;
+  costUsd: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Calls booked at $0 because the model had no price entry — see below. */
+  unpricedCalls: number;
+}
+
+export interface AdminLlmSpendResponse {
+  days: number;
+  since: string;
+  /**
+   * Oldest ledger row. Per-model history is NOT backfillable (model names are
+   * discarded at the action_logs boundary), so the data starts when the ledger
+   * shipped. The UI must say "since <this>" rather than imply a silent zero for
+   * any window that predates it.
+   */
+  coverageStartsAt: string | null;
+  totals: { costUsd: number; calls: number; unpricedCalls: number };
+  /**
+   * Spend with no attributable user. Its own line, never filtered out — money
+   * we can't attribute is exactly what an accounting view must show.
+   */
+  unattributed: { costUsd: number; calls: number };
+  byUser: Array<{
+    userId: string | null;
+    email: string | null;
+    name: string | null;
+    costUsd: number;
+    calls: number;
+  }>;
+  byModel: AdminLlmSpendModel[];
+  byTask: Array<{ task: string; costUsd: number; calls: number }>;
+}
+
 export function getAdminWhoami(): Promise<AdminWhoami> {
   return apiFetch<AdminWhoami>("/api/admin/whoami");
 }
 
 export function getAdminActivity(): Promise<AdminActivityResponse> {
   return apiFetch<AdminActivityResponse>("/api/admin/activity");
+}
+
+export function getAdminLlmSpend(days = 30): Promise<AdminLlmSpendResponse> {
+  return apiFetch<AdminLlmSpendResponse>(`/api/admin/llm-spend?days=${days}`);
+}
+
+/**
+ * Pause or resume one rep's follow-ups (admin kill switch).
+ *
+ * Stops follow-up sends and the notifications that drive them. Does NOT stop
+ * first messages or the weekly stats digest — the flag is named for follow-ups
+ * and that scope is deliberate (see users.followups_paused).
+ */
+export function setAdminFollowupsPause(
+  userId: string,
+  paused: boolean,
+): Promise<{ id: string; followupsPaused: boolean }> {
+  return apiFetch<{ id: string; followupsPaused: boolean }>(
+    `/api/admin/users/${userId}/followups-pause`,
+    { method: "POST", body: JSON.stringify({ paused }) },
+  );
 }

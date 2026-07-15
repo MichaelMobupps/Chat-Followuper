@@ -134,6 +134,18 @@ export const ACTION_TYPES = {
   prospectorContactsCollected: "prospector.contacts_collected",
   prospectorDiscoverSimple: "prospector.discover_simple",
   prospectorDiscover: "prospector.discover",
+  /**
+   * Admin kill switch (2026-07-15): an admin paused or resumed a rep's
+   * follow-ups. `userId` is the TARGET (so it lands on that rep's timeline,
+   * where the effect is visible); `metadata.actorEmail` is who did it, and
+   * `metadata.paused` the new state.
+   *
+   * The actor must be recorded because this is the one action in the product
+   * where one user silently changes another user's behaviour: the rep cannot
+   * see why their sends stopped, cannot undo it, and would otherwise have no
+   * way to find out who to ask.
+   */
+  adminFollowupsPauseToggled: "admin.followups_pause_toggled",
 } as const;
 
 export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];
