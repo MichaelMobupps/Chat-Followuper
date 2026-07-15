@@ -25,29 +25,55 @@ Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chat
 
 ---
 
-## 🔴 IN FLIGHT (2026-07-14) — RESUME HERE AFTER AN SSH DROP
+## 🔴 IN FLIGHT (2026-07-15) — RESUME HERE AFTER AN SSH DROP
 
 Two threads open. Everything below is UNCOMMITTED unless it says otherwise.
 
 ### A. LLM cost work (in progress)
 
-1. **[DOING] `pricing.ts` — claude-sonnet-5 intro rate is WRONG and it's live.**
-   The table says `$3.00/$15.00`; Anthropic bills **$2.00/$10.00 per MTok through
-   **2026-08-31**, reverting to $3/$15 after. **`CRITIC_MODEL = claude-sonnet-5`**, so every
-   critic call is over-reported by **50%** right now — and so is every bench dollar figure in
-   this folder. Fix must be **date-aware**: hardcoding either number is wrong half the time
-   (2.0 is wrong from Sep 1; 3.0 is wrong today). Verified against the claude-api skill's
-   authoritative pricing table, not memory.
-2. **[NEXT] `RESEARCH_MODEL` is a hard const** (`prospectResearch.ts:43` =
-   `"claude-opus-4-7"`), unlike the writer chain which is env-overridable. Make it
-   `process.env.RESEARCH_MODEL || "claude-opus-4-7"` so the A/B needs no code edit per arm.
-3. **[NEXT] Bench research: opus-4-7 vs sonnet-5.** Only **2** bench cases run real research
-   (`en-US-research`, `tr-TR-research` — `research: "real"`), ~$0.39–0.52 each ⇒ ~$2 for both
-   arms. Cost delta is deterministic and trustworthy at n=2; **quality is NOT** — treat any
-   score difference as directional only. Use `BENCH_TAG=research-ab` per arm (the report stem
-   now carries BENCH_TAG + subsetN, so runs can't clobber the committed 52-case baseline —
-   that trap already ate it once today; recovered via git).
-4. **[THEN] Decide.** claude-sonnet-5 is **−60% vs opus-4-7 today** ($2/$10 vs $5/$25), −40%
+1. **[DONE `2cbb1b5`] `pricing.ts` — claude-sonnet-5 intro rate.** Fixed date-aware
+   (`INTRO_PRICING` overlay + `priceFor(model, at)`), not a swapped constant: $2/$10 through
+   2026-08-31, $3/$15 after, both asserted from either side by the new `smoke:pricing` (12/12,
+   zero spend). Accepted consequence, documented at the definition: reported sonnet-5 spend
+   rises ~50% on 2026-09-01 with no behaviour change.
+2. **[DONE `2cbb1b5`] `RESEARCH_MODEL` is now env-overridable** (`process.env.RESEARCH_MODEL ||
+   "claude-opus-4-7"`). The A/B needs no code edit per arm. Default unchanged.
+3. **[DONE `6bcafe0`] The A/B was run — and it is UNINFORMATIVE about the model. Read this
+   before re-reading any `-research-*` report in this folder.**
+   Sonnet-5 scored 3/3 vs opus 3/5 and cost $0.026/case vs opus's $0.31 of search fan-out.
+   Same fact twice, and it was **our own footgun, not the model**: we send
+   `thinking:{type:"disabled"}` on Sonnet-tier, and per Anthropic's Sonnet 5 guidance a
+   thinking-disabled model "is less likely to reach for tools or consider searching". It
+   under-searched because we told it not to think. Un-fixed, it also **threw on 1 of 2 cases**
+   ("Request timed out" at 147s vs the 120s/135s research timeouts) and ran 183s vs opus's 128s.
+   Fixed in `6bcafe0` (`lib/llm/thinking.ts` + `researchPrompts/searchDirective.ts`,
+   model-conditional so opus's prompt is byte-identical — verified 378/378 renders vs HEAD;
+   `smoke:research` 30/30, zero spend). **Every number in `-research-opus47-subset2` /
+   `-research-sonnet5-subset2` / `-r2-*` predates the fix.**
+4. **[NEXT — THE ONE OPEN QUESTION] Re-run the A/B on 8 cases, then decide.**
+   `research: "real"` cases are now **8** (was 2 — both were `cps_web_ecom_marketplace`, i.e.
+   one doctrine family of three). **n=2 could not resolve a 1-point delta**: opus's own
+   run-to-run cost variance on a FIXED case is **4.6×–6.8×** (en-US $0.083→$0.328; tr-TR
+   $0.496→$0.087, r1 vs r2 — both committed). Est. **~$2–4 total**; ~8 min per arm (8 cases at
+   concurrency 3, ~150s each).
+   **There is no `bench:writer` package script** — the bench runs via tsx directly, and
+   **`BENCH_ONLY` takes explicit ids, not a category.** Verified command, per arm:
+   ```
+   cd artifacts/api-server
+   BENCH_ONLY=en-US-research,tr-TR-research,en-US-research-game,tr-TR-research-game,en-GB-research-fintech,de-DE-research-fintech,es-ES-research-travel,en-US-research-fashion \
+   LLM_GEMINI_MODEL=gemini-3-flash-preview \
+   RESEARCH_MODEL=claude-opus-4-7 BENCH_TAG=r3-opus47 \
+     node ../../lib/db/node_modules/tsx/dist/cli.mjs src/scripts/benchWriterQuality.ts
+   # then the same with RESEARCH_MODEL=claude-sonnet-5 BENCH_TAG=r3-sonnet5
+   ```
+   **Pin `LLM_GEMINI_MODEL` or you confound the arm** — this env sets `gemini-3.5-flash`, which
+   is NOT what the committed baseline measured; that exact mistake already produced one false
+   conclusion here. The report stem carries BENCH_TAG + subsetN, so a partial run can't clobber
+   the committed 52-case baseline — that trap ate it once; recovered via git.
+   ⚠️ Reports are keyed by the **writer** model, not the research model under test
+   (`BENCH-WRITER-gemini-3-flash-preview-r3-<arm>-subset8.md`). Only BENCH_TAG separates the
+   arms — **do not omit it**.
+5. **[THEN] Decide.** claude-sonnet-5 is **−60% vs opus-4-7 today** ($2/$10 vs $5/$25), −40%
    after Aug 31, keeps 1M context and `web_search_20260209` dynamic filtering, and is the
    near-Opus agentic tier. **claude-haiku-4-5 is OUT** despite $1/$5: it is not eligible for
    `web_search_20260209` (would fall back to unfiltered `web_search_20250305` — more input
@@ -85,13 +111,44 @@ User chose (2026-07-14): **user-level kill switch** + **per-call ledger table**.
    (`fetchDueRows`), pushover, send-next route, `/open`. Miss one and the switch leaks.
 5. **Admin routes + FE page.**
 
+### C. Writer model: the gemini A/B COMPLETED — and it says pin to 3-flash-preview (DECISION NEEDED)
+
+Both arms landed (`-ab.md/.json`, committed `6bcafe0`, 52 cases each). Analysed 2026-07-15.
+**Do not read the arm headline numbers directly — the 3.5 arm is a BLEND, not a measurement.**
+
+- **gemini-3.5-flash served only 25/52 (48%).** The other **27 fell back to claude-sonnet-4-6**
+  (that arm pinned its fallback to sonnet-4-6 so it couldn't borrow 3-flash-preview). So the
+  arm's headline "3.77 avg / $3.370" describes ~half 3.5-flash + ~half sonnet-4-6. The
+  3-flash-preview arm was clean: **52/52 served**.
+- **Matched subset — same 25 case ids, research cases excluded (n=23), writer-chain cost only,
+  because research's 4.6×–6.8× cost variance swamps the writer delta:**
+
+  | | score | iters | writer-only $/case | latency |
+  |---|---|---|---|---|
+  | gemini-3.5-flash ($1.50/$9.00) | **3.65** | 1.57 | $0.0408 | 53.0s |
+  | gemini-3-flash-preview ($0.50/$3.00) | **3.96** | 1.70 | $0.0467 | **41.1s** |
+
+  Per-case: 3-flash-preview wins 9, ties 8, loses 6 of 23. Directional, not decisive, at n=23 —
+  but it does not lose on quality, and it is **~12s/case faster**.
+- **The "writer spend rose ~3×" alarm in LOG.md is WRONG — measured, it's a wash.** 3.5-flash is
+  ~14% *cheaper* per case ($0.0408 vs $0.0467) despite 3× the sticker: the draft is only a slice
+  of the chain (critic/rewriter/lint dominate), and 3.5-flash heals slightly less. The 3× applies
+  to the draft slice, not the bill. **Cost is NOT the argument for switching. Reliability is.**
+- **The actual finding is the 52% fallback rate.** Today's chain
+  (`router.ts:63` default `gemini-3.5-flash` → `gemini-3-flash-preview` → `sonnet-4-6`, and this
+  env sets `LLM_GEMINI_MODEL=gemini-3.5-flash` too) means **prod is already running roughly half
+  its writers on 3-flash-preview** — via a failed call + retry each time. Pinning
+  `LLM_GEMINI_MODEL=gemini-3-flash-preview` buys: no fallback churn, −12s/case, quality ≥, cost ≈.
+- **NOT YET KNOWN — check before deciding:** *why* 3.5-flash fails 52% of the time. The bench ran
+  at concurrency 3, so this may be rate/quota shedding rather than a model property, in which
+  case prod at concurrency 1 may fall back far less. The router logs a warn on fallback; capture
+  it. A single live probe says nothing here — it succeeded (16.4s) while the bench failed 52%.
+
 ### Live-verified facts (2026-07-14) — don't re-derive
 - **gemini-3.5-flash NOW SERVES** on this key (probed: OK 16.4s; 3-flash-preview OK 16.3s). The
-  router comment claiming it "503s (not provisioned)" is STALE. The chain silently promoted
-  itself to the $1.50/$9.00 primary — **~3× the $0.50/$3.00 fallback** — with no deploy. The
-  committed 52-case bench (3.90 avg / 1.90 iters) measured **3-flash-preview 52/52**, i.e. the
-  FALLBACK, not what prod now runs. A full A/B (both arms pinned, `BENCH_TAG=ab`) was launched;
-  if `/tmp/armA.log` / `/tmp/armB.log` are gone, it must be re-run.
+  router comment claiming it "503s (not provisioned)" is STALE — but see C: it serves only ~48%
+  of the time under load, so "provisioned" and "reliable" are not the same claim. The committed
+  52-case bench (3.90 avg / 1.90 iters) measured **3-flash-preview 52/52**, i.e. the FALLBACK.
 - Grey-area routing (casino|betting|crypto|forex) keys off **subVertical only** — the coarse
   vertical is only ever web_cps|mobile and can never match. Asserted in `smoke:parity`.
 
