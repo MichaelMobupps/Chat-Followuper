@@ -48,6 +48,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { modelDefaultsAdaptiveThinking as modelDefaultsAdaptiveThinkingShared } from "../lib/llm/thinking";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -440,9 +441,10 @@ export function modelRejectsSamplingParams(model: string): boolean {
  * claude-fable-5, we omit the thinking param entirely (adaptive thinking will
  * consume budget — prefer a Sonnet-tier model for this extraction path).
  */
-function modelDefaultsAdaptiveThinking(model: string): boolean {
-  return /claude-sonnet-5/.test(model);
-}
+// Moved to lib/llm/thinking.ts so prospectResearch can share the same policy —
+// it hit the identical Sonnet-5 adaptive-thinking trap. Re-exported here as a
+// local alias so the call site below reads unchanged.
+const modelDefaultsAdaptiveThinking = modelDefaultsAdaptiveThinkingShared;
 
 /** Default LLM caller: real Anthropic SDK. */
 export const defaultLLMCaller: LLMCaller = async ({

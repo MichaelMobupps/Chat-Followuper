@@ -20,6 +20,7 @@ import { buildVocabularyBlock } from "../eventCatalog";
 import { buildVolumeCalibrationBlock } from "../volumeBenchmarks";
 import { buildProofPointsBlock } from "../proofPoints";
 import { getDisplayLabel, type SubVertical } from "../taxonomy";
+import { buildSearchDirectiveBlock } from "./searchDirective";
 
 export interface ResearchPromptInput {
   brand: string;
@@ -32,6 +33,12 @@ export interface ResearchPromptInput {
   apolloEmployeeCount?: number;
   /** False on the knowledge-only research path (no web_search tool attached). */
   webSearchEnabled?: boolean;
+  /**
+   * Emit the explicit SEARCH PROTOCOL block. Set by prospectResearch for model
+   * families that under-use tools when thinking is disabled (Sonnet 5). Left
+   * false for opus-4-7 so its prompt stays byte-identical — see searchDirective.ts.
+   */
+  aggressiveSearch?: boolean;
 }
 
 export function getMobileGamingResearchSystemPrompt(input: ResearchPromptInput): string {
@@ -40,6 +47,12 @@ export function getMobileGamingResearchSystemPrompt(input: ResearchPromptInput):
   const proofBlock = buildProofPointsBlock(input.subVertical);
   const displayLabel = getDisplayLabel(input.subVertical);
   const isNonEnglish = input.language && input.language.toLowerCase() !== "en";
+  const searchBlock = buildSearchDirectiveBlock({
+    webSearchEnabled: input.webSearchEnabled !== false,
+    aggressiveSearch: input.aggressiveSearch === true,
+    brand: input.brand,
+  });
+
   const hookLead =
     input.webSearchEnabled === false
       ? 'You have NO live web access on this call — do NOT assert an unverified "fresh" signal (set fresh_hook to "" and the ad-intel booleans to false unless you are highly confident from durable knowledge). If confident, identify'
@@ -47,7 +60,7 @@ export function getMobileGamingResearchSystemPrompt(input: ResearchPromptInput):
 
   return `You are a senior mobile gaming UA researcher at MobUpps, a mobile performance marketing network with a proprietary AI optimization engine called MAFO. You are researching prospect "${input.brand}" before our SDR sends them a cold WhatsApp message.
 
-Your output is a structured research brief that the SDR's writer will use to compose the message. Your job: produce accurate, market-matched, vertically-coherent research the writer can ground every claim in.
+Your output is a structured research brief that the SDR's writer will use to compose the message. Your job: produce accurate, market-matched, vertically-coherent research the writer can ground every claim in.${searchBlock}
 
 PROSPECT CONTEXT:
 - Brand: ${input.brand}

@@ -22,6 +22,10 @@
 import { anthropic } from "../lib/anthropic";
 import { withAnthropicRetry } from "./anthropicRetry";
 import { computeCost, webSearchFeeUsd, type CostBreakdown } from "../lib/pricing";
+import {
+  modelNeedsExplicitToolNudge,
+  thinkingDisabledFor,
+} from "../lib/llm/thinking";
 import { logger } from "../lib/logger";
 import {
   getResearchSystemPrompt,
@@ -491,6 +495,10 @@ export async function researchProspect(
     apolloOrgIndustry: input.apolloOrgIndustry,
     apolloEmployeeCount: input.apolloEmployeeCount,
     webSearchEnabled: RESEARCH_WEB_SEARCH_ENABLED,
+    // Emit the explicit SEARCH PROTOCOL only for models that need it. Keyed off
+    // RESEARCH_MODEL, so the opus-4-7 default's prompt stays byte-identical and
+    // this cannot move the production baseline. See searchDirective.ts.
+    aggressiveSearch: modelNeedsExplicitToolNudge(RESEARCH_MODEL),
   };
 
   // Re-validate after sanitization. The sanitizer can strip a brand name
@@ -545,6 +553,15 @@ export async function researchProspect(
               model: RESEARCH_MODEL,
               // Web search needs headroom for the interleaved tool_use blocks.
               max_tokens: useWebSearch ? 3200 : 2500,
+              // Keep this call non-thinking, whatever RESEARCH_MODEL is set to.
+              // No-op on the opus-4-7 default (already thinking-off on omission);
+              // load-bearing the moment RESEARCH_MODEL points at a Sonnet-tier
+              // model, where an omitted param means adaptive thinking ON —
+              // thinking tokens then eat the 2.5k/3.2k budget meant for the JSON
+              // brief and push the web-search call past its 120s/135s timeout.
+              // Measured: without this, sonnet-5 threw on 1 of 2 bench cases
+              // ("Request timed out") and took 183s vs opus's 128s on the other.
+              ...thinkingDisabledFor(RESEARCH_MODEL),
               // Build the system prompt to match THIS call's web-access mode so
               // the knowledge-only fallback doesn't claim it can search the web
               // (which could nudge it to assert a training-recalled hook as fresh).

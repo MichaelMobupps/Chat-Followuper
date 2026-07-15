@@ -116,6 +116,26 @@ const CASES: BenchCase[] = [
   { id: "en-US-research", language: "en", country: "United States", channel: "whatsapp", stage: 0, prospectName: "Dana", company: "Instacart", vertical: "web_cps", subVertical: "cps_web_ecom_marketplace", product: "CPS / performance marketing", peers: [], volume: "", event: "", research: "real" },
   { id: "tr-TR-research", language: "tr", country: "Turkey", channel: "telegram", stage: 0, prospectName: "Emre", company: "Trendyol", vertical: "web_cps", subVertical: "cps_web_ecom_marketplace", product: "CPS / performance marketing", peers: [], volume: "", event: "", research: "real" },
 
+  // Research cases 3-8. Added to make the research A/B decidable: the original
+  // two were BOTH cps_web_ecom_marketplace, so they exercised one doctrine
+  // family (webCps) out of three, at n=2 — and n=2 could not resolve a 1-point
+  // score delta given opus's own 4.6x-6.8x run-to-run cost variance on a fixed
+  // case. These cover mobileGaming and mobileNonGaming too, since the research
+  // search-directive block is emitted by all three prompt families.
+  //
+  // Every subVertical here is deliberately NON-grey (see GREY_AREA_RE in
+  // lib/llm/router.ts): a grey subVertical routes the WRITER straight to
+  // sonnet-4-6, which would swap the writer between arms and confound a bench
+  // that is only supposed to vary the RESEARCH model. Real brands only —
+  // web search must have something real to find, and a fictional brand would
+  // score the fresh-hook fields as correctly-empty in every arm.
+  { id: "en-US-research-game", language: "en", country: "United States", channel: "whatsapp", stage: 0, prospectName: "Ryan", company: "Scopely", vertical: "gaming", subVertical: "gaming_casual_mobile", product: "mobile user acquisition", peers: [], volume: "", event: "", research: "real" },
+  { id: "tr-TR-research-game", language: "tr", country: "Turkey", channel: "telegram", stage: 0, prospectName: "Kerem", company: "Dream Games", vertical: "gaming", subVertical: "gaming_casual_mobile", product: "mobile user acquisition", peers: [], volume: "", event: "", research: "real" },
+  { id: "en-GB-research-fintech", language: "en", country: "United Kingdom", channel: "whatsapp", stage: 0, prospectName: "Priya", company: "Revolut", vertical: "fintech", subVertical: "fintech_neobank_mobile", product: "mobile user acquisition", peers: [], volume: "", event: "", research: "real" },
+  { id: "de-DE-research-fintech", language: "de", country: "Germany", channel: "linkedin", stage: 0, prospectName: "Lukas", company: "N26", vertical: "fintech", subVertical: "fintech_neobank_mobile", product: "mobile user acquisition", peers: [], volume: "", event: "", research: "real" },
+  { id: "es-ES-research-travel", language: "es", country: "Spain", channel: "whatsapp", stage: 0, prospectName: "Marta", company: "eDreams", vertical: "travel", subVertical: "cps_web_travel_ota", product: "CPS / performance marketing", peers: [], volume: "", event: "", research: "real" },
+  { id: "en-US-research-fashion", language: "en", country: "United States", channel: "whatsapp", stage: 0, prospectName: "Chloe", company: "Revolve", vertical: "ecommerce", subVertical: "cps_web_ecom_fashion", product: "CPS / performance marketing", peers: [], volume: "", event: "", research: "real" },
+
   // One prospector case per supported language (channel rotates).
   ...LANGS.map((l, i): BenchCase => ({
     id: `${l.lang}-${l.country.replace(/\s+/g, "")}`,
