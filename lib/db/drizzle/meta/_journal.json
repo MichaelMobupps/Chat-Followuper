@@ -148,6 +148,13 @@
       "when": 1784104112221,
       "tag": "0020_worthless_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784106433067,
+      "tag": "0021_fluffy_spirit",
+      "breakpoints": true
     }
   ]
 }

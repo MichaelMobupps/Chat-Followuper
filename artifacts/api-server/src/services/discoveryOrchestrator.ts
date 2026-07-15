@@ -26,8 +26,11 @@
  * with `status: "budget_exhausted"`.
  */
 
+import { computeCost, webSearchFeeUsd } from "../lib/pricing";
+import { recordLlmCall, type LedgerContext } from "../lib/llmLedger";
 import {
   resolveCompany,
+  DEFAULT_SONNET_MODEL,
   type ResolveCompanyInput,
   type ResolveCompanyResult,
   type ResolvedCompany,
@@ -54,10 +57,12 @@ import {
 } from "./apolloProspector";
 import {
   validateOrgCandidates,
+  VALIDATOR_MODEL,
   type ApolloOrgCandidate,
 } from "./llmValidator";
 import {
   opusRescue,
+  OPUS_MODEL,
   isOrgNamePlausible,
   type OpusRescueInput,
   type OpusRescueResult,
@@ -133,6 +138,19 @@ export interface DiscoveryInput {
   apolloCallBudget?: number;
   /** External AbortSignal — fires when route timeout or client disconnect. */
   signal?: AbortSignal;
+  /**
+   * Cost-ledger attribution (2026-07-15 audit). Rows are written HERE, next to
+   * each LLM call, rather than by the route from `result.llmUsage`.
+   *
+   * The route-level version lost every row whenever discover() threw: llmUsage
+   * is a local that dies with the exception, and the LLM steps (1/3/4) all run
+   * BEFORE the long Apollo contact-collection step that actually times out. So a
+   * 504 silently discarded ~$0.18 of Sonnet + Sonnet-5 + Opus — and the
+   * discoveries that need Opus rescue are both the most expensive AND the most
+   * likely to time out, so the ledger under-reported hardest exactly where the
+   * money was.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface DiscoveryAudit {
@@ -519,6 +537,37 @@ export async function discover(
   };
   const llmUsage: DiscoveryResult["llmUsage"] = {};
 
+  /**
+   * Write one ledger row for a discovery stage, at the point of spend.
+   *
+   * Called immediately after each LLM step so the row survives a later throw —
+   * the Apollo contact-collection step below is what times out, and it runs
+   * AFTER all three of these. Fire-and-forget: an accounting row must never add
+   * latency to, or fail, a discovery (recordLlmCall swallows internally).
+   *
+   * Skips when a stage did not run — a $0 row for a call that never happened is
+   * a lie in the opposite direction from the one this table exists to fix.
+   */
+  const ledgerStage = (
+    task: string,
+    model: string,
+    usage: ResolveCompanyUsage | undefined,
+    webSearchRequests = 0,
+  ): void => {
+    if (!usage) return;
+    const base = computeCost(model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
+    void recordLlmCall({
+      ledger: input.ledger,
+      task,
+      model,
+      provider: "anthropic",
+      // The per-request web-search fee is NOT in the token counts and is most of
+      // the cost when a stage searches hard — omitting it under-reported
+      // opus_rescue by ~45% with cost_unpriced=false, i.e. wrong and unflagged.
+      cost: { ...base, usd: base.usd + webSearchFeeUsd(webSearchRequests) },
+    }).catch(() => {});
+  };
+
   // ── Step 1: resolveCompany ────────────────────────────────────────────
   const resolveInput: ResolveCompanyInput = {
     brand: input.brand ?? null,
@@ -536,6 +585,7 @@ export async function discover(
     llmCaller: opts.sonnetLLMCaller,
   });
   llmUsage.resolveCompany = resolveResult.usage;
+  ledgerStage("resolve_company", DEFAULT_SONNET_MODEL, resolveResult.usage);
   let resolved = resolveResult.resolved;
 
   // ── Step 2: strict findOrg (2.2-BE-B) ─────────────────────────────────
@@ -570,6 +620,7 @@ export async function discover(
       reasoning: smart.reasoning,
     };
     if (smart.usage) llmUsage.smartValidator = smart.usage;
+    ledgerStage("validate_orgs", VALIDATOR_MODEL, smart.usage);
     if (smart.org) {
       org = smart.org;
       audit.resolution = "smart_llm_validated";
@@ -612,6 +663,9 @@ export async function discover(
     };
     const rescue = await opusRescue(rescueInput, { llmCaller: opts.opusLLMCaller });
     if (rescue.usage) llmUsage.opusRescue = rescue.usage;
+    // webSearchRequests: opusRescue runs web_search by default, and its
+    // per-request fee is real money the token cost cannot see. See ledgerStage.
+    ledgerStage("opus_rescue", OPUS_MODEL, rescue.usage, rescue.webSearchRequests);
 
     audit.opusRescue = {
       ran: true,

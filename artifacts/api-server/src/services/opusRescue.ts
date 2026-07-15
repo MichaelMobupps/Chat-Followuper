@@ -41,7 +41,8 @@ import { sanitizeStr } from "./apolloProspector";
 // Migrated from `claude-opus-4-1-20250805` (deprecated, retires 2026-08-05) to
 // the current Opus. Opus 4.8 rejects `temperature` (dropped below) and defaults
 // to thinking-off when the param is omitted, matching the prior no-thinking call.
-const OPUS_MODEL = "claude-opus-4-8";
+/** Exported (2026-07-15) so the cost ledger prices this stage correctly. */
+export const OPUS_MODEL = "claude-opus-4-8";
 const OPUS_MAX_TOKENS_NO_SEARCH = 800;
 const OPUS_MAX_TOKENS_WEB_SEARCH = 2000;
 const OPUS_TEMPERATURE = 0.1;
@@ -113,6 +114,13 @@ export interface OpusRescueResult {
   usage?: ResolveCompanyUsage;
   /** True when Opus invoked web_search at least once during reasoning. */
   webSearchUsed: boolean;
+  /**
+   * How MANY server-side web searches ran. Distinct from webSearchUsed because
+   * web_search bills per request: the boolean cannot be priced, the count can.
+   * See the cost ledger (2026-07-15) — omitting this under-reported opus_rescue
+   * by ~45%, unflagged.
+   */
+  webSearchRequests: number;
 }
 
 // ─── System prompt (verbatim port from Python) ────────────────────────────
@@ -330,7 +338,7 @@ export type OpusRescueLLMCaller = (params: {
   maxTokens: number;
   temperature: number;
   enableWebSearch: boolean;
-}) => Promise<{ text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean }>;
+}) => Promise<{ text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean; webSearchRequests: number }>;
 
 export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
   system,
@@ -388,7 +396,17 @@ export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
       }
     : undefined;
 
-  return { text, usage, webSearchUsed };
+  // The COUNT, not just "did it search" (2026-07-15 audit). web_search bills a
+  // per-request fee that never appears in token counts, so `webSearchUsed:
+  // boolean` was unpriceable — the cost ledger booked opus_rescue at tokens
+  // only, ~45% under actual, with cost_unpriced=false so nothing flagged it.
+  // Cast: SDK usage typings may omit the partner-tool server_tool_use field.
+  // Same extraction prospectResearch.ts already does.
+  const webSearchRequests = Number(
+    (resp.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+  );
+
+  return { text, usage, webSearchUsed, webSearchRequests };
 };
 
 // ─── Public: opusRescue ───────────────────────────────────────────────────
@@ -424,7 +442,7 @@ export async function opusRescue(
 
   const userContent = buildUserContent(input);
 
-  let llmResult: { text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean };
+  let llmResult: { text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean; webSearchRequests: number };
   try {
     llmResult = await llm({
       system: SYSTEM_PROMPT,
@@ -444,6 +462,7 @@ export async function opusRescue(
       parentDomain: "",
       usage: undefined,
       webSearchUsed: false,
+      webSearchRequests: 0,
     };
   }
 
@@ -457,6 +476,7 @@ export async function opusRescue(
       parentDomain: "",
       usage: llmResult.usage,
       webSearchUsed: llmResult.webSearchUsed,
+      webSearchRequests: llmResult.webSearchRequests,
     };
   }
 
@@ -494,6 +514,7 @@ export async function opusRescue(
     parentDomain,
     usage: llmResult.usage,
     webSearchUsed: llmResult.webSearchUsed,
+    webSearchRequests: llmResult.webSearchRequests,
   };
 }
 

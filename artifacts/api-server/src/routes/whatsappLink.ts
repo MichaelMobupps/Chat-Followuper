@@ -249,28 +249,26 @@ router.post(
       return;
     }
 
-    // Pause gate (2026-07-15). This route STAMPS a send — sentAt, status='sent',
-    // messages_sent++ — and before today it enforced ownership and nothing else,
-    // so a paused rep (or a paused prospect) could still record sends from an
-    // open tab. Both the pre-existing per-PROSPECT hole and the new per-USER
-    // switch are closed here (user decision 2026-07-15).
+    // NO PAUSE GATE HERE — deliberately, and this REVERSES the first attempt
+    // (audit 2026-07-15). The absence looked like a hole; it is load-bearing.
     //
-    // CONDITIONAL ON followupId, and that is the whole point: this endpoint
-    // serves BOTH first messages (followupId === null) and follow-ups. Both
-    // flags are named for FOLLOW-UPS — `users.followups_paused` and
-    // `prospects.followup_paused` — and pausing follow-ups must not silently
-    // kill first-touch outreach. Gating unconditionally here would do exactly
-    // that, invisibly, on the one route where the two flows share a door.
-    if (req.body.followupId !== null) {
-      if (user.followupsPaused) {
-        res.status(409).json({ error: "followups_paused" });
-        return;
-      }
-      if (ownProspect.followupPaused) {
-        res.status(409).json({ error: "prospect_paused" });
-        return;
-      }
-    }
+    // This endpoint sends nothing. It records that a human already sent — the
+    // click in WhatsApp/Telegram/LinkedIn IS the send (manual-send tool), so by
+    // the time we are called the message is gone. A pause cannot un-send it.
+    // Blocking the stamp would only lose the fact, leaving the row scheduled +
+    // unsent — the state services/channels/whatsapp.ts:104 documents as causing
+    // "duplicate outreach" when every due query re-lists it. So the gate would
+    // prevent zero sends and CAUSE a real one, to a prospect who already got the
+    // message. Recording the truth beats a tidy-looking flag.
+    //
+    // The switch is enforced where sends originate: the digest + pushover
+    // (surfacing), and send-next-followup / followups open+fallback (which hand
+    // out the deep link). A paused rep cannot obtain a new link; if they still
+    // hold an old one, we want the send recorded, not hidden.
+    //
+    // NB this is also why the route serves both first messages and follow-ups
+    // safely: it is a recorder, not a sender, so the flags — both named for
+    // FOLLOW-UPS — have nothing to say about it either way.
 
     const channel = await resolveSendChannel(
       prospectId,

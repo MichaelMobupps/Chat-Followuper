@@ -605,10 +605,54 @@ export async function researchProspect(
   // the final JSON) — leaving no parseable JSON text block. Treating that the
   // same as a thrown call is what lets us degrade to knowledge-only; otherwise
   // research would fail where the old tool-less single call never did.
+  /** Cost of one research response, INCLUDING the per-request web-search fee. */
+  const costOf = (resp: AnthropicMessage): CostBreakdown => {
+    const inTok = resp.usage?.input_tokens ?? 0;
+    const outTok = resp.usage?.output_tokens ?? 0;
+    // Cast: SDK usage typings may omit the partner-tool server_tool_use field.
+    const reqs = Number(
+      (resp.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+    );
+    const base = computeCost(RESEARCH_MODEL, inTok, outTok);
+    return { ...base, usd: base.usd + webSearchFeeUsd(reqs) };
+  };
+
   const callAndParse = async (
     useWebSearch: boolean,
   ): Promise<{ response: AnthropicMessage; parsed: Record<string, unknown> }> => {
     const resp = await runResearchCall(useWebSearch);
+
+    // LEDGER HERE, not at the end of the happy path — audit 2026-07-15.
+    //
+    // The first version recorded the row after this function returned, which
+    // silently dropped a FULLY BILLED call: a web-search response can come back
+    // HTTP 200 with usage populated and still be unusable (stop_reason
+    // "pause_turn" / "max_tokens" — the documented, EXPECTED case this fallback
+    // exists for). We then threw below, discarded `resp` and its usage, and made
+    // a second billable call — and only that second one got a row.
+    //
+    // The bias made it worse than a rounding error: pause_turn means the tool
+    // loop hit its CAP, i.e. the maximum web-search fan-out, i.e. the single
+    // most expensive research call we can make. Measured shape: ~$0.20 of Opus +
+    // 12 searches discarded, then ~$0.02 of knowledge-only ledgered — an 11x
+    // under-report on the call that dominates the bill.
+    //
+    // Recording immediately after the call returns means every BILLED attempt
+    // gets exactly one row, whatever happens to its content afterwards. The
+    // knowledge-only retry is marked fallback=true and lands as its own row —
+    // it is a second real call and the invoice will show two.
+    void recordLlmCall({
+      ledger: input.ledger,
+      task: "research",
+      model: RESEARCH_MODEL,
+      provider: "anthropic",
+      // fallback = "this is the knowledge-only retry after the web-search
+      // attempt was unusable", which is exactly when useWebSearch is false while
+      // the feature is on.
+      fallback: RESEARCH_WEB_SEARCH_ENABLED && !useWebSearch,
+      cost: costOf(resp),
+    }).catch(() => {});
+
     // With web_search the response interleaves server_tool_use / tool_result
     // blocks; the JSON answer is the LAST non-empty text block, not the first.
     const blocks = resp.content.filter(
@@ -680,20 +724,11 @@ export async function researchProspect(
   );
   const baseCost = computeCost(RESEARCH_MODEL, inputTokens, outputTokens);
   const cost = { ...baseCost, usd: baseCost.usd + webSearchFeeUsd(webSearchReqs) };
-
-  // Ledger row (2026-07-15). This service calls anthropic.messages.create
-  // directly, bypassing callLLMRole, so it records its own. `cost` here already
-  // includes the per-request web-search fee — which is most of it: search
-  // fan-out, not token price, is what drives this call's spend (measured 25x
-  // per-case variance within one model). A row carrying only the token cost
-  // would be wrong by multiples on exactly the call that matters most.
-  await recordLlmCall({
-    ledger: input.ledger,
-    task: "research",
-    model: RESEARCH_MODEL,
-    provider: "anthropic",
-    cost,
-  });
+  // NB: the ledger row for this call was already written inside callAndParse,
+  // the moment the call returned — deliberately, so that a billed-but-unusable
+  // web-search response cannot escape unrecorded. Do NOT add one here: it would
+  // double-count the successful attempt. `cost` below is for the caller's return
+  // value + the progress emitter, not for the ledger.
 
   emitLlmSubstage(emitter, {
     stage: "research",

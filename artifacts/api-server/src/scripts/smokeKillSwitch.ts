@@ -74,11 +74,18 @@ async function setPaused(paused: boolean): Promise<void> {
     .where(eq(usersTable.id, userId));
 }
 
-/** Reset the followup to un-sent so each direction tests the same start state. */
+/**
+ * Reset the followup to un-sent so each direction tests the same start state.
+ *
+ * clickedAt MUST be cleared too: recordSendIntent's UPDATE is guarded by
+ * `isNull(clickedAt)` (its idempotency latch), so leaving it set makes every
+ * subsequent confirm a silent no-op — the next assertion then fails for a reason
+ * that has nothing to do with the kill switch.
+ */
 async function resetFollowup(): Promise<void> {
   await db
     .update(followupsTable)
-    .set({ sentAt: null, status: "scheduled" })
+    .set({ sentAt: null, clickedAt: null, status: "scheduled" })
     .where(eq(followupsTable.id, followupId));
 }
 
@@ -196,7 +203,13 @@ async function main(): Promise<number> {
     `status ${fbPaused.status}`,
   );
 
-  // confirm is what STAMPS the send — if this leaks, the switch is cosmetic.
+  // confirm RECORDS a send that already happened — it must NOT be blocked.
+  // This assertion is the inverse of the one this smoke originally shipped with;
+  // the audit (2026-07-15) showed the original was actively harmful. Blocking
+  // the stamp cannot un-send a message the rep already sent by hand, it just
+  // leaves the row scheduled+unsent — the state whatsapp.ts:104 documents as
+  // causing DUPLICATE OUTREACH once the rep is unpaused. The gate prevented no
+  // send and caused a real one.
   const confirmPaused = await fetch(
     `${base}/api/followups/confirm/${followupId}?t=${encodeURIComponent(token)}`,
     { method: "POST", redirect: "manual" },
@@ -207,10 +220,11 @@ async function main(): Promise<number> {
     .where(eq(followupsTable.id, followupId))
     .limit(1);
   check(
-    "paused → /confirm does NOT stamp sentAt (the switch is real, not cosmetic)",
-    confirmPaused.status === 302 && afterConfirm[0]?.sentAt == null,
+    "paused → /confirm still RECORDS the send (it can't un-send; blocking would duplicate later)",
+    afterConfirm[0]?.sentAt != null,
     `status ${confirmPaused.status} sentAt=${afterConfirm[0]?.sentAt ?? "null"}`,
   );
+  await resetFollowup();
 
   // Other direction: unpaused, the same link must still work end-to-end.
   await setPaused(false);
@@ -266,13 +280,25 @@ async function main(): Promise<number> {
     "utf8",
   );
   check(
-    "send-intent gates on followupId !== null → a FIRST message is never blocked",
-    /req\.body\.followupId !== null/.test(linkSrc) &&
-      /user\.followupsPaused/.test(linkSrc),
+    "send-intent is NOT gated — it records a send that already happened (audit 2026-07-15)",
+    !/user\.followupsPaused/.test(linkSrc),
+  );
+
+  // The generation chokepoint re-reads the flag, which is what makes the gate
+  // narrow instead of request-wide: the routes read req.user once at entry, then
+  // spend up to minutes in the LLM chain (5 retries, [1,2,4,8,16]s backoff, plus
+  // healing) before returning a deep link — and handing over the link IS the
+  // send here.
+  const genSrc = fs.readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../services/followupMessageService.ts",
+    ),
+    "utf8",
   );
   check(
-    "send-intent also closes the pre-existing per-PROSPECT hole",
-    /ownProspect\.followupPaused/.test(linkSrc),
+    "generation re-reads the flag FRESH from the DB (route's req.user goes stale across a minutes-long LLM call)",
+    /row\.followupsPaused/.test(genSrc) && /usersTable\.followupsPaused/.test(genSrc),
   );
 
   // ── 4. STRUCTURAL COVERAGE — the canary ───────────────────────────────────
@@ -286,9 +312,9 @@ async function main(): Promise<number> {
     ["services/pushoverDigest.ts", "pushover digest"],
     ["services/pushoverNudges.ts", "overdue escalation + Monday nudge"],
     ["routes/followups.ts", "send-next-followup"],
-    ["routes/followupOpen.ts", "digest link open + confirm"],
+    ["routes/followupOpen.ts", "digest link open (hands out the deep link)"],
     ["routes/followupFallback.ts", "copy-paste fallback"],
-    ["routes/whatsappLink.ts", "send-intent"],
+    ["services/followupMessageService.ts", "generation chokepoint (fresh re-read)"],
     ["middlewares/auth.ts", "loadUser carries the flag onto req.user"],
   ];
   for (const [rel, label] of mustGate) {

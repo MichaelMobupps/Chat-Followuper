@@ -31,13 +31,26 @@ CREATE TABLE IF NOT EXISTS "llm_calls" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+-- conrelid is part of the test on purpose: conname is unique per (schema,table),
+-- NOT database-wide, so matching on the name alone would let a same-named
+-- constraint on some other table silently skip the ADD and leave llm_calls with
+-- no FK — and no error. A guard whose whole job is safe hand-application should
+-- not have a hole in it, however unlikely the collision.
 DO $$ BEGIN
-	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'llm_calls_user_id_users_id_fk') THEN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE conname = 'llm_calls_user_id_users_id_fk'
+		  AND conrelid = 'public.llm_calls'::regclass
+	) THEN
 		ALTER TABLE "llm_calls" ADD CONSTRAINT "llm_calls_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
 	END IF;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
-	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'llm_calls_prospect_id_prospects_id_fk') THEN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE conname = 'llm_calls_prospect_id_prospects_id_fk'
+		  AND conrelid = 'public.llm_calls'::regclass
+	) THEN
 		ALTER TABLE "llm_calls" ADD CONSTRAINT "llm_calls_prospect_id_prospects_id_fk" FOREIGN KEY ("prospect_id") REFERENCES "public"."prospects"("id") ON DELETE set null ON UPDATE no action;
 	END IF;
 END $$;--> statement-breakpoint

@@ -148,7 +148,14 @@ export const FREE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "yeah.net",
 ]);
 
-const DEFAULT_SONNET_MODEL =
+/**
+ * EXPORTED (2026-07-15 audit) so the cost ledger prices resolveCompany with the
+ * model actually used. routes/prospector.ts previously re-declared this value by
+ * hand, with a comment saying it did so *because* the constant was not exported
+ * — two copies of an env-dependent model id, which drift the moment either side
+ * changes, and the symptom would be silently mispriced spend rather than an error.
+ */
+export const DEFAULT_SONNET_MODEL =
   process.env.PROSPECTOR_SONNET_MODEL ?? "claude-sonnet-4-6";
 
 const ANTHROPIC_TIMEOUT_MS = 90_000;

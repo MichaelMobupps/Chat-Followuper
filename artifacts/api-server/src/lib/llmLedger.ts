@@ -65,6 +65,31 @@ export async function recordLlmCall(input: RecordLlmCallInput): Promise<void> {
     // the number, rather than inferring from it.
     const costUnpriced = priceFor(input.model) === undefined;
 
+    // Non-finite guard (2026-07-15 audit — verified against live PG, not
+    // theorised). `NaN.toFixed(6)` returns the STRING "NaN", which numeric(12,6)
+    // ACCEPTS. The row inserts fine, and then every `sum(cost_usd)` on the admin
+    // dashboard returns NaN — one poisoned row destroys every figure on the
+    // page, permanently, and the try/catch below offers no protection because
+    // nothing throws. (Infinity is the safe half: it overflows, throws, gets
+    // caught, and costs one row.)
+    //
+    // Not reachable from today's callers — but it is one malformed provider
+    // usage payload away, and the failure is silent, total, and in the one
+    // surface whose entire job is to be trusted with numbers.
+    const usd = Number.isFinite(input.cost.usd) ? input.cost.usd : 0;
+    const inputTokens = Number.isFinite(input.cost.inputTokens)
+      ? input.cost.inputTokens
+      : 0;
+    const outputTokens = Number.isFinite(input.cost.outputTokens)
+      ? input.cost.outputTokens
+      : 0;
+    if (usd !== input.cost.usd) {
+      logger.warn(
+        { model: input.model, task: input.task, usd: String(input.cost.usd) },
+        "[llm-ledger] non-finite cost booked as $0 — the call happened and is under-reported; check the provider usage payload",
+      );
+    }
+
     await db.insert(llmCallsTable).values({
       userId: input.ledger.userId,
       prospectId: input.ledger.prospectId ?? null,
@@ -72,10 +97,10 @@ export async function recordLlmCall(input: RecordLlmCallInput): Promise<void> {
       model: input.model,
       provider: input.provider,
       fallback: input.fallback ?? false,
-      inputTokens: input.cost.inputTokens,
-      outputTokens: input.cost.outputTokens,
+      inputTokens,
+      outputTokens,
       // numeric(12,6) — drizzle takes numerics as strings to avoid float drift.
-      costUsd: input.cost.usd.toFixed(6),
+      costUsd: usd.toFixed(6),
       costUnpriced,
     });
   } catch (err) {

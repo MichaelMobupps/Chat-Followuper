@@ -29,16 +29,23 @@ import {
 } from "../lib/llmSpendCap";
 import { computeCost } from "../lib/pricing";
 import { recordLlmCall } from "../lib/llmLedger";
+// Model ids for pricing the discovery rollup. Imported from the services that
+// own them (2026-07-15) rather than re-declared here — this file used to carry
+// its own copy of the sonnet id precisely because it wasn't exported, and two
+// copies of an env-dependent model id drift into silently mispriced spend.
+import { VALIDATOR_MODEL } from "../services/llmValidator";
+import { OPUS_MODEL } from "../services/opusRescue";
 import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";
-
-// L1: mirror companyResolver's DEFAULT_SONNET_MODEL (not exported) so prospector
-// discovery spend is priced with the model actually used for resolveCompany.
-const PROSPECTOR_SONNET_MODEL =
-  process.env.PROSPECTOR_SONNET_MODEL ?? "claude-sonnet-4-6";
 import {
   resolveCompany,
   redactSecrets,
   sanitizeForStorage,
+  // L1 (2026-07-15): imported, not re-declared. This file used to carry its own
+  // `PROSPECTOR_SONNET_MODEL = process.env.PROSPECTOR_SONNET_MODEL ?? "..."`
+  // copy, with a comment explaining it did so because the constant wasn't
+  // exported. Two copies of one env-dependent model id drift silently, and the
+  // symptom is mispriced spend, not an error. It is exported now.
+  DEFAULT_SONNET_MODEL as PROSPECTOR_SONNET_MODEL,
   type ResolveCompanyInput,
   type ResolveCompanyResult,
 } from "../services/companyResolver";
@@ -1210,6 +1217,11 @@ router.post(
       disableWebSearchInRescue: body.disableWebSearchInRescue,
       apolloCallBudget: body.apolloCallBudget,
       signal: ctrl.signal,
+      // From the session — every other field here comes from `body`, and "who
+      // pays for this" must not. discover() writes the per-call ledger rows
+      // itself, next to each LLM call, so they survive a timeout in the Apollo
+      // step that runs after them.
+      ledger: { userId: user.id },
     };
 
     let result: DiscoveryResult;
@@ -1355,40 +1367,34 @@ router.post(
     // prices (sonnet-4-6 / sonnet-5 / opus-4-8). action_logs sums their tokens
     // into one number and records no USD at all, which is precisely the blend
     // the ledger exists to undo.
-    const discoverCosts = [
-      {
-        task: "resolve_company",
-        model: PROSPECTOR_SONNET_MODEL,
-        usage: u.resolveCompany,
-      },
-      { task: "validate_orgs", model: "claude-sonnet-5", usage: u.smartValidator },
-      { task: "opus_rescue", model: "claude-opus-4-8", usage: u.opusRescue },
-    ].map((c) => ({
-      ...c,
-      cost: computeCost(c.model, c.usage?.inputTokens ?? 0, c.usage?.outputTokens ?? 0),
-    }));
-
-    const discoverSpendUsd = discoverCosts.reduce((a, c) => a + c.cost.usd, 0);
-    await recordDailyLlmSpend(user.id, discoverSpendUsd).catch(() => {});
-
-    // Ledger rows (2026-07-15). This whole cluster bypasses callLLMRole and was
-    // missed by the original ledger plan — it is real spend on the prospector
-    // path, and a ledger that omitted it would reconcile to the wrong number
-    // while looking complete.
     //
-    // Only stages that actually RAN get a row: smartValidator and opusRescue are
-    // conditional, and a $0 row for a call that never happened is a lie in the
-    // opposite direction from the one we're fixing.
-    for (const c of discoverCosts) {
-      if (!c.usage) continue;
-      await recordLlmCall({
-        ledger: { userId: user.id },
-        task: c.task,
-        model: c.model,
-        provider: "anthropic",
-        cost: c.cost,
-      });
-    }
+    // NB: the per-call LEDGER rows for these stages are written inside
+    // discover() itself, next to each call (see DiscoveryInput.ledger). Writing
+    // them here instead lost every one of them whenever discover() threw —
+    // llmUsage is a local that dies with the exception, and the LLM steps all
+    // run BEFORE the Apollo step that actually times out. Do NOT add
+    // recordLlmCall here; it would double-count the success path.
+    //
+    // recordDailyLlmSpend stays route-level: it is a per-request rollup for the
+    // daily cap, not a per-call record, and the cap only meaningfully applies to
+    // requests that completed.
+    const discoverSpendUsd =
+      computeCost(
+        PROSPECTOR_SONNET_MODEL,
+        u.resolveCompany?.inputTokens ?? 0,
+        u.resolveCompany?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        VALIDATOR_MODEL,
+        u.smartValidator?.inputTokens ?? 0,
+        u.smartValidator?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        OPUS_MODEL,
+        u.opusRescue?.inputTokens ?? 0,
+        u.opusRescue?.outputTokens ?? 0,
+      ).usd;
+    await recordDailyLlmSpend(user.id, discoverSpendUsd).catch(() => {});
 
     res.status(200).json({
       status: result.status,

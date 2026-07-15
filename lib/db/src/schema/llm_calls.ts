@@ -89,6 +89,15 @@ export const llmCallsTable = pgTable(
   (table) => [
     // The admin view's primary access pattern: one user's spend over a window.
     index("llm_calls_user_created_idx").on(table.userId, table.createdAt),
+    // Leading on created_at, which the composite above CANNOT serve (2026-07-15
+    // audit). Two distinct needs, both unmet without it:
+    //   1. every windowed rollup filters on `created_at >= since` ALONE, and no
+    //      index prefix covered that → seq scan on an append-only table;
+    //   2. `min(created_at)` (the coverage-start marker) has no WHERE at all,
+    //      and PG's MIN/MAX index shortcut needs an index LEADING on the
+    //      aggregated column — so it seq-scanned on every page load, even
+    //      ?days=1, growing forever with the table.
+    index("llm_calls_created_idx").on(table.createdAt),
     // "what does each model cost us" — the rollup the whole table is for.
     index("llm_calls_model_idx").on(table.model),
     index("llm_calls_task_idx").on(table.task),

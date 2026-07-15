@@ -44,7 +44,8 @@ import { sanitizeStr } from "./apolloProspector";
 // Migrated from the retired `claude-sonnet-4-20250514` (retired 2026-06-15 → 404).
 // The shared defaultLLMCaller drops `temperature` and disables thinking for this
 // model (both required on Sonnet 5); see companyResolver.modelRejectsSamplingParams.
-const VALIDATOR_MODEL = "claude-sonnet-5";
+/** Exported (2026-07-15) so the cost ledger prices this stage correctly. */
+export const VALIDATOR_MODEL = "claude-sonnet-5";
 const VALIDATOR_MAX_TOKENS = 250;
 const VALIDATOR_TEMPERATURE = 0.0;
 

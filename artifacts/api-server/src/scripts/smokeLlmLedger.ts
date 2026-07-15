@@ -29,7 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, usersTable, llmCallsTable } from "@workspace/db";
 import { recordLlmCall } from "../lib/llmLedger";
 
@@ -127,6 +127,41 @@ async function main(): Promise<number> {
   check(
     "unknown model still writes tokens (the call happened; only the price is missing)",
     unpriced.inputTokens === 100,
+  );
+
+  // ── 3b. the NaN trap ──────────────────────────────────────────────────────
+  // Verified against live PG by the 2026-07-15 audit: `NaN.toFixed(6)` is the
+  // STRING "NaN", numeric(12,6) ACCEPTS it, and every sum(cost_usd) on the admin
+  // dashboard then returns NaN — one row destroys every figure on the page, and
+  // the try/catch offers nothing because nothing throws.
+  console.log("\n3b. a non-finite cost cannot poison the rollup");
+  await recordLlmCall({
+    ledger: { userId },
+    task: "nan-probe",
+    model: "claude-sonnet-5",
+    provider: "anthropic",
+    cost: { inputTokens: NaN, outputTokens: 5, usd: NaN },
+  });
+  rows = await rowsFor(userId);
+  const nanRow = rows.find((x) => x.task === "nan-probe");
+  check(
+    "NaN cost → booked as $0, NOT the string 'NaN'",
+    nanRow !== undefined && nanRow.costUsd === "0.000000",
+    `costUsd=${nanRow?.costUsd}`,
+  );
+  check(
+    "NaN tokens → 0, not NaN",
+    nanRow?.inputTokens === 0,
+    `inputTokens=${nanRow?.inputTokens}`,
+  );
+  const sumProbe = await db
+    .select({ total: sql<string>`coalesce(sum(${llmCallsTable.costUsd}), 0)` })
+    .from(llmCallsTable)
+    .where(eq(llmCallsTable.userId, userId));
+  check(
+    "…so sum(cost_usd) is still a real number (the whole dashboard depends on this)",
+    Number.isFinite(Number(sumProbe[0]?.total)),
+    `sum=${sumProbe[0]?.total}`,
   );
 
   // ── 4. the two ways to have no user — which must NOT behave the same ──────

@@ -417,17 +417,27 @@ function routeLLMRole(role: LlmRole, input: LlmCallInput): Promise<LlmCallResult
 export async function callLLMRole(role: LlmRole, input: LlmCallInput): Promise<LlmCallResult> {
   const result = await routeLLMRole(role, input);
 
-  // Awaited, not fire-and-forget: a local INSERT is ~1ms against an LLM call
-  // measured in seconds, so the latency is noise, and awaiting means the row is
-  // durable before the caller proceeds — which is what makes it testable and
-  // keeps ordering deterministic. recordLlmCall never throws (best-effort by
-  // contract), so this cannot turn an accounting failure into a lost message.
+  // NOT awaited — and the reason is a bug this code shipped with for one commit.
   //
-  // Placed AFTER the await deliberately: a call that throws is a call that
-  // produced no billable usage figures to record. The provider may still have
-  // charged for a failed request — that is a known, accepted gap, and it is
-  // better than inventing token counts we never received.
-  await recordLlmCall({
+  // The original version awaited it, reasoning that "a local INSERT is ~1ms
+  // against an LLM call measured in seconds, so the latency is noise". That was
+  // wrong twice: the DB is remote (DATABASE_URL), and the pg pool has max:10
+  // with an unbounded connection-acquisition wait. recordLlmCall cannot THROW
+  // (it try/catches everything) — but try/catch does not catch a STALL. So with
+  // the LLM healthy and the DB failing over, the call would succeed, the money
+  // would be spent, the draft would exist in memory, and the request would hang
+  // forever on an accounting write. "Accounting must never break a generation"
+  // has to mean latency too, not just errors.
+  //
+  // Amplification: one writer→critic→rewriter chain is 3-7 callLLMRole calls, so
+  // awaiting meant 3-7 extra pool checkouts per generation against a pool of 10
+  // — the ledger could starve the reads generation itself depends on.
+  //
+  // Fire-and-forget restores the pre-ledger latency profile exactly. The row is
+  // no longer guaranteed durable before the caller proceeds; that is the correct
+  // trade for an accounting row, and the .catch is belt-and-braces against an
+  // unhandled rejection (recordLlmCall already swallows internally).
+  void recordLlmCall({
     ledger: input.ledger,
     // label is already "draft" | "critic" | "rewriter" | "lint" at every call
     // site — the ledger's `task` column reuses it rather than inventing a
@@ -437,7 +447,7 @@ export async function callLLMRole(role: LlmRole, input: LlmCallInput): Promise<L
     provider: result.provider,
     fallback: result.fallback,
     cost: result.cost,
-  });
+  }).catch(() => {});
 
   return result;
 }

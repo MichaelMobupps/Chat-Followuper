@@ -199,16 +199,27 @@ router.post(
         return;
       }
 
-      // Kill switch (2026-07-15): confirm is what STAMPS the send (sentAt +
-      // daily usage), so gating it is what makes the switch true rather than
-      // cosmetic — a paused rep must not be able to record a send from a stale
-      // tab or an old email link.
-      if (
-        row.sentAt ||
-        row.followupPaused ||
-        row.followupsPaused ||
-        row.replied === 1
-      ) {
+      // DELIBERATELY NOT gated on followupsPaused (the admin kill switch), and
+      // this reverses the first attempt — audit 2026-07-15.
+      //
+      // This endpoint SENDS NOTHING. It records that a human already sent: this
+      // is a manual-send tool, so the click in WhatsApp IS the send, and by the
+      // time confirm is called the message is gone. Blocking the stamp cannot
+      // un-send it — it only loses the fact, leaving the row scheduled + unsent
+      // forever. See services/channels/whatsapp.ts:104, which documents exactly
+      // that state: "every due query keeps re-listing it ... duplicate
+      // outreach". So a pause landing between open and confirm would make the
+      // prospect receive the same follow-up TWICE on unpause. The gate would
+      // prevent no send and cause a real one.
+      //
+      // The switch is enforced where sends actually originate — the digest, the
+      // pushover nudges, and GET /open above, which is what hands out the deep
+      // link. A paused rep cannot get a new link; if they still have an old one,
+      // recording the truth beats pretending it didn't happen.
+      //
+      // followupPaused (the rep's own per-prospect flag) is left exactly as it
+      // was found: pre-existing behaviour, not this change's to alter.
+      if (row.sentAt || row.followupPaused || row.replied === 1) {
         res.redirect(302, dashboardFallback());
         return;
       }

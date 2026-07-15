@@ -88,6 +88,9 @@ export async function generateAndPersistFollowupMessage(params: {
       prospect: prospectsTable,
       stageTiming: usersTable.stageTiming,
       digestTimezone: usersTable.digestTimezone,
+      // Admin kill switch — read FRESH here, not inherited from the caller's
+      // req.user. See the guard below.
+      followupsPaused: usersTable.followupsPaused,
     })
     .from(followupsTable)
     .innerJoin(
@@ -109,6 +112,24 @@ export async function generateAndPersistFollowupMessage(params: {
   }
 
   const { followup, prospect } = row;
+
+  // Admin kill switch — the BACKSTOP, added by the 2026-07-15 audit.
+  //
+  // The routes already gate on req.user.followupsPaused, but loadUser reads that
+  // ONCE at request entry and this function then runs the LLM chain: up to 5
+  // Anthropic retries with [1,2,4,8,16]s backoff, plus healing iterations —
+  // tens of seconds to minutes. An admin who pauses at t+5s would find the
+  // route still handing back a deep link at t+40s, and in a manual-send tool
+  // handing over the link IS the send. The window was minutes wide.
+  //
+  // This is the one true chokepoint for follow-up GENERATION (all three gated
+  // routes funnel through it), it already joins usersTable, and the flag is read
+  // in the same query as the row — so the gate closes to the width of one
+  // generation instead of one request. Placed BEFORE the cached-message
+  // short-circuit so a paused rep gets nothing back, cached or fresh.
+  if (row.followupsPaused) {
+    throw new Error("followups_paused");
+  }
 
   if (followup.generatedMessage?.trim()) {
     // Progress (Phase I): cached message — the run is instantly done.
