@@ -27,10 +27,35 @@ Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chat
 
 ## 🔴 IN FLIGHT (2026-07-15) — RESUME HERE AFTER AN SSH DROP
 
-**Working tree is CLEAN — everything below is COMMITTED.** One thread open (B, the admin
-dashboard). Thread A is CLOSED: it asked "can we cut the LLM bill by switching models?" and the
-answer, measured twice and paid for, is **no — not by switching models**. Nothing about the
-production model config changed; the fixes it produced are inert on today's default by design.
+**Working tree is CLEAN — everything below is COMMITTED.** Both threads are now BUILT. Thread A
+is CLOSED (no production change). Thread B (admin dashboard) is built + audited and awaiting
+**publish**, which has a hard prerequisite — read the next block before deploying anything.
+
+---
+
+## 🚨 BEFORE THE NEXT PUBLISH — do these in this order, or reps get logged out
+
+1. **RUN MIGRATIONS 0019, 0020, 0021 FIRST — BEFORE the code deploys.** Not after, not
+   "whenever". `loadUser` (`middlewares/auth.ts`) now selects `users.followups_paused` on
+   **every single `/api` request**. Migrations here are applied to prod **BY HAND** (`.replit`
+   has no migrate step). If the code ships first, every `loadUser` query throws
+   `column "followups_paused" does not exist`, the catch swallows it, `req.user` is never
+   populated, `requireAuth` 401s — and **every rep is silently logged out of the whole product**,
+   with a log line as the only signal. Found by the 2026-07-15 audit.
+   All three are idempotent (`IF NOT EXISTS` + `conrelid`-guarded DO-blocks) and safe to run
+   early: the column defaults `false` = today's behaviour, and `llm_calls` is additive. PG16
+   stores the non-volatile default in the catalog — no table rewrite, brief metadata lock only.
+   ```
+   pnpm --filter @workspace/db run migrate     # or apply the 3 .sql files by hand
+   ```
+2. **THEN** publish/deploy the code.
+3. **THEN** set the `ADMIN_EMAILS` Replit **Secret** — this is an ENV VAR, not code, and cannot
+   be committed. `.env.example` ships it empty and `lib/admin.ts` reads it per-call.
+   `ADMIN_EMAILS=michael@mobupps.com` (comma-separated for more). **Unset = NOBODY is admin**
+   (fail-closed, verified) — which is also the emergency revoke-all-admin lever.
+4. Optional, unrelated, still pending from earlier: `prod-cancel-legacy-channel-followups.sql`.
+
+---
 
 ### A. LLM cost work — ✅ CLOSED 2026-07-15 (no production model change)
 
@@ -125,32 +150,66 @@ production model config changed; the fixes it produced are inert on today's defa
    today, or enable deliberately with `effort: "low"`. Tokenizer is the same family as Opus 4.7,
    so token counts carry over (the "+30%" figure is vs Sonnet 4.6, not vs Opus).
 
-### B. Admin dashboard for michael@mobupps.com (NOT STARTED)
+### B. Admin dashboard — ✅ BUILT + AUDITED 2026-07-15 (`0845f3c` → `acb709c`). Awaiting publish.
 
-Infrastructure already exists — extend, don't rebuild: `ADMIN_EMAILS` allowlist
-(`lib/admin.ts`), `requireAdmin` middleware, `routes/admin.ts` (`/admin/whoami`,
-`/admin/activity`, `/admin/ops-dashboard`, `/admin/audit-export.csv`), `pages/admin-ops.tsx`.
-Add michael@mobupps.com to `ADMIN_EMAILS`.
+Commits: `0845f3c` kill switch · `8721ab0` ledger · `f530272` admin routes+FE · `acb709c` audit
+fixes. Green: build 0 · killswitch 20/20 · ledger 22/22 · admin 18/18 · delivery 5/5 ·
+regenerate 13/13 · parity 15/15 · pricing 12/12 · research 30/30 · root 51/51.
 
-User chose (2026-07-14): **user-level kill switch** + **per-call ledger table**.
+**The plan that was written here was wrong in four places. Recording them, because each was
+found the expensive way and none is obvious from the code:**
 
-1. **Migration 0019** — `users.followups_paused` (bool, default false) + new `llm_calls`
-   ledger (user_id, task, model, tokens, cost_usd, prospect_id?, created_at; indexes on
-   (user_id, created_at), model, task).
-2. **Ledger writes.** `callLLMRole()` (`lib/llm/router.ts:377`) is the chokepoint for
-   writer/critic/lint and already returns `{model, provider, cost}` — but NOT userId. Two
-   services bypass it and call `anthropic.messages.create` directly: `seedClassifier.ts` and
-   `prospectResearch.ts` (+ `messageSummarizer.ts`, dead code per L11). Thread an explicit
-   `ledger: {userId, prospectId?}` through the 3 service entry points (generateChatMessage,
-   researchProspect, classifySeed) → into `LlmCallInput`. Explicit > AsyncLocalStorage for an
-   accounting ledger; unattributed rows must surface as their own row, never hide.
-3. **DATA GAP (tell the user again if asked):** `modelMetadata.draftModel/criticModel/
-   rewriterModel` exist per call but are **discarded at the log boundary** — action_logs keeps
-   iterations + finalOverallScore only. So **per-model history cannot be reconstructed**; the
-   ledger only covers data from deploy onward.
-4. **Kill switch** — gate `users.followups_paused` in EVERY send path: digest
-   (`fetchDueRows`), pushover, send-next route, `/open`. Miss one and the switch leaks.
-5. **Admin routes + FE page.**
+1. **"Migration 0019 = column + ledger table"** → it is THREE migrations: `0019`
+   users.followups_paused · `0020` llm_calls · `0021` an index leading on `created_at` (the
+   composite `(user_id, created_at)` CANNOT serve `created_at >= since`, and `min(created_at)`
+   has no WHERE at all — it seq-scanned an append-only table on every admin page load).
+2. **"Two services bypass callLLMRole"** → **four**: + `companyResolver` (also serving
+   `llmValidator`) + `opusRescue`, i.e. the whole prospector/discovery cluster, three models.
+   A ledger missing a cluster is worse than none: it reconciles wrong while looking complete.
+3. **"Thread ledger into the 3 entry points"** → rows must be written at the **point of spend**,
+   never at an entry point. `generateChatMessage` returns `sumCosts(...)` — 3-7 calls across 2
+   providers and 3 models already blended — so a row written there cannot name a model
+   honestly. Same lesson twice more: `seedClassifier` discards its token counts before
+   returning, and `discover()`'s `llmUsage` is a local that **dies with a throw** (the LLM steps
+   all run before the Apollo step that times out, so a 504 dropped ~$0.18, silently).
+4. **"Gate the kill switch in every send path: digest, pushover, send-next, /open"** → there are
+   **11** paths, no chokepoint (the due-row predicate is copy-pasted into 5 selection sites),
+   and two of the most dangerous were on nobody's list. **But the harder lesson is the
+   opposite one:** `confirm` and `send-intent` must **NOT** be gated. They send nothing — they
+   RECORD that a human already sent (manual-send tool: the click IS the send). Gating them
+   can't un-send anything; it just loses the fact and leaves the row scheduled+unsent, which
+   `whatsapp.ts:104` has documented for months as causing **duplicate outreach** on unpause. The
+   gate prevented zero sends and caused a real one. Enforce at SURFACING (digest/pushover) and
+   LINK HANDOUT (open/fallback/send-next) only.
+
+**Scope contract — deliberate, asserted in `smoke:killswitch` because they LOOK like gaps:**
+followups_paused does NOT stop first messages (stage 0), does NOT stop the Friday weekly STATS
+digest (it reports, it doesn't act), and does NOT filter `GET /api/followups` (a read — hiding a
+rep's own queue isn't what a send-pause means). `send-intent` serves BOTH first messages and
+follow-ups on one route via a NULLABLE followupId — the one door the two flows share.
+
+**DATA GAP (tell the user again if asked):** `modelMetadata.draftModel/criticModel/
+rewriterModel` are discarded at the log boundary — action_logs keeps iterations +
+finalOverallScore only. **Per-model history cannot be reconstructed**; the ledger covers deploy
+onward, and `/admin/llm-spend` returns `coverageStartsAt` so the UI says "since <date>" rather
+than implying a silent zero.
+
+**KNOWN + DEFERRED (verified, none silent — do not re-derive):**
+- `ledger?:` is OPTIONAL, so a future call site can forget it and the spend vanishes with no
+  warning. The "an unattributed call is still a row" doctrine in `llmLedger.ts` is also
+  **unreachable today** — `LedgerContext.userId` is non-nullable, so only `ON DELETE SET NULL`
+  can produce a null-user row. Needs an explicit offline sentinel (`ledger: ctx | "offline"`).
+- Cache tokens are folded into `input_tokens`. `cost_usd` is CORRECT and the dashboard sums it
+  (never recomputes), but the invoice's separate input / cache-write / cache-read lines
+  (1× / 1.25× / 0.1×) can't be reproduced from a row, and naive recompute overstates ~3.8×.
+- `/resolve-company`'s error path can still lose usage on an outer-timeout (same class as the
+  discover bug, smaller).
+- `messageSummarizer.summarizeChatContext` spends and is unledgered, but is **DEAD** — zero
+  callers, tree-shaken out of `dist` (proven, not assumed). The file itself is LIVE
+  (`summaryLooksMeta`/`resanitizeStoredSummary` are imported) — do not "clean it up".
+- The test-digest preview mails a SAMPLE digest to a paused rep (dead links, cosmetic).
+- An admin can pause themselves or another admin. Not a lockout: the flag gates only send
+  paths, never `requireAuth`/`requireAdmin`, so they can always resume. Audited with actorEmail.
 
 ### C. Writer model: the gemini A/B COMPLETED — and it says pin to 3-flash-preview (DECISION NEEDED)
 
