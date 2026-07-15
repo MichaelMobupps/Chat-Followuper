@@ -15,6 +15,9 @@ router.get("/auth/me", requireAuth, (req, res) => {
     id: user.id,
     email: user.email,
     name: user.name,
+    // Admin kill switch (2026-07-15). Every send path enforces this server-side;
+    // without surfacing it the rep would press Send and get an unexplained 409.
+    followupsPaused: user.followupsPaused,
   });
   res.json(data);
 });

@@ -90,6 +90,12 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
         eq(prospectsTable.followupPaused, false),
+        // Admin kill switch (2026-07-15). Duplicated from fetchDueRows rather
+        // than shared because this predicate is ALREADY a copy of it (see the
+        // comment on runPushoverDigests) — unifying them is a separate refactor
+        // with its own blast radius, and leaving this ungated meanwhile would
+        // mean a paused rep still gets buzzed for every due row.
+        eq(usersTable.followupsPaused, false),
         eq(prospectsTable.replied, 0),
       ),
     )) as DueRow[];

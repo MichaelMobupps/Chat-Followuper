@@ -160,6 +160,29 @@ export const usersTable = pgTable("users", {
     .$type<string[]>()
     .notNull()
     .default([]),
+  /**
+   * Admin kill switch (2026-07-15): stop this user's FOLLOW-UPS being sent.
+   *
+   * User decision 2026-07-14: a per-USER switch, distinct from the per-PROSPECT
+   * `prospects.followup_paused` that already exists. Both are checked; either
+   * one being true stops the send. This one is set by an admin, not the rep.
+   *
+   * SCOPE — deliberately narrow, and the name is the contract:
+   *   - STOPS: follow-up sends + the notifications that drive them (digest
+   *     email, pushover digest, overdue escalations, Monday queue-clear nudge),
+   *     and every route that sends/stamps a follow-up.
+   *   - DOES NOT STOP: the Friday weekly STATS digest (user decision
+   *     2026-07-15 — it reports numbers, it does not act on the rep's behalf,
+   *     and a paused rep still wants their reporting), nor FIRST messages
+   *     (stage 0). A flag named followups_paused must not silently gate
+   *     first-touch; that would need its own flag and its own decision.
+   *
+   * There is NO shared chokepoint for follow-up sends — the due-row predicate
+   * is duplicated across 5 selection sites — so this flag is enforced at 11
+   * call sites, not one. See smokeKillSwitch.ts, which asserts every one of
+   * them; if you add a send path, add it there too or the switch leaks.
+   */
+  followupsPaused: boolean("followups_paused").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

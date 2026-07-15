@@ -125,6 +125,13 @@ export async function fetchDueRows(userId?: string): Promise<DueRow[]> {
     isNull(followupsTable.sentAt),
     lte(followupsTable.scheduledAt, new Date()),
     eq(prospectsTable.followupPaused, false),
+    // Admin kill switch (2026-07-15) — the per-USER pause, alongside the
+    // per-PROSPECT one above. usersTable is already inner-joined below, so this
+    // costs nothing extra. Gating HERE covers all three callers of fetchDueRows
+    // (the hourly scheduler, scripts/sendFollowupDigests.ts's deployed cron, and
+    // the test-digest preview in routes/userExtras.ts) — which is also why the
+    // preview can't drift from what production sends.
+    eq(usersTable.followupsPaused, false),
     eq(prospectsTable.replied, 0),
   ];
   if (userId) conditions.push(eq(prospectsTable.userId, userId));

@@ -472,6 +472,14 @@ router.post(
       return;
     }
 
+    // Admin kill switch (2026-07-15). Distinct code from prospect_paused: the
+    // rep did not do this and cannot undo it, so the UI must be able to say
+    // "an admin paused your account", not "this prospect is paused". Read from
+    // req.user (loadUser selects it) — no extra query.
+    if (user.followupsPaused) {
+      res.status(409).json({ error: "followups_paused" });
+      return;
+    }
     if (prospect.followupPaused) {
       res.status(409).json({ error: "prospect_paused" });
       return;

@@ -116,6 +116,11 @@ export async function sendOverdueEscalations(): Promise<number> {
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, cutoff),
         eq(prospectsTable.followupPaused, false),
+        // Admin kill switch (2026-07-15). This is the priority-1 escalation —
+        // it BYPASSES quiet hours, so an ungated paused rep would be woken up
+        // for follow-ups the switch is meant to have stopped. Third copy of the
+        // due-row predicate; see fetchDueRows.
+        eq(usersTable.followupsPaused, false),
         eq(prospectsTable.replied, 0),
       ),
     )) as OverdueRow[];
@@ -201,12 +206,22 @@ export async function sendMondayQueueClearNudges(): Promise<number> {
       digestTimezone: usersTable.digestTimezone,
       pushoverQuietHourStart: usersTable.pushoverQuietHourStart,
       pushoverQuietHourEnd: usersTable.pushoverQuietHourEnd,
+      // Admin kill switch (2026-07-15). Unlike every other send path, this
+      // query has NO where-clause — it fans out to every user in the system and
+      // filters per-user in JS below — so there is no predicate to attach the
+      // gate to. It has to be selected here and enforced in the loop.
+      followupsPaused: usersTable.followupsPaused,
     })
     .from(usersTable);
 
   for (const user of users) {
     const key = user.pushoverUserKey?.trim();
     if (!key) continue;
+    // Admin kill switch (2026-07-15) — gate BEFORE the due-count query, so a
+    // paused rep costs no work and gets no nudge. The due-count query below
+    // filters by user.id and never joins usersTable, so this `continue` is the
+    // only place the flag can be enforced on this path.
+    if (user.followupsPaused) continue;
     if (!isMondayInTimezone(user.digestTimezone)) continue;
 
     if (

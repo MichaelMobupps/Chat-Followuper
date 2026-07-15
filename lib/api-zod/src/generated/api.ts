@@ -23,6 +23,11 @@ export const GetCurrentUserResponse = zod.object({
   id: zod.string().uuid(),
   email: zod.string().email(),
   name: zod.string().nullable(),
+  followupsPaused: zod
+    .boolean()
+    .describe(
+      "Admin kill switch (2026-07-15). True when an admin has paused this user's follow-ups. Read-only here — only an admin can change it. Surfaced on \/auth\/me because the pause is enforced server-side on every send path, so without it the UI would let a rep press Send and then show an unexplained 409. The rep did not do this and cannot undo it, so the UI must be able to say who did. Does NOT affect first messages (stage 0) or the weekly stats digest — see users.followups_paused in the DB schema for the exact scope.",
+    ),
 });
 
 /**

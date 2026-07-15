@@ -19,6 +19,15 @@ declare global {
         // DB7: local-day bucket for daily-usage caps. Loaded here so route
         // writers don't need a second query.
         digestTimezone: string;
+        // Admin kill switch (2026-07-15). Loaded here for the same reason as
+        // digestTimezone: every session-authed send route needs it, and this
+        // select already runs on every /api request, so carrying it costs one
+        // more column instead of one more query per gate.
+        //
+        // Session-authed routes ONLY. The token-authed digest-link routes
+        // (followupOpen / followupFallback) never populate req.user — they must
+        // read the flag from their own DB join. See smokeKillSwitch.ts.
+        followupsPaused: boolean;
       };
       session?: SessionPayload;
     }
@@ -48,6 +57,7 @@ export async function loadUser(
         email: usersTable.email,
         name: usersTable.name,
         digestTimezone: usersTable.digestTimezone,
+        followupsPaused: usersTable.followupsPaused,
       })
       .from(usersTable)
       .where(eq(usersTable.id, session.userId))

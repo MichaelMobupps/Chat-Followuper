@@ -62,6 +62,10 @@ router.get(
           replied: prospectsTable.replied,
           userName: usersTable.name,
           userEmail: usersTable.email,
+          // Admin kill switch (2026-07-15). This route is TOKEN-authed from a
+          // digest email link — loadUser never runs and req.user is undefined,
+          // so the flag cannot come from the session and must be read here.
+          followupsPaused: usersTable.followupsPaused,
         })
         .from(followupsTable)
         .innerJoin(
@@ -78,7 +82,17 @@ router.get(
         return;
       }
 
-      if (row.sentAt || row.followupPaused || row.replied === 1) {
+      // followupsPaused = the admin kill switch (2026-07-15). Gated BEFORE the
+      // generate below, so a paused rep's stale digest link costs no LLM spend.
+      // Redirects like every other terminal state here rather than erroring —
+      // this URL is opened from an email by a human, so the dashboard (which
+      // can explain the pause) is a better destination than a JSON error.
+      if (
+        row.sentAt ||
+        row.followupPaused ||
+        row.followupsPaused ||
+        row.replied === 1
+      ) {
         res.redirect(302, dashboardFallback());
         return;
       }
@@ -162,12 +176,20 @@ router.post(
           userId: prospectsTable.userId,
           followupPaused: prospectsTable.followupPaused,
           replied: prospectsTable.replied,
+          // Admin kill switch (2026-07-15).
+          followupsPaused: usersTable.followupsPaused,
         })
         .from(followupsTable)
         .innerJoin(
           prospectsTable,
           eq(followupsTable.prospectId, prospectsTable.id),
         )
+        // usersTable was NOT joined here before the kill switch, unlike its
+        // sibling GET /followups/open/:id above — which is exactly why this
+        // path is easy to miss: the two endpoints sit in one file and read as
+        // symmetric, but only one of them could see the users row. The join is
+        // required for the gate below.
+        .innerJoin(usersTable, eq(prospectsTable.userId, usersTable.id))
         .where(eq(followupsTable.id, followupId))
         .limit(1);
 
@@ -177,7 +199,16 @@ router.post(
         return;
       }
 
-      if (row.sentAt || row.followupPaused || row.replied === 1) {
+      // Kill switch (2026-07-15): confirm is what STAMPS the send (sentAt +
+      // daily usage), so gating it is what makes the switch true rather than
+      // cosmetic — a paused rep must not be able to record a send from a stale
+      // tab or an old email link.
+      if (
+        row.sentAt ||
+        row.followupPaused ||
+        row.followupsPaused ||
+        row.replied === 1
+      ) {
         res.redirect(302, dashboardFallback());
         return;
       }

@@ -228,7 +228,13 @@ router.post(
     // prospect (cross-tenant timeline pollution), and a nonexistent UUID hits
     // the action_logs FK and 500s the whole transaction instead of a clean 404.
     const ownRows = await db
-      .select({ id: prospectsTable.id })
+      .select({
+        id: prospectsTable.id,
+        // Kill switch (2026-07-15): needed for the pause gate below. This
+        // select previously fetched `id` alone — the route checked ownership
+        // and NOTHING else.
+        followupPaused: prospectsTable.followupPaused,
+      })
       .from(prospectsTable)
       .where(
         and(
@@ -237,9 +243,33 @@ router.post(
         ),
       )
       .limit(1);
-    if (ownRows.length === 0) {
+    const ownProspect = ownRows[0];
+    if (!ownProspect) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+
+    // Pause gate (2026-07-15). This route STAMPS a send — sentAt, status='sent',
+    // messages_sent++ — and before today it enforced ownership and nothing else,
+    // so a paused rep (or a paused prospect) could still record sends from an
+    // open tab. Both the pre-existing per-PROSPECT hole and the new per-USER
+    // switch are closed here (user decision 2026-07-15).
+    //
+    // CONDITIONAL ON followupId, and that is the whole point: this endpoint
+    // serves BOTH first messages (followupId === null) and follow-ups. Both
+    // flags are named for FOLLOW-UPS — `users.followups_paused` and
+    // `prospects.followup_paused` — and pausing follow-ups must not silently
+    // kill first-touch outreach. Gating unconditionally here would do exactly
+    // that, invisibly, on the one route where the two flows share a door.
+    if (req.body.followupId !== null) {
+      if (user.followupsPaused) {
+        res.status(409).json({ error: "followups_paused" });
+        return;
+      }
+      if (ownProspect.followupPaused) {
+        res.status(409).json({ error: "prospect_paused" });
+        return;
+      }
     }
 
     const channel = await resolveSendChannel(

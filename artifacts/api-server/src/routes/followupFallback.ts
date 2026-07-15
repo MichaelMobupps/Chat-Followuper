@@ -62,6 +62,9 @@ router.get(
           replied: prospectsTable.replied,
           userName: usersTable.name,
           userEmail: usersTable.email,
+          // Admin kill switch (2026-07-15). Token-authed digest link, so the
+          // flag must come from this join — req.user does not exist here.
+          followupsPaused: usersTable.followupsPaused,
         })
         .from(followupsTable)
         .innerJoin(
@@ -78,7 +81,14 @@ router.get(
         return;
       }
 
-      if (row.sentAt || row.followupPaused || row.replied === 1) {
+      // followupsPaused = the admin kill switch (2026-07-15). Gated before the
+      // generate below so a paused rep's stale link costs no LLM spend.
+      if (
+        row.sentAt ||
+        row.followupPaused ||
+        row.followupsPaused ||
+        row.replied === 1
+      ) {
         res.redirect(302, dashboardFallback());
         return;
       }
