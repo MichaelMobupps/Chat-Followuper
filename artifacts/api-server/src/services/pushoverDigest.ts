@@ -89,6 +89,12 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
         inArray(followupsTable.channel, [...CHANNEL_CODES]),
         isNull(followupsTable.sentAt),
         lte(followupsTable.scheduledAt, new Date()),
+        // Speed pass (2026-07-16): notify only AFTER the message exists — the
+        // hourly pregenerateDueFollowupMessages pass runs before this query.
+        // Mirrors fetchDueRows in followupDigest.ts (this predicate is already
+        // a documented copy of it). Ungenerated rows wait for a later tick;
+        // the 2+-day escalation in pushoverNudges stays UNgated as the net.
+        sql`btrim(${followupsTable.generatedMessage}) <> ''`,
         eq(prospectsTable.followupPaused, false),
         // Admin kill switch (2026-07-15). Duplicated from fetchDueRows rather
         // than shared because this predicate is ALREADY a copy of it (see the

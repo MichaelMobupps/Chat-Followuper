@@ -13,6 +13,9 @@ import {
 import { recordSendIntent as recordLinkedinSendIntent } from "../services/channels/linkedin";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 import { appPublicUrl } from "../lib/appPublicUrl";
+// Shared with the hourly pre-generation pass (Speed pass, 2026-07-16) so a
+// pre-generated message and a click-time one sign with the same name.
+import { senderNameFromUser } from "../lib/senderName";
 
 const router: IRouter = Router();
 
@@ -22,11 +25,6 @@ function dashboardFallback(): string {
   } catch {
     return "/contacts";
   }
-}
-
-function senderNameFromUser(name: string | null, email: string): string {
-  if (name?.trim()) return name.trim().split(/\s+/)[0]!;
-  return email.split("@")[0] ?? "there";
 }
 
 /**

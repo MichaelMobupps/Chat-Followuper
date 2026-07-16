@@ -126,11 +126,13 @@ interface Props {
    * run had no visible progress and no preview: the SDR only saw two toasts
    * and then the message appeared, unreviewed, in the composer.
    *
-   * The Contacts page now owns the run instead (it already holds the
-   * single-flight generatingId + the progress poller), which lets it show the
-   * staged bar on the new row AND in the preview dialog. A caller that omits
-   * this (only ManualContactsSection, itself dead code post-F-E) simply adds
-   * without generating — the same as passing prepareAfterAdd={false} did.
+   * Speed pass (2026-07-16): when the contact lands WITHOUT a message, the
+   * BACKEND queues the generation itself before its 201 returns — the page
+   * no longer fires a blocking prepare. The Contacts page uses this callback
+   * to point its progress poller at the new row (staged bar on the row) and
+   * to toast that the message is being written in the background. A caller
+   * that omits this (only ManualContactsSection, itself dead code post-F-E)
+   * simply doesn't track the run — the row still flips to ready on refresh.
    */
   onAdded?: (prospect: ManualIngestProspect) => void;
 }
@@ -238,7 +240,12 @@ export function AddManualContactDialog({
    * the most visible drift there is.
    */
   function invalidateDraft() {
-    if (draftId === null && draftMessage === null) return;
+    // Only a GENERATED draft goes stale when the form drifts — it was written
+    // about the old values (and the BE checks it against them). A message the
+    // SDR typed or pasted THEMSELVES (no draftId) is their own text; wiping it
+    // on every keystroke in another field would destroy their work, so it
+    // stays put.
+    if (draftId === null) return;
     setDraftId(null);
     setDraftMessage(null);
   }
@@ -351,11 +358,14 @@ export function AddManualContactDialog({
         company: form.company.trim(),
         ticker: form.ticker,
         prePlatformContext: form.prePlatformContext.trim() || undefined,
-        // Claim the pre-written message. Both fields or neither: the BE only
-        // honours firstMessageBody alongside a draftId whose server-side entry
-        // (which holds the research brief) still exists.
-        ...(draftId && trimmedDraft
-          ? { draftId, firstMessageBody: trimmedDraft }
+        // Attach the message. WITH a draftId the BE pairs the (editable) text
+        // with the research brief the preview run parked server-side. WITHOUT
+        // one — the SDR wrote or pasted their own — the BE stores the text
+        // as-is and researches the brief in the background after the insert.
+        ...(trimmedDraft
+          ? draftId
+            ? { draftId, firstMessageBody: trimmedDraft }
+            : { firstMessageBody: trimmedDraft }
           : {}),
       },
       {
@@ -616,9 +626,15 @@ export function AddManualContactDialog({
             )}
           </div>
 
-          {/* Generate message — write and review the message HERE, before the
-              contact is saved. The result is parked server-side under draftId;
-              "Add contact" claims it, so nothing is generated twice. */}
+          {/* First message — three ways in (Speed pass, 2026-07-16):
+                1. paste/write your own into the always-visible box (fastest —
+                   no LLM, no waiting; the BE researches the brief in the
+                   background so follow-ups still work);
+                2. Generate — write and review it HERE before the contact is
+                   saved; the result is parked server-side under draftId and
+                   "Add contact" claims it, so nothing is generated twice;
+                3. leave it empty — the BE writes it in the background right
+                   after the add, and the row flips to Ready on its own. */}
           <div className="space-y-1.5 border-t pt-4">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="manual-message">First message</Label>
@@ -637,7 +653,9 @@ export function AddManualContactDialog({
                   <Sparkles className="h-4 w-4" />
                 )}
                 <span className="ml-1.5">
-                  {draftMessage === null ? "Generate message" : "Regenerate"}
+                  {/* Keyed on draftId, not the text: only a GENERATED message
+                      makes the next run a "Regenerate". */}
+                  {draftId === null ? "Generate message" : "Regenerate"}
                 </span>
               </Button>
             </div>
@@ -646,32 +664,36 @@ export function AddManualContactDialog({
               <div className="py-2" data-testid="manual-generating">
                 <PrepareProgressBar progress={previewProgress} />
               </div>
-            ) : draftMessage !== null ? (
+            ) : (
               <>
                 <Textarea
                   id="manual-message"
-                  value={draftMessage}
+                  value={draftMessage ?? ""}
                   onChange={(e) => setDraftMessage(e.target.value)}
-                  rows={7}
+                  placeholder="Already have the message? Paste it here and skip the AI entirely."
+                  rows={5}
                   // Mirrors the BE cap (firstMessageBody max 20000).
                   maxLength={20000}
                   data-testid="manual-message"
                 />
-                <p className="text-xs text-muted-foreground">
-                  {draftMessage.length} characters · saved with the contact when
-                  you click <strong>Add contact</strong>.
-                </p>
+                {draftMessage?.trim() ? (
+                  <p className="text-xs text-muted-foreground">
+                    {draftMessage.length} characters · saved with the contact
+                    when you click <strong>Add contact</strong>.
+                  </p>
+                ) : (
+                  // Say what it costs and how long it takes. An SDR shouldn't
+                  // discover that a button spends money by clicking it.
+                  <p className="text-xs text-muted-foreground">
+                    Optional — paste your own message above (instant, no AI
+                    spend), or <strong>Generate message</strong> researches{" "}
+                    {companyTrimmed || "the company"} and writes it here for
+                    review — takes up to a minute and uses your AI budget.
+                    Left empty, we write it in the background after you add
+                    the contact.
+                  </p>
+                )}
               </>
-            ) : (
-              // Say what it costs and how long it takes. The code knew both and
-              // the UI said neither — an SDR shouldn't discover that a button
-              // spends money by clicking it.
-              <p className="text-xs text-muted-foreground">
-                Optional — <strong>Generate message</strong> researches{" "}
-                {companyTrimmed || "the company"} and writes the first message
-                now. Takes up to a minute and uses your AI budget. You can skip
-                it and generate from their row later instead.
-              </p>
             )}
           </div>
         </div>

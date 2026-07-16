@@ -47,8 +47,10 @@ import {
 import { requireAuth } from "../middlewares/auth";
 import { uniqueViolationCode } from "../lib/dbErrors";
 import { detectCountry } from "../lib/geoGate";
+import { senderNameFromUser } from "../lib/senderName";
 import { canonicalizeLinkedinUrl } from "../services/channels/linkedin";
 import { peekDraft, deleteDraft } from "../services/firstMessageDrafts";
+import { queueContactPrepare } from "../services/backgroundPrepare";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -1192,9 +1194,12 @@ const manualIngestBodySchema = z
     // this contact existed ("Generate message" in the Add dialog). Optional:
     // every existing caller omits it and gets today's behaviour exactly.
     draftId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
-    // The SDR's (possibly edited) version of that message. Only honoured
-    // alongside a draftId whose server-side entry still exists — see the
-    // all-or-nothing note at the insert.
+    // The first message. Two provenances (Speed pass, 2026-07-16):
+    //   - WITH draftId: the SDR's (possibly edited) version of the generated
+    //     preview — the matching server-side draft contributes its brief.
+    //   - WITHOUT draftId: a message the SDR wrote/pasted themselves. Stored
+    //     as-is; the research brief is produced in the background after the
+    //     201 (queueContactPrepare) or lazily at follow-up generation time.
     firstMessageBody: z.string().trim().min(1).max(20000).optional(),
   })
   .strict();
@@ -1360,14 +1365,15 @@ router.post(
 
     // Claim a pre-written message, if the dialog generated one.
     //
-    // ALL-OR-NOTHING, on purpose. followupMessageService throws
-    // `research_not_complete` when researchBrief is null, so persisting the
-    // message WITHOUT its brief would create a contact whose follow-ups break at
-    // send-next — strictly worse than not persisting it. If the draft is gone
-    // (TTL, restart, or another autoscale instance), we fall through to a plain
-    // draft contact: no message, status "draft", and the row's Generate button
-    // runs the real pipeline and sets body + brief together. One wasted preview
-    // beats a broken contact.
+    // A draftId pairs the (editable) message with the research brief the
+    // server kept from the preview run, so the row lands complete: body +
+    // brief in one insert. A message WITHOUT a draftId (the SDR pasted their
+    // own, or the draft expired) is now persisted too — the brief it lacks is
+    // researched in the background right after the 201 (queueContactPrepare
+    // below), and followupMessageService researches lazily as the final
+    // backstop, so follow-ups no longer die on research_not_complete. That is
+    // what made the old all-or-nothing gate (drop the body when the draft is
+    // gone) unnecessary.
     //
     // The brief comes from the SERVER-side draft, never the wire. The message
     // does come from the client (the SDR edits it in a textarea) — that grants
@@ -1390,6 +1396,12 @@ router.post(
       );
     }
     const useDraft = draft !== null && draftMatches;
+    // On a KNOWN mismatch the accompanying message is the generated text for
+    // the draft's (old) company — the server can prove it's about someone
+    // else, so it must not ride the paste fallback below. An EXPIRED draft is
+    // different: the text is indistinguishable from a paste, and PATCH
+    // /prospects/:id already trusts client text, so it persists.
+    const draftMismatched = draft !== null && !draftMatches;
 
     const inserted = await db
       .insert(prospectsTable)
@@ -1417,7 +1429,14 @@ router.post(
               language: draft!.classified.language,
               product: draft!.classified.product,
             }
-          : {}),
+          : body.firstMessageBody && !draftMismatched
+            ? {
+                // The SDR's own message, no draft (Speed pass, 2026-07-16).
+                // Zod already trimmed + bounded it. The missing brief is
+                // handled after the insert — see queueContactPrepare below.
+                firstMessageBody: body.firstMessageBody,
+              }
+            : {}),
       })
       .onConflictDoNothing({
         target: [prospectsTable.userId, prospectsTable.phone],
@@ -1442,6 +1461,28 @@ router.post(
     // when it was actually USED: a mismatched draft (different company) wasn't
     // persisted, so leave it for a corrected resubmit to claim.
     if (useDraft && body.draftId) deleteDraft(user.id, body.draftId);
+
+    // Speed pass (2026-07-16): finish the contact in the BACKGROUND so the
+    // dialog never blocks on the LLM pipeline. Whatever is still missing gets
+    // produced fire-and-forget:
+    //   - no message → full prepare (classify + research + writer);
+    //   - message but no brief (the SDR pasted their own) → research only.
+    // A draft-claimed contact has both and queues nothing. Spend goes through
+    // the same daily-cap checks as the interactive path; on failure the row
+    // simply stays "draft" and the Generate button retries.
+    {
+      const hasBody = !!prospect.firstMessageBody?.trim();
+      const hasBrief =
+        !!prospect.researchBrief && typeof prospect.researchBrief === "object";
+      if (!hasBody || !hasBrief) {
+        queueContactPrepare({
+          prospectId: prospect.id,
+          userId: user.id,
+          senderName: senderNameFromUser(user.name, user.email),
+          researchOnly: hasBody,
+        });
+      }
+    }
 
     try {
       await db.insert(actionLogsTable).values({

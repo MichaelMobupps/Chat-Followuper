@@ -1,16 +1,22 @@
 /**
- * AddManualContactDialog — "Generate message" (write before the contact is saved).
+ * AddManualContactDialog — "Generate message" (write before the contact is saved)
+ * and the manual paste box (Speed pass, 2026-07-16).
  *
  * These exist because the feature shipped on argument alone and an adversarial
  * verifier then found four Highs in it. What's asserted here is exactly what was
  * broken, so it can't come back:
- *   - the draft is INVALIDATED when the form drifts from what was researched
- *     (company / ticker / firstName / context) — the BE silently drops a stale
- *     draft, and the UI used to keep promising it would be saved;
+ *   - a GENERATED draft is INVALIDATED when the form drifts from what was
+ *     researched (company / ticker / firstName / context) — the BE silently
+ *     drops a stale draft, and the UI used to keep promising it would be saved.
+ *     The box stays visible now (it doubles as the paste box) but empties, and
+ *     the button returns to "Generate message";
+ *   - a PASTED message (no draftId) is the SDR's own text: it is NOT wiped by
+ *     form drift, and it submits as firstMessageBody WITHOUT a draftId;
  *   - the dialog cannot be closed mid-run (Esc/X desynced draftId from the
  *     message, then the page silently paid to generate a second one);
- *   - draftId + firstMessageBody go together or not at all;
- *   - the plain add path (no Generate) sends a byte-identical body.
+ *   - a generated draft sends draftId + firstMessageBody together;
+ *   - the plain add path (no Generate, nothing pasted) sends a byte-identical
+ *     body.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -165,7 +171,10 @@ describe("AddManualContactDialog — Generate message", () => {
     expect(postPreviewFirstMessage).not.toHaveBeenCalled();
   });
 
-  describe("the draft is dropped when the form drifts from what was researched", () => {
+  describe("a GENERATED draft is dropped when the form drifts from what was researched", () => {
+    // The box itself stays mounted (it doubles as the manual paste box); the
+    // invalidation empties it and re-labels the button, so the SDR can SEE the
+    // paid message was dropped instead of trusting stale "will be saved" copy.
     it("company — the brief researched the OLD one; the BE would refuse it", async () => {
       const user = userEvent.setup();
       setup();
@@ -174,7 +183,7 @@ describe("AddManualContactDialog — Generate message", () => {
 
       await user.type(screen.getByTestId("manual-company"), " Ltd");
 
-      expect(screen.queryByTestId("manual-message")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-message")).toHaveValue("");
       expect(screen.getByTestId("manual-generate")).toHaveTextContent(
         "Generate message",
       );
@@ -190,7 +199,7 @@ describe("AddManualContactDialog — Generate message", () => {
       await user.type(screen.getByTestId("manual-first-name"), "Dana");
 
       // Otherwise: contact saved as Dana, carrying a message opening "Hi Yaron".
-      expect(screen.queryByTestId("manual-message")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-message")).toHaveValue("");
     });
 
     it("product type — the BE takes the draft's classification over the toggle", async () => {
@@ -200,7 +209,7 @@ describe("AddManualContactDialog — Generate message", () => {
       await generate(user);
 
       await user.click(screen.getByTestId("manual-ticker-web"));
-      expect(screen.queryByTestId("manual-message")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-message")).toHaveValue("");
     });
 
     it("context — it's fed to the writer, so a message written before it ignored it", async () => {
@@ -214,7 +223,7 @@ describe("AddManualContactDialog — Generate message", () => {
         screen.getByTestId("manual-pre-platform-context"),
         "we spoke last week",
       );
-      expect(screen.queryByTestId("manual-message")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-message")).toHaveValue("");
     });
 
     it("re-picking the SAME product type does not drop it", async () => {
@@ -225,6 +234,45 @@ describe("AddManualContactDialog — Generate message", () => {
 
       await user.click(screen.getByTestId("manual-ticker-mobile")); // already mobile
       expect(screen.getByTestId("manual-message")).toHaveValue(MSG);
+    });
+  });
+
+  describe("manual paste box (Speed pass, 2026-07-16)", () => {
+    const PASTED = "Hey Yaron — following up on our chat about MobUpps.";
+
+    it("is visible before anything is generated", () => {
+      setup();
+      expect(screen.getByTestId("manual-message")).toBeInTheDocument();
+      expect(screen.getByTestId("manual-message")).toHaveValue("");
+    });
+
+    it("sends the pasted body WITHOUT a draftId — no AI ran", async () => {
+      const user = userEvent.setup();
+      setup();
+      await fillForm(user);
+      await user.type(screen.getByTestId("manual-message"), PASTED);
+      await user.click(screen.getByTestId("manual-submit"));
+
+      await waitFor(() => expect(postManualIngest).toHaveBeenCalled());
+      const body = postManualIngest.mock.calls[0]![0] as Record<string, unknown>;
+      expect(body.firstMessageBody).toBe(PASTED);
+      expect(body).not.toHaveProperty("draftId");
+      expect(postPreviewFirstMessage).not.toHaveBeenCalled();
+    });
+
+    it("survives form drift — it's the SDR's own text, not a stale draft", async () => {
+      const user = userEvent.setup();
+      setup();
+      await fillForm(user);
+      await user.type(screen.getByTestId("manual-message"), PASTED);
+
+      // Every drift that would invalidate a GENERATED draft:
+      await user.type(screen.getByTestId("manual-company"), " Ltd");
+      await user.click(screen.getByTestId("manual-ticker-web"));
+      await user.clear(screen.getByTestId("manual-first-name"));
+      await user.type(screen.getByTestId("manual-first-name"), "Dana");
+
+      expect(screen.getByTestId("manual-message")).toHaveValue(PASTED);
     });
   });
 

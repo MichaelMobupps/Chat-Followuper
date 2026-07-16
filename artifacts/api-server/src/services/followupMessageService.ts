@@ -18,6 +18,7 @@ import {
 } from "./messageGenerator";
 import type { ConversationRow, PreviousFollowup } from "./messagePrompts";
 import type { ProspectBrief } from "./prospectResearch";
+import { ensureProspectBrief } from "./manualContactPrepare";
 import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 import { assertUnderDailyLlmCap } from "../lib/llmSpendCap";
 import { usageBucketDate } from "../lib/usageBucket";
@@ -70,12 +71,42 @@ function buildConversation(
   return rows;
 }
 
+// In-flight dedupe (Speed pass, 2026-07-16): the hourly pre-generation pass
+// (followupPregenerate) and a click on a digest link / dashboard send-next can
+// now target the same row at the same time. Sharing one promise per followup
+// means the second trigger rides the first run instead of paying for a second
+// writer chain and racing the persist. followupId is a serial PK, so the key
+// can't collide across users. In-process only — matches the progress store's
+// single-instance assumption.
+const inFlightGenerations = new Map<
+  number,
+  Promise<{ message: string; costUsd: number }>
+>();
+
 /**
  * Generate a follow-up message for a scheduled row (stage >= 1), persist it
- * on the followups row, and return the body. Used by the email open-link
- * flow and by send-next when message_not_generated.
+ * on the followups row, and return the body. Used by the hourly
+ * pre-generation pass (which runs BEFORE the email/Pushover digests so the
+ * rep's click is instant), the email open-link flow, and send-next when
+ * message_not_generated.
  */
 export async function generateAndPersistFollowupMessage(params: {
+  followupId: number;
+  userId: string;
+  senderName: string;
+}): Promise<{ message: string; costUsd: number }> {
+  const existing = inFlightGenerations.get(params.followupId);
+  if (existing) return existing;
+  const run = doGenerateAndPersistFollowupMessage(params);
+  inFlightGenerations.set(params.followupId, run);
+  try {
+    return await run;
+  } finally {
+    inFlightGenerations.delete(params.followupId);
+  }
+}
+
+async function doGenerateAndPersistFollowupMessage(params: {
   followupId: number;
   userId: string;
   senderName: string;
@@ -148,9 +179,21 @@ export async function generateAndPersistFollowupMessage(params: {
   }
   const channel: ChannelCode = rawChannel;
 
-  const brief = prospect.researchBrief as ProspectBrief | null;
+  // Lazy research (Speed pass, 2026-07-16): a contact created with a PASTED
+  // first message has a body but no brief — manual-ingest no longer requires
+  // the two to arrive together. Instead of dying on research_not_complete
+  // (which stranded every follow-up for such a contact), research it now.
+  // The normal caller of this branch is the hourly pre-generation pass, so
+  // the ~2-minute research runs in the background where nobody is waiting;
+  // an interactive click only pays it when the background passes never got
+  // the chance (fresh contact, cap was hit, server restarted mid-run).
+  // ensureProspectBrief persists the brief + classification and books its
+  // own spend; the cap was already asserted above.
+  let brief = prospect.researchBrief as ProspectBrief | null;
   if (!brief || typeof brief !== "object") {
-    throw new Error("research_not_complete");
+    setFollowupProgress(userId, followupId, "researching");
+    const ensured = await ensureProspectBrief({ prospect, userId });
+    brief = ensured.brief;
   }
 
   const sentFollowups = await db

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, Plus, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -227,22 +227,36 @@ export default function ContactsPage() {
     void runGenerate(target);
   }
 
-  // Freshly added contact. If the dialog already wrote the message ("Generate
-  // message" → the BE persisted it with its research brief), there is nothing
-  // to run: the row lands "ready" and the SDR has already reviewed the text.
-  // Kicking off a generate here would be a no-op POST at best (the BE
-  // short-circuits on the stored body) and a confusing empty preview at worst.
+  // Freshly added contact. If it already carries its message (pasted by the
+  // SDR, or generated in the dialog and claimed with its brief), the row
+  // lands "ready" — nothing to run. Otherwise the BACKEND is already writing
+  // it (Speed pass, 2026-07-16: manual-ingest queues the full pipeline
+  // fire-and-forget and stamps "queued" before its 201 returns). This page
+  // used to open a blocking preview dialog and run the generate itself —
+  // trapping the SDR in front of a progress bar for up to a couple of
+  // minutes. Now it just points the existing progress poller at the new row
+  // (the bar shows on the row) and lets the SDR move on; the effect below
+  // refreshes the list when the background run lands.
   function handleAdded(prospect: ManualIngestProspect) {
     if (prospect.firstMessageBody?.trim()) return;
-    const target: PreviewTarget = {
-      id: prospect.id,
-      prospectName: prospect.prospectName ?? null,
-      company: prospect.company ?? null,
-    };
-    setPreviewTarget(target);
-    setPreviewOpen(true);
-    void runGenerate(target);
+    setGeneratingId(prospect.id);
+    toast({
+      title: "Contact added — writing their first message",
+      description:
+        "Research and writing run in the background. The row flips to Ready when it's done; no need to wait here.",
+    });
   }
+
+  // Background-run completion: a run queued by manual-ingest has no client
+  // mutation whose onSuccess would invalidate the list, so watch the polled
+  // progress instead and refresh when it reports ready. Interactive runs also
+  // pass through here — their extra invalidation is a harmless no-op refetch.
+  const backgroundStage = generateProgressQuery.data?.stage;
+  useEffect(() => {
+    if (backgroundStage !== "ready") return;
+    void queryClient.invalidateQueries({ queryKey: ["prospects-list"] });
+    void queryClient.invalidateQueries({ queryKey: ["followups"] });
+  }, [backgroundStage, queryClient]);
 
   // Returns true only when the composer actually opened — the preview dialog
   // keys its own dismissal off this, so a blocked popup or a missing deep link

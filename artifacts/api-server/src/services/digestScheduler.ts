@@ -3,6 +3,7 @@ import { runPushoverDigests } from "./pushoverDigest";
 import { runWeeklyDigests } from "./weeklyDigest";
 import { runPushoverNudges } from "./pushoverNudges";
 import { expireStalePhoneReveals } from "./phoneRevealSweep";
+import { pregenerateDueFollowupMessages } from "./followupPregenerate";
 import { logger } from "../lib/logger";
 
 const DEFAULT_INTERVAL_MS = 60 * 60 * 1000; // hourly
@@ -15,6 +16,17 @@ async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    // Speed pass (2026-07-16): pre-generate due follow-up messages BEFORE any
+    // notification goes out. Ordering is the feature — the email/Pushover
+    // digests now list only rows with a generated message, so the rep's click
+    // hits the cached-message short-circuit and the deep link opens instantly
+    // instead of after a minute-long writer chain. Awaited (not in the
+    // Promise.all) precisely because the digests must observe its writes.
+    const pregenResult = await pregenerateDueFollowupMessages().catch((err) => {
+      logger.error({ err }, "[digest-scheduler] followup pregeneration failed");
+      return null;
+    });
+
     // P3c: also expire stale pending phone reveals here. The standalone
     // scripts/sweepReveals.ts has no in-repo trigger (no script alias, not
     // wired anywhere), so every "the sweep reconciles stuck pending reveals"
@@ -32,6 +44,8 @@ async function tick(): Promise<void> {
         }),
       ]);
     if (
+      (pregenResult?.generated ?? 0) > 0 ||
+      (pregenResult?.failed ?? 0) > 0 ||
       digestResult.usersEmailed > 0 ||
       digestResult.usersFailed > 0 ||
       pushoverResult.messagesSent > 0 ||
@@ -45,6 +59,7 @@ async function tick(): Promise<void> {
     ) {
       logger.info(
         {
+          pregen: pregenResult,
           digest: digestResult,
           pushover: pushoverResult,
           weekly: weeklyResult,

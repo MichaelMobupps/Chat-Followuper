@@ -85,11 +85,235 @@ function buildDeepLink(
   return generateLink(prospect.phone, message);
 }
 
+export interface EnsureBriefResult {
+  brief: ProspectBrief;
+  /** Final coarse vertical ("web_cps" | "mobile") after classify + defaults. */
+  vertical: string;
+  subVertical: string;
+  language: string;
+  product: string;
+  country: string;
+  /** 0 when the brief already existed (nothing was spent). */
+  researchCostUsd: number;
+}
+
+/**
+ * Make sure a prospect has a research brief, running classify + research and
+ * persisting the results when it doesn't. Extracted from prepareFirstMessage
+ * (Speed pass, 2026-07-16) so brief-ONLY callers exist:
+ *   - manual-ingest's background prepare, for contacts created with a PASTED
+ *     first message (body present, brief absent — research must still happen
+ *     or every later follow-up dies on research_not_complete);
+ *   - followupMessageService's lazy-research fallback, which the hourly
+ *     pre-generation pass drives so no human is waiting on it.
+ *
+ * Spend accounting: classify AND research are booked here, immediately, via
+ * recordDailyLlmSpend — not in the caller's terminal transaction. A writer
+ * failure after research already happened must not lose the research spend,
+ * and brief-only callers have no terminal transaction at all. Callers that go
+ * on to generate must therefore book ONLY their generation cost.
+ *
+ * The caller is responsible for ownership checks (the prospect row was loaded
+ * under a userId filter) and for the daily spend-cap pre-check.
+ */
+export async function ensureProspectBrief(params: {
+  prospect: Prospect;
+  userId: string;
+}): Promise<EnsureBriefResult> {
+  const { prospect, userId } = params;
+  const prospectId = prospect.id;
+
+  // Ask-less classification: derive the datapoints research + the writer need
+  // (sub-vertical, country, language, product) from the company/URL seed when the
+  // operator did not supply them. Any value the operator DID set wins as an
+  // override. Runs at most once per prospect — the results persist below, so a
+  // second generate skips it.
+  let subVertical = isValidSubVertical(prospect.subVertical ?? "")
+    ? (prospect.subVertical as string)
+    : "";
+  let vertical =
+    prospect.vertical === "web_cps" || prospect.vertical === "mobile"
+      ? prospect.vertical
+      : "";
+  let country = prospect.country ?? "";
+  let language = prospect.language ?? "";
+  let product = prospect.product ?? "";
+
+  const hasBrief =
+    !!prospect.researchBrief && typeof prospect.researchBrief === "object";
+  const needsClassify =
+    !hasBrief && (!subVertical || !country || !language || !product);
+
+  if (needsClassify && prospect.company?.trim()) {
+    setPrepareProgress(userId, prospectId, "researching");
+    try {
+      const seedUrl =
+        (prospect.prePlatformContext ?? "").match(/https?:\/\/\S+/)?.[0] ??
+        (prospect.contextNotes ?? "").match(/https?:\/\/\S+/)?.[0];
+      const classified = await classifySeed({
+        seed: seedUrl || prospect.company.trim(),
+        company: prospect.company.trim(),
+        vertical:
+          prospect.vertical === "web_cps" || prospect.vertical === "mobile"
+            ? prospect.vertical
+            : undefined,
+        subVertical: subVertical || undefined,
+        country: country || undefined,
+        language: language || undefined,
+        product: product || undefined,
+        ledger: { userId, prospectId },
+      });
+      subVertical = classified.subVertical;
+      vertical = classified.vertical || vertical;
+      country = classified.country || country;
+      language = classified.language || language;
+      product = classified.product || product;
+      if (classified.costUsd > 0) {
+        // Book the classify spend NOW (not only in the terminal txn) so it isn't
+        // lost if research/generation throws before that transaction runs.
+        await recordDailyLlmSpend(userId, classified.costUsd).catch((e) =>
+          logger.warn(
+            { err: String(e) },
+            "manual prepare: classify spend record failed",
+          ),
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err: String(err) },
+        "manual prepare: seed classification failed; using defaults",
+      );
+    }
+  }
+
+  // Fill any remaining gaps with the coarse platform defaults.
+  if (!isValidSubVertical(subVertical))
+    subVertical = defaultSubVertical(prospect.vertical);
+  // Keep the coarse vertical consistent with the (now-final) sub-vertical.
+  if (vertical !== "web_cps" && vertical !== "mobile") {
+    vertical = getDoctrineDomain(subVertical) === "webCps" ? "web_cps" : "mobile";
+  }
+  if (!language) language = country ? getLanguageForCountry(country) : "en";
+  if (!product) product = defaultProduct(prospect.vertical);
+
+  if (hasBrief) {
+    return {
+      brief: prospect.researchBrief as ProspectBrief,
+      vertical,
+      subVertical,
+      language,
+      product,
+      country,
+      researchCostUsd: 0,
+    };
+  }
+
+  if (!prospect.company?.trim()) {
+    throw new Error("missing_company");
+  }
+
+  // Progress (Phase H): entering the research phase.
+  setPrepareProgress(userId, prospectId, "researching");
+
+  const researchResult = await researchProspect(
+    {
+      brand: prospect.company.trim(),
+      country,
+      language,
+      subVertical,
+      product,
+      sdrContextNotes:
+        prospect.prePlatformContext ??
+        prospect.contextNotes ??
+        undefined,
+      ledger: { userId, prospectId },
+    },
+    new LoggingProgressEmitter(),
+  );
+
+  const brief = researchResult.brief;
+  const researchCostUsd = researchResult.cost.usd;
+
+  await db
+    .update(prospectsTable)
+    .set({
+      researchBrief: brief,
+      vertical,
+      language,
+      subVertical,
+      product,
+      country: country || prospect.country,
+    })
+    // AUDIT [Low] — scope on userId like the terminal txn does. Not an IDOR
+    // today (the row was already SELECTed under a userId filter above), but
+    // an unscoped write here is one refactor away from becoming one.
+    .where(
+      and(
+        eq(prospectsTable.id, prospectId),
+        eq(prospectsTable.userId, userId),
+      ),
+    );
+
+  // Research spend is booked here for the same reason classify's is: the
+  // caller may fail (or not exist — brief-only paths) before any terminal
+  // transaction runs, and losing the single most expensive call we make
+  // under-counts the cap by dollars, not cents.
+  if (researchCostUsd > 0) {
+    await recordDailyLlmSpend(userId, researchCostUsd).catch((e) =>
+      logger.warn(
+        { err: String(e) },
+        "manual prepare: research spend record failed",
+      ),
+    );
+  }
+
+  return {
+    brief,
+    vertical,
+    subVertical,
+    language,
+    product,
+    country,
+    researchCostUsd,
+  };
+}
+
+// In-flight dedupe (Speed pass, 2026-07-16): the same prospect can now have
+// two generation triggers alive at once — the background prepare queued by
+// manual-ingest and an impatient click on the row's Generate button. Sharing
+// one promise per (user, prospect) means the second trigger rides the first
+// run instead of paying for a second research + writer chain. A concurrent
+// `force` (Regenerate) joins the in-flight run too — it still gets a freshly
+// written message, which is what Regenerate is for; preventing the double
+// spend matters more than honoring the flag twice. In-process only, which
+// matches the progress store's single-instance assumption documented in
+// prepareProgress.ts.
+const inFlightPrepares = new Map<string, Promise<PrepareFirstMessageResult>>();
+
 /**
  * Run research (if needed) and generate the stage-0 message for a manually
  * ingested contact. Returns a deep link when the message is ready to send.
  */
 export async function prepareFirstMessage(params: {
+  prospectId: string;
+  userId: string;
+  senderName: string;
+  channel?: ChannelCode;
+  force?: boolean;
+}): Promise<PrepareFirstMessageResult> {
+  const key = `${params.userId}:${params.prospectId}`;
+  const existing = inFlightPrepares.get(key);
+  if (existing) return existing;
+  const run = doPrepareFirstMessage(params);
+  inFlightPrepares.set(key, run);
+  try {
+    return await run;
+  } finally {
+    inFlightPrepares.delete(key);
+  }
+}
+
+async function doPrepareFirstMessage(params: {
   prospectId: string;
   userId: string;
   senderName: string;
@@ -186,131 +410,18 @@ export async function prepareFirstMessage(params: {
   // terminal error handler. No-op when the cap env is unset.
   await assertUnderDailyLlmCap(userId);
 
-  // Ask-less classification: derive the datapoints research + the writer need
-  // (sub-vertical, country, language, product) from the company/URL seed when the
-  // operator did not supply them. Any value the operator DID set wins as an
-  // override. Runs at most once per prospect — the results persist below, so a
-  // second generate skips it.
-  let subVertical = isValidSubVertical(prospect.subVertical ?? "")
-    ? (prospect.subVertical as string)
-    : "";
-  let vertical =
-    prospect.vertical === "web_cps" || prospect.vertical === "mobile"
-      ? prospect.vertical
-      : "";
-  let country = prospect.country ?? "";
-  let language = prospect.language ?? "";
-  let product = prospect.product ?? "";
-
-  const hasBrief =
-    !!prospect.researchBrief && typeof prospect.researchBrief === "object";
-  const needsClassify =
-    !hasBrief && (!subVertical || !country || !language || !product);
-
-  if (needsClassify && prospect.company?.trim()) {
-    setPrepareProgress(userId, prospectId, "researching");
-    try {
-      const seedUrl =
-        (prospect.prePlatformContext ?? "").match(/https?:\/\/\S+/)?.[0] ??
-        (prospect.contextNotes ?? "").match(/https?:\/\/\S+/)?.[0];
-      const classified = await classifySeed({
-        seed: seedUrl || prospect.company.trim(),
-        company: prospect.company.trim(),
-        vertical:
-          prospect.vertical === "web_cps" || prospect.vertical === "mobile"
-            ? prospect.vertical
-            : undefined,
-        subVertical: subVertical || undefined,
-        country: country || undefined,
-        language: language || undefined,
-        product: product || undefined,
-        ledger: { userId, prospectId },
-      });
-      subVertical = classified.subVertical;
-      vertical = classified.vertical || vertical;
-      country = classified.country || country;
-      language = classified.language || language;
-      product = classified.product || product;
-      if (classified.costUsd > 0) {
-        // Book the classify spend NOW (not only in the terminal txn) so it isn't
-        // lost if research/generation throws before that transaction runs.
-        await recordDailyLlmSpend(userId, classified.costUsd).catch((e) =>
-          logger.warn(
-            { err: String(e) },
-            "manual prepare: classify spend record failed",
-          ),
-        );
-      }
-    } catch (err) {
-      logger.warn(
-        { err: String(err) },
-        "manual prepare: seed classification failed; using defaults",
-      );
-    }
-  }
-
-  // Fill any remaining gaps with the coarse platform defaults.
-  if (!isValidSubVertical(subVertical))
-    subVertical = defaultSubVertical(prospect.vertical);
-  // Keep the coarse vertical consistent with the (now-final) sub-vertical.
-  if (vertical !== "web_cps" && vertical !== "mobile") {
-    vertical = getDoctrineDomain(subVertical) === "webCps" ? "web_cps" : "mobile";
-  }
-  if (!language) language = country ? getLanguageForCountry(country) : "en";
-  if (!product) product = defaultProduct(prospect.vertical);
-
-  let researchCostUsd = 0;
-  let brief: ProspectBrief;
-
-  if (hasBrief) {
-    brief = prospect.researchBrief as ProspectBrief;
-  } else {
-    if (!prospect.company?.trim()) {
-      throw new Error("missing_company");
-    }
-
-    // Progress (Phase H): entering the research phase.
-    setPrepareProgress(userId, prospectId, "researching");
-
-    const researchResult = await researchProspect(
-      {
-        brand: prospect.company.trim(),
-        country,
-        language,
-        subVertical,
-        product,
-        sdrContextNotes:
-          prospect.prePlatformContext ??
-          prospect.contextNotes ??
-          undefined,
-        ledger: { userId, prospectId },
-      },
-      new LoggingProgressEmitter(),
-    );
-
-    brief = researchResult.brief;
-    researchCostUsd = researchResult.cost.usd;
-
-    await db
-      .update(prospectsTable)
-      .set({
-        researchBrief: brief,
-        vertical,
-        language,
-        subVertical,
-        product,
-        country: country || prospect.country,
-      })
-      // AUDIT [Low] — scope on userId like the terminal txn does. Not an IDOR
-      // today (the row was already SELECTed under a userId filter above), but
-      // an unscoped write here is one refactor away from becoming one.
-      .where(
-        and(
-          eq(prospectsTable.id, prospectId),
-          eq(prospectsTable.userId, userId),
-        ),
-      );
-  }
+  // Classify + research (or reuse the persisted brief). ensureProspectBrief
+  // books its own classify/research spend immediately, so the terminal
+  // transaction below records ONLY the generation cost.
+  const {
+    brief,
+    vertical,
+    subVertical,
+    language,
+    product,
+    country,
+    researchCostUsd,
+  } = await ensureProspectBrief({ prospect, userId });
 
   const prospectInput: ProspectInput = {
     prospectName: prospect.prospectName ?? "",
@@ -352,6 +463,10 @@ export async function prepareFirstMessage(params: {
   // L8: message body + spend must be one atomic unit (like generateMessage).
   // Two separate awaits let a failure between them either save the message but
   // lose the spend (cap under-counts) or charge without persisting.
+  //
+  // GENERATION cost only: classify + research spend was already booked inside
+  // ensureProspectBrief (which may have run for a caller with no terminal
+  // transaction at all). Adding researchCostUsd here again would double-count.
   await db.transaction(async (tx) => {
     await tx
       .update(prospectsTable)
@@ -376,13 +491,13 @@ export async function prepareFirstMessage(params: {
         userId,
         date: today,
         messagesGenerated: 1,
-        anthropicSpendUsd: (researchCostUsd + generationCostUsd).toFixed(4),
+        anthropicSpendUsd: generationCostUsd.toFixed(4),
       })
       .onConflictDoUpdate({
         target: [dailyUsageTable.userId, dailyUsageTable.date],
         set: {
           messagesGenerated: sql`${dailyUsageTable.messagesGenerated} + 1`,
-          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${(researchCostUsd + generationCostUsd).toFixed(4)} AS numeric)`,
+          anthropicSpendUsd: sql`${dailyUsageTable.anthropicSpendUsd} + CAST(${generationCostUsd.toFixed(4)} AS numeric)`,
         },
       });
   });

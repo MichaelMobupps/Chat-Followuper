@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, isNotNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -102,7 +102,7 @@ export function renderDigestEmail(name: string | null, rows: DueRow[]): string {
   const n = rows.length;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
   <p>Hi ${escapeHtml(name ?? "there")},</p>
-  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due. Click <strong>Follow up</strong> on each row — Chat Followuper writes the message and opens WhatsApp, Telegram, or LinkedIn with it ready, so all you do is press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
+  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due — the messages are already written. Click <strong>Follow up</strong> on each row and WhatsApp, Telegram, or LinkedIn opens with the message ready, so all you do is press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
   <table style="width:100%;border-collapse:collapse;">${items}</table>
   <p style="color:#6b7280;font-size:12px;margin-top:16px;">Sent by Chat Followuper. You send each message yourself.</p>
 </div>`;
@@ -124,6 +124,15 @@ export async function fetchDueRows(userId?: string): Promise<DueRow[]> {
     inArray(followupsTable.channel, [...CHANNEL_CODES]),
     isNull(followupsTable.sentAt),
     lte(followupsTable.scheduledAt, new Date()),
+    // Speed pass (2026-07-16): notify only AFTER the message exists. The
+    // hourly scheduler runs pregenerateDueFollowupMessages before this query,
+    // so a due row normally arrives here already generated and the rep's
+    // click is an instant deep link. A row whose generation failed (daily cap,
+    // provider outage) is simply held until a later tick generates it — the
+    // overdue escalation in pushoverNudges stays UNgated as the safety net.
+    // This is also what the docstring below always claimed the query did.
+    // btrim(NULL) IS NULL → NULL/empty/whitespace bodies are all excluded.
+    sql`btrim(${followupsTable.generatedMessage}) <> ''`,
     eq(prospectsTable.followupPaused, false),
     // Admin kill switch (2026-07-15) — the per-USER pause, alongside the
     // per-PROSPECT one above. usersTable is already inner-joined below, so this

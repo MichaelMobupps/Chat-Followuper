@@ -3,14 +3,22 @@
  *
  * Covers "Generate message" in the Add dialog: a message written BEFORE the
  * contact exists is parked server-side under a draftId, and the create call
- * claims it. The invariant under test is ALL-OR-NOTHING — followupMessageService
- * throws `research_not_complete` when researchBrief is null, so a contact must
- * never be saved with a message but no brief.
+ * claims it. The invariant under test CHANGED with the Speed pass
+ * (2026-07-16). It used to be ALL-OR-NOTHING (body never persists without its
+ * brief, because followupMessageService died on research_not_complete).
+ * Now followupMessageService researches lazily and manual-ingest queues a
+ * background prepare, so:
+ *   - a message WITHOUT a draftId (pasted, or the draft expired) PERSISTS,
+ *     brief-less — the brief arrives in the background / lazily;
+ *   - a message beside a KNOWN-MISMATCHED draft (server-side draft exists but
+ *     was researched for a DIFFERENT company) is still DROPPED — the server
+ *     can prove that text is about someone else.
  *
  * Spends ZERO LLM money: the draft store is seeded directly (setDraft), so the
- * create path is exercised without the writer ever running. The preview ROUTE's
- * own guards (schema, rate limit) are asserted separately, and are rejected
- * before any model call.
+ * create path is exercised without the writer ever running; BACKGROUND_PREPARE
+ * is forced off below so manual-ingest's fire-and-forget prepare can't run
+ * either. The preview ROUTE's own guards (schema, rate limit) are asserted
+ * separately, and are rejected before any model call.
  *
  *   FOLLOWUP_DIGEST_SCHEDULER=false node ../../lib/db/node_modules/tsx/dist/cli.mjs \
  *     src/scripts/smokeDraftIngest.ts
@@ -28,6 +36,10 @@ import type { ProspectBrief } from "../services/prospectResearch";
 
 process.env.PUBLIC_BASE_URL ??= "http://localhost";
 process.env.APP_PUBLIC_URL ??= "http://localhost";
+// Zero-spend guarantee: manual-ingest queues a REAL background LLM pipeline
+// for message-less/brief-less contacts (Speed pass, 2026-07-16). Read
+// per-call, so setting it here (after imports) still works.
+process.env.BACKGROUND_PREPARE = "false";
 
 const DRAFT_MSG = "Hi Arushi, saw Kuku FM crossed 2M installs — worth a look?";
 const BRIEF = {
@@ -199,8 +211,9 @@ async function main(): Promise<number> {
     `${c2.status} body=${String(r2?.body).slice(-18)} brief=${r2?.brief ? "present" : "NULL"}`,
   );
 
-  // 3 — ALL-OR-NOTHING: an unknown/expired draft must NOT persist a bodiless
-  // brief or a briefless body. It degrades to a plain draft contact.
+  // 3 — an unknown/expired draft no longer costs the SDR their text (Speed
+  // pass, 2026-07-16): the body persists brief-less — indistinguishable from
+  // a paste, and the brief arrives via background prepare / lazy research.
   const c3 = await post(
     "/api/prospects/manual-ingest",
     createBody({ draftId: "draft-cccccccc-3333", firstMessageBody: DRAFT_MSG }),
@@ -213,9 +226,25 @@ async function main(): Promise<number> {
     `${c3.status}`,
   );
   check(
-    "...and NO message is persisted without its brief (the whole point)",
-    r3?.body === null && !r3?.brief,
-    `body=${r3?.body === null ? "null" : "SET(!!)"} brief=${r3?.brief ? "SET(!!)" : "null"}`,
+    "...and the SDR's text PERSISTS (brief null — backgrounded/lazy now)",
+    r3?.body === DRAFT_MSG && !r3?.brief,
+    `body=${r3?.body === DRAFT_MSG ? "kept" : String(r3?.body)} brief=${r3?.brief ? "SET(!!)" : "null"}`,
+  );
+
+  // 3b — the paste path proper: a message with NO draftId at all persists
+  // as-is, brief-less. This is the Speed pass's headline: pasting your own
+  // message is instant and never blocked on research.
+  const pasted = "Hey Arushi — loved the last Kuku FM original. Quick idea for you.";
+  const c3b = await post(
+    "/api/prospects/manual-ingest",
+    createBody({ firstMessageBody: pasted }),
+  );
+  prospectIds.push(c3b.json?.id);
+  const r3b = await row(c3b.json?.id);
+  check(
+    "pasted message (no draftId) persists as-is, brief null",
+    c3b.status === 201 && r3b?.body === pasted && !r3b?.brief,
+    `${c3b.status} body=${r3b?.body === pasted ? "kept" : String(r3b?.body).slice(0, 24)} brief=${r3b?.brief ? "SET(!!)" : "null"}`,
   );
 
   // 4 — a draft may not be spent on a different company than it researched.
@@ -240,6 +269,32 @@ async function main(): Promise<number> {
   check(
     "...and the mismatched draft is NOT burned (a corrected resubmit can use it)",
     peekDraft(userId, id4) !== null,
+  );
+
+  // 4b — mismatch WITH a body must not ride the paste fallback: the server
+  // KNOWS that text was researched/written for the draft's (old) company.
+  // Unlike an expired draft (case 3), here the proof exists — drop the body.
+  const id4b = "draft-ffffffff-4444";
+  setDraft(userId, id4b, {
+    message: DRAFT_MSG,
+    brief: BRIEF,
+    classified: classified(),
+    company: "Kuku FM",
+  });
+  const c4b = await post(
+    "/api/prospects/manual-ingest",
+    createBody({
+      draftId: id4b,
+      company: "Some Other Co",
+      firstMessageBody: DRAFT_MSG,
+    }),
+  );
+  prospectIds.push(c4b.json?.id);
+  const r4b = await row(c4b.json?.id);
+  check(
+    "company mismatch + body → body NOT persisted (it's about the OLD company)",
+    c4b.status === 201 && r4b?.body === null && !r4b?.brief,
+    `${c4b.status} body=${r4b?.body === null ? "null" : "SET(!!)"}`,
   );
 
   // 5 — cross-tenant: user B cannot claim user A's draft.

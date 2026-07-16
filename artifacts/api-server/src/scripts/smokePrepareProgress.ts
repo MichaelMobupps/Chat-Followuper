@@ -20,6 +20,13 @@ import { db, pool, prospectsTable, usersTable } from "@workspace/db";
 import app from "../app";
 import { SESSION_COOKIE_NAME, signSession } from "../lib/session";
 
+// This smoke drives ONE deliberate, interactive prepare per channel. Without
+// this, manual-ingest ALSO queues a background prepare for the same contact
+// (Speed pass, 2026-07-16) — the in-flight dedupe would join the two runs,
+// but the background run stamps "queued" before our POST and doubles the
+// paths under test. One run, owned by this script. Read per-call.
+process.env.BACKGROUND_PREPARE = "false";
+
 const results: string[] = [];
 function assert(name: string, ok: boolean, detail = ""): void {
   results.push(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
