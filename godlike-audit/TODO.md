@@ -54,11 +54,15 @@ deploying anything.
    early: the column defaults `false` = today's behaviour, and `llm_calls` is additive. PG16
    stores the non-volatile default in the catalog — no table rewrite, brief metadata lock only.
 
-   **HOW:** paste **`/RUN-THIS-BEFORE-PUBLISH.sql`** (repo root) into the **Replit SQL Console →
-   Production DB**. It bundles 0019+0020+0021 and ends with a read-only check printing
-   `ALL GOOD — safe to Republish now` or `NOT READY — do NOT Republish`. Validated three ways:
-   against dev-at-head in BEGIN…ROLLBACK, against a *simulated prod-at-0018* (the run that
-   actually matters), and twice back-to-back to prove a double-run is a no-op.
+   **HOW:** open **`/RUN-THIS-BEFORE-PUBLISH.sql`** (repo root, **v4 2026-07-16**) beside the
+   **Replit SQL Console → Production DB** and run it one line per Run. v4 exists because the
+   operator reported v3's multi-line statements (CREATE TABLE, the verify) error in the
+   console — every v4 statement is ONE short line (the table is built column-by-column with
+   IF NOT EXISTS; the FKs are DROP-IF-EXISTS + ADD pairs so a re-run can't error). It ends
+   with FOUR one-line read-only checks whose answers must equal the number in their column
+   name (want_1/want_1/want_6/want_2). Validated 2026-07-16: full sequence against a
+   *simulated prod-at-0018* AND against a fully-migrated copy, twice each, in BEGIN…ROLLBACK —
+   zero errors on every path, end state column-identical to dev's migrations.
 
    ⚠️ **`pnpm --filter @workspace/db run migrate` does NOT touch prod — it migrates DEV.**
    The workspace `DATABASE_URL` is the dev DB (heliumdb); prod is reachable ONLY via the Replit

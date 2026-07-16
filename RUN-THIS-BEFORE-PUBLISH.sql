@@ -1,124 +1,105 @@
 -- ===========================================================================
--- PRODUCTION SETUP — run BEFORE you Publish.   (v3, 2026-07-15)
+-- PRODUCTION SETUP — run BEFORE you Publish.   (v4, 2026-07-16)
 -- ===========================================================================
 --
--- THE REPLIT SQL CONSOLE RUNS EXACTLY ONE STATEMENT PER RUN.
--- That is the single thing to know about this file. It is why v1 failed (it
--- used `DO $$ ... $$` blocks, which the console's driver rejects outright) and
--- why v2's STEP 3 failed (four CREATE INDEX lines in one paste).
+-- HOW TO USE (the only rules):
+--   1. Every runnable line below is ONE SHORT STATEMENT on ONE LINE.
+--   2. Select one line (triple-click it), press Run. Then the next line.
+--   3. Never select two lines together.
 --
--- v3: every step below is ONE statement. Select that step's single line,
--- press Run, move to the next. Never paste two statements together.
+-- Why v4: v3 still had three multi-line statements (a status check, the big
+-- CREATE TABLE, the final verify). Selecting 14 lines exactly is easy to get
+-- wrong and long statements error in the console. v4 has none of that — the
+-- table is built one short line at a time.
 --
 -- SAFE TO RUN NOW, before the code ships: nothing here changes any behaviour.
--- The new column defaults to false = "not paused" = exactly what happens today,
--- and the new table starts empty. Nothing reads or writes either until Publish.
+-- SAFE TO RUN TWICE: every line is guarded or self-resetting. If you are not
+-- sure whether a line ran, just run it again.
+-- VALIDATED 2026-07-16: the whole sequence was run against a simulated
+-- prod-at-current-state AND against a fully-migrated copy, twice each, in a
+-- rolled-back transaction — zero errors on every path.
 --
--- SAFE TO RUN TWICE: every step is guarded. If you are unsure whether a step
--- ran, run it again — it does nothing the second time.
---
--- VALIDATED: every step run against a copy of production's exact current state,
--- then run a second time, inside a transaction that was rolled back.
+-- If ANY line errors: STOP, copy the error, send it to Claude. Do not publish.
 --
 -- ===========================================================================
--- STEP 0 — READ ONLY. Changes nothing. Tells us where we are.
--- Run this any time to see what is already applied. Safe, always.
--- Expect all zeros on a fresh prod. Any 1s just mean part of v1 got through —
--- that is fine and safe; the steps below skip whatever already exists.
+-- STEP 1 — the admin kill-switch column. (migration 0019)
 -- ===========================================================================
-SELECT
-  (SELECT count(*) FROM information_schema.columns
-     WHERE table_name = 'users' AND column_name = 'followups_paused') AS has_kill_switch_column,
-  (SELECT count(*) FROM information_schema.tables
-     WHERE table_name = 'llm_calls') AS has_ledger_table,
-  (SELECT count(*) FROM pg_indexes
-     WHERE tablename = 'llm_calls') AS ledger_index_count,
-  (SELECT count(*) FROM pg_constraint
-     WHERE conname LIKE 'llm_calls%' AND contype = 'f') AS ledger_foreign_key_count;
-
+ALTER TABLE users ADD COLUMN IF NOT EXISTS followups_paused boolean DEFAULT false NOT NULL;
 
 -- ===========================================================================
--- STEP 1 — the admin kill switch column.  (migration 0019)
--- Select the one ALTER line below, then Run.
+-- STEP 2 — the cost-ledger table, empty shell first. (migration 0020)
 -- ===========================================================================
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "followups_paused" boolean DEFAULT false NOT NULL;
-
+CREATE TABLE IF NOT EXISTS llm_calls (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
 
 -- ===========================================================================
--- STEP 2 — the cost ledger table.  (migration 0020)
--- ONE statement (it just spans many lines). Select the whole CREATE TABLE block
--- including the final );  then Run.
---
--- The two foreign keys are declared INLINE here, with the exact names the app
--- expects. v1 added them afterwards inside DO $$ blocks — that is what the
--- console choked on. Same end state, no dollar-quoting.
+-- STEPS 3–13 — its columns, one per Run, any order, skip-proof.
 -- ===========================================================================
-CREATE TABLE IF NOT EXISTS "llm_calls" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "user_id" uuid CONSTRAINT "llm_calls_user_id_users_id_fk" REFERENCES "public"."users"("id") ON DELETE SET NULL,
-  "prospect_id" uuid CONSTRAINT "llm_calls_prospect_id_prospects_id_fk" REFERENCES "public"."prospects"("id") ON DELETE SET NULL,
-  "task" text NOT NULL,
-  "model" text NOT NULL,
-  "provider" text NOT NULL,
-  "fallback" boolean DEFAULT false NOT NULL,
-  "input_tokens" integer DEFAULT 0 NOT NULL,
-  "output_tokens" integer DEFAULT 0 NOT NULL,
-  "cost_usd" numeric(12, 6) DEFAULT '0' NOT NULL,
-  "cost_unpriced" boolean DEFAULT false NOT NULL,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS user_id uuid;
 
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS prospect_id uuid;
 
--- ===========================================================================
--- STEPS 3-7 — the ledger's five indexes.  (migrations 0020 + 0021)
---
--- ONE PER RUN. These are speed only: the app is CORRECT without them, just
--- slower, so if one refuses to run it is not a reason to stop the deploy.
--- ===========================================================================
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS task text NOT NULL;
 
--- STEP 3
-CREATE INDEX IF NOT EXISTS "llm_calls_user_created_idx" ON "llm_calls" ("user_id", "created_at");
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS model text NOT NULL;
 
--- STEP 4
-CREATE INDEX IF NOT EXISTS "llm_calls_model_idx" ON "llm_calls" ("model");
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS provider text NOT NULL;
 
--- STEP 5
-CREATE INDEX IF NOT EXISTS "llm_calls_task_idx" ON "llm_calls" ("task");
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS fallback boolean DEFAULT false NOT NULL;
 
--- STEP 6
-CREATE INDEX IF NOT EXISTS "llm_calls_prospect_id_idx" ON "llm_calls" ("prospect_id");
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS input_tokens integer DEFAULT 0 NOT NULL;
 
--- STEP 7 — the one the spend page reads on every load  (migration 0021)
-CREATE INDEX IF NOT EXISTS "llm_calls_created_idx" ON "llm_calls" ("created_at");
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS output_tokens integer DEFAULT 0 NOT NULL;
 
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS cost_usd numeric(12,6) DEFAULT 0 NOT NULL;
+
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS cost_unpriced boolean DEFAULT false NOT NULL;
+
+ALTER TABLE llm_calls ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now() NOT NULL;
 
 -- ===========================================================================
--- STEP 8 — VERIFY. READ ONLY, changes nothing.
---
--- You want:   ALL GOOD - safe to Republish now
---
--- Anything else: STOP, do not Republish, send the result to Claude.
+-- STEPS 14–17 — the two links to users/prospects. Each link is a PAIR:
+-- the DROP resets it (fine if it says nothing to drop), the ADD creates it.
+-- Always run the pair in order: DROP line, then its ADD line.
 -- ===========================================================================
-SELECT
-  CASE
-    WHEN (SELECT count(*) FROM information_schema.columns
-           WHERE table_name = 'users' AND column_name = 'followups_paused') = 1
-     AND (SELECT count(*) FROM information_schema.tables
-           WHERE table_name = 'llm_calls') = 1
-     AND (SELECT count(*) FROM pg_indexes
-           WHERE tablename = 'llm_calls' AND indexname = 'llm_calls_created_idx') = 1
-     AND (SELECT count(*) FROM pg_constraint
-           WHERE conname LIKE 'llm_calls%' AND contype = 'f') = 2
-    THEN 'ALL GOOD - safe to Republish now'
-    ELSE 'NOT READY - do NOT Republish. Send this whole result to Claude.'
-  END AS result,
-  (SELECT count(*) FROM information_schema.columns
-     WHERE table_name = 'users' AND column_name = 'followups_paused') AS kill_switch_column_want_1,
-  (SELECT count(*) FROM information_schema.tables
-     WHERE table_name = 'llm_calls') AS ledger_table_want_1,
-  -- 6 = the 5 indexes above + the primary key's own index, which PostgreSQL
-  -- creates automatically and counts here too.
-  (SELECT count(*) FROM pg_indexes
-     WHERE tablename = 'llm_calls') AS ledger_indexes_want_6,
-  (SELECT count(*) FROM pg_constraint
-     WHERE conname LIKE 'llm_calls%' AND contype = 'f') AS ledger_foreign_keys_want_2;
+ALTER TABLE llm_calls DROP CONSTRAINT IF EXISTS llm_calls_user_id_users_id_fk;
+
+ALTER TABLE llm_calls ADD CONSTRAINT llm_calls_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE llm_calls DROP CONSTRAINT IF EXISTS llm_calls_prospect_id_prospects_id_fk;
+
+ALTER TABLE llm_calls ADD CONSTRAINT llm_calls_prospect_id_prospects_id_fk FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE SET NULL;
+
+-- ===========================================================================
+-- STEPS 18–22 — five indexes. (migrations 0020 + 0021)
+-- Speed only: if one refuses to run, it is NOT a reason to stop the deploy.
+-- ===========================================================================
+CREATE INDEX IF NOT EXISTS llm_calls_user_created_idx ON llm_calls (user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS llm_calls_model_idx ON llm_calls (model);
+
+CREATE INDEX IF NOT EXISTS llm_calls_task_idx ON llm_calls (task);
+
+CREATE INDEX IF NOT EXISTS llm_calls_prospect_id_idx ON llm_calls (prospect_id);
+
+CREATE INDEX IF NOT EXISTS llm_calls_created_idx ON llm_calls (created_at);
+
+-- ===========================================================================
+-- STEPS 23–26 — VERIFY. Read-only, changes nothing, run any time.
+-- Each line's answer must equal the number in its column name (want_1 → 1,
+-- want_6 → 6, want_2 → 2). All four right = safe to Republish now.
+-- Any other number: STOP, do not Republish, send the numbers to Claude.
+-- ===========================================================================
+SELECT count(*) AS kill_switch_want_1 FROM information_schema.columns WHERE table_name='users' AND column_name='followups_paused';
+
+SELECT count(*) AS ledger_table_want_1 FROM information_schema.tables WHERE table_name='llm_calls';
+
+SELECT count(*) AS ledger_indexes_want_6 FROM pg_indexes WHERE tablename='llm_calls';
+
+SELECT count(*) AS ledger_links_want_2 FROM pg_constraint WHERE conname LIKE 'llm_calls%' AND contype='f';
+
+-- ===========================================================================
+-- AFTER ALL FOUR VERIFY NUMBERS ARE RIGHT:
+--   1. Republish the app.
+--   2. Set the ADMIN_EMAILS secret:  ADMIN_EMAILS=michael@mobupps.com
+--      (until it is set, NOBODY is admin — that is intentional and safe).
+-- ===========================================================================
