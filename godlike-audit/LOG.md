@@ -1531,3 +1531,95 @@ the chain silently promoted itself. Consequences:
 → A/B in flight: full 52 cases per arm, each arm's fallback pinned to its own primary so neither can
 borrow the other model. If the cheap tier holds quality, making gemini-3-flash-preview the baseline
 cuts writer cost ~3× for free.
+
+## ⭐ SESSION 15 — SPEED PASS (2026-07-16): background prepare + follow-up pre-generation
+
+**Provenance note, first:** this session's feature work was found in the tree UNCOMMITTED and
+UNLOGGED on 2026-07-16 — the session that wrote it (file mtimes ~16:00–16:30) dropped before
+checkpointing, which is exactly the failure mode TODO.md exists for. The continuation session
+reconstructed intent from the code+comments, verified everything, adversarially reviewed the
+diff, found and fixed 2 real defects, added the missing smoke coverage, and committed. The
+narrative below merges both halves. TODO.md carries the condensed version.
+
+### What was built (the dropped session)
+
+Two user-visible waits died today, both by moving LLM work to where nobody is standing:
+
+1. **Add contact returns instantly.** POST /prospects/manual-ingest now queues whatever the
+   new contact still needs — full classify→research→writer when there's no message,
+   research-only when the SDR pasted their own text — via `services/backgroundPrepare.ts`,
+   fire-and-forget, right after the 201. The dialog closes immediately; the row's staged
+   progress bar tracks the background run (the queue stamps "queued" BEFORE the 201 returns so
+   the page's poller sees a live run); failure just leaves a "draft" row whose Generate button
+   retries interactively. The Add dialog's message box is now always visible (paste = instant,
+   free); the FE no longer wipes a PASTED message on form drift (only a GENERATED draft goes
+   stale — it was written about the old values). `ensureProspectBrief` was extracted from
+   `prepareFirstMessage` so brief-only callers exist; it books classify+research spend at the
+   point of spend (the ledger lesson from the admin work, applied).
+
+2. **Follow-up clicks are instant.** `services/followupPregenerate.ts` runs on the hourly tick
+   and in the deployed cron (`scripts/sendFollowupDigests.ts`), BEFORE the digests — it writes
+   the message for every due row that lacks one, and the email/Pushover due-queries now demand
+   `btrim(generated_message) <> ''`. So the digest only ever advertises rows whose message
+   exists, and the rep's click rides the cached-message short-circuit to an instant deep link.
+   The docs had ALWAYS claimed "a follow-up is due when it … has a generated message" — nothing
+   ever made that true until now. `pushoverNudges` stays deliberately ungated as the safety net
+   for chronically-failing rows. Backlog bounded per tick (FOLLOWUP_PREGEN_MAX_PER_TICK=25,
+   deferred rows counted, never silently dropped); a daily-cap hit skips that user's remaining
+   rows; users isolated from each other's failures. `generateAndPersistFollowupMessage` got an
+   in-flight dedupe map (cron and click can now race for the same row — second rider joins the
+   first run). `lib/senderName.ts` extracted so the cron pass and the token-authed open route
+   sign with the same name.
+
+3. **`research_not_complete` is dead as a user-facing failure.** `followupMessageService` now
+   researches lazily (via `ensureProspectBrief`) when a prospect has a body but no brief —
+   which is the normal state for pasted-message contacts. The hourly pass is the usual caller,
+   so the ~2-min research runs where nobody waits.
+
+### The continuation session's verify round — 2 defects, both fixed before commit
+
+- **[High] The paste fallback leaked mismatched-draft bodies.** The new "persist a bare
+  firstMessageBody" branch also fired when the body arrived BESIDE a draftId whose server-side
+  draft existed but was researched for a DIFFERENT company — the one case where the server can
+  PROVE the text is about someone else. The mismatch log line ("ignoring pre-written message")
+  had silently become a lie. Session 14's company-mismatch guard was a [High] finding then;
+  this quietly re-opened it. Fixed: `draftMismatched` → body dropped, contact created plain,
+  draft not burned; EXPIRED drafts still persist the body (indistinguishable from a paste, and
+  PATCH /prospects/:id already trusts client text — no new trust granted). `smoke:draft` 4b.
+- **[High] The zero-spend smokes started spending real money.** smokeDraftIngest and
+  smokePrepareProgress mount the REAL manual-ingest route in-process with live keys in env —
+  so every message-less contact they created queued a REAL background pipeline. classify
+  (seconds) could land before process exit; research could start. Silent spend from suites
+  whose whole contract is "zero by construction". Fixed: `BACKGROUND_PREPARE=false|0|off`
+  kill-switch in `backgroundPrepare.ts` (read per-call like lib/admin.ts, default ON, prod
+  needs no config; when off it does NOT stamp "queued" — a stamp nothing will complete would
+  park the row's bar at 0% for the TTL), forced off in both smokes.
+
+### Verification (all green at commit)
+
+- `smoke:draft` REWRITTEN to the new invariant — it was still asserting the deleted
+  all-or-nothing rule (its one red was the tell that the semantics changed on purpose).
+  Now 20 checks: pasted body persists brief-less; expired-draft body persists; known-mismatch
+  body dropped; everything from before unchanged.
+- **NEW `smoke:pregen` — 11/11, ZERO spend.** Forces LLM_DAILY_SPEND_CAP_USD=0.01 and seeds
+  the smoke user's usage OVER it, so every generation attempt throws DailyLlmCapExceededError
+  at the pre-check, before any provider call — the plumbing is what's under test: the full due
+  selection matrix (generated / whitespace-only / future / paused-prospect / paused-user /
+  replied / zombie-channel / sent), deferred accounting under a per-tick cap of 2, capped-user
+  skip-and-count with nothing persisted, fetchDueRows' btrim gate, the producer→consumer
+  handoff (fill a row → same-tick digest sees it), and source-level parity (pushoverDigest
+  gated, pushoverNudges NOT, scheduler AND cron generate before notifying).
+- Green bar: build exit 0 · root `pnpm run test` 54/54 (db 3 + dashboard 51) · e2e 8/8 real
+  Chromium · smoke:draft 20/20 · smoke:pregen 11/11 · regenerate 13/13 · chatfollowup 17/17 ·
+  killswitch 20/20 · delivery 5/5 · bulk PASS · followup PASS.
+
+### Known + deferred (deliberate, none silent)
+
+- In-flight dedupe map + progress store are in-memory (single-instance assumption, same as
+  prepareProgress has always documented). Worst case on autoscale: one duplicate generation.
+- Bulk imports deliberately do NOT background-prepare (auto-spending on a mass import is a
+  decision nobody made). Single manual-ingest is the only queue site.
+- An SDR who pastes a message loses nothing ever; an SDR whose GENERATED draft mismatches its
+  company gets a plain contact + background auto-write (FE prevents this combination anyway —
+  it wipes the draft on drift before submit).
+- No schema changes. The publish prerequisites (0019–0021 + ADMIN_EMAILS) are unchanged.

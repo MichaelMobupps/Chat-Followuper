@@ -6,11 +6,12 @@ after an SSH drop. Keep it current: when you finish something, move it to DONE w
 result; when you start something, note it under IN PROGRESS with the exact next step.
 
 **Branch:** `audit/godlike-fixes` (main untouched at `e9ed33c`) · **Identity:** hwholestorm@gmail.com
-**Green bar (as of 2026-07-14) — 100%, nothing outstanding:**
-`pnpm run build` → exit 0 · **`pnpm run test` (NEW, root) → 37/37** (`@workspace/db` 3/3 +
-`@workspace/dashboard` 34/34) · **`pnpm --filter @workspace/dashboard test:e2e` → 6/6 in REAL
-Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chatfollowup` 17/17,
-`smokeDeliveryFlow` 5/5 · dev DB (heliumdb) at head.
+**Green bar (as of 2026-07-16) — 100%, nothing outstanding:**
+`pnpm run build` → exit 0 · **`pnpm run test` (root) → 54/54** (`@workspace/db` 3/3 +
+`@workspace/dashboard` 51/51) · **`pnpm --filter @workspace/dashboard test:e2e` → 8/8 in REAL
+Chromium** · api-server smokes (live DB): `smoke:draft` 20/20, **`smoke:pregen` 11/11 (NEW)**,
+`smoke:regenerate` 13/13, `smoke:chatfollowup` 17/17, `smoke:killswitch` 20/20,
+`smokeDeliveryFlow` 5/5, `smoke:bulk` PASS · dev DB (heliumdb) at head.
 > The dashboard had **zero test infrastructure** until session 14 — every FE claim in this ledger
 > before then rested on typecheck + review, which is exactly how a hook bug and a wrong *fix* for it
 > both survived. `pnpm run test` at the root now runs every package that has tests.
@@ -25,11 +26,18 @@ Chromium** · api-server smokes (live DB): `smoke:regenerate` 13/13, `smoke:chat
 
 ---
 
-## 🔴 IN FLIGHT (2026-07-15) — RESUME HERE AFTER AN SSH DROP
+## 🔴 IN FLIGHT (2026-07-16) — RESUME HERE AFTER AN SSH DROP
 
-**Working tree is CLEAN — everything below is COMMITTED.** Both threads are now BUILT. Thread A
-is CLOSED (no production change). Thread B (admin dashboard) is built + audited and awaiting
-**publish**, which has a hard prerequisite — read the next block before deploying anything.
+**SESSION 15 (Speed pass) is BUILT + VERIFIED + COMMITTED — see the ⭐ SESSION 15 entry below
+and LOG.md.** It was found UNCOMMITTED and UNLOGGED on 2026-07-16 (the session that wrote it
+dropped before checkpointing); the continuation session verified it, found + fixed 2 real
+defects (mismatched-draft body leak; smokes silently spending via the new background prepare),
+added `smoke:pregen`, and committed everything. **No new migrations** — the Speed pass is
+code-only, so the publish prerequisites below are UNCHANGED from session 14/15.
+
+Thread A (LLM cost) is CLOSED (no production change). Thread B (admin dashboard) is built +
+audited and awaiting **publish**, which has a hard prerequisite — read the next block before
+deploying anything.
 
 ---
 
@@ -288,6 +296,63 @@ Both arms landed (`-ab.md/.json`, committed `6bcafe0`, 52 cases each). Analysed 
   vertical is only ever web_cps|mobile and can never match. Asserted in `smoke:parity`.
 
 ---
+
+## ⭐ SESSION 15 — SPEED PASS (2026-07-16): nobody waits on the LLM anymore
+
+**Recovered from an SSH drop:** the feature work was found uncommitted + unlogged; the
+continuation session verified it end-to-end, fixed 2 defects it found, and committed.
+
+**Built (the dropped session):**
+- **Add contact is instant.** manual-ingest queues the classify→research→writer pipeline
+  fire-and-forget (`services/backgroundPrepare.ts`) right after its 201; the dialog closes
+  immediately and the row flips draft→ready when the run lands. The Contacts page points its
+  existing progress poller at the new row (staged bar on the row) instead of trapping the SDR
+  in a blocking preview dialog.
+- **Paste-your-own-message path.** The Add dialog's message box is always visible: pasting your
+  own text is instant and free; the missing research brief is produced in the background
+  (researchOnly mode), and `followupMessageService` now researches LAZILY instead of throwing
+  `research_not_complete` — so a pasted-message contact's follow-ups no longer strand. The old
+  all-or-nothing gate (drop the body when the draft is gone) is gone WITH ONE EXCEPTION, below.
+- **Follow-up messages are pre-generated hourly** (`services/followupPregenerate.ts`): the
+  scheduler AND the cron script generate due rows' messages BEFORE the digests run, and the
+  email/Pushover due-queries now require a generated message (`btrim(...) <> ''`) — so the
+  rep's click hits the cached-message short-circuit → instant deep link, instead of staring at
+  a redirect for a minute-plus writer chain. `pushoverNudges` stays deliberately UNgated (the
+  2+-day escalation is the safety net for rows that keep failing). Per-tick backlog cap
+  `FOLLOWUP_PREGEN_MAX_PER_TICK` (default 25), deferred rows counted+logged, per-user daily-cap
+  short-circuit. In-flight dedupe on `generateAndPersistFollowupMessage` (cron + click can now
+  race). `lib/senderName.ts` extracted so cron and open-route sign with the same name.
+
+**Continuation session — 2 real defects found & fixed before commit:**
+- **[High] mismatched-draft body leak.** The new paste fallback persisted `firstMessageBody`
+  even when it arrived beside a draft the server could PROVE was researched for a different
+  company (the log line said "ignoring pre-written message" while the code persisted it) —
+  re-opening session 14's company-mismatch High. Fixed: a KNOWN mismatch drops the body
+  (expired drafts still persist — indistinguishable from a paste, and PATCH already trusts
+  client text). Asserted in `smoke:draft` case 4b.
+- **[High] the zero-spend smokes started spending.** smokeDraftIngest/smokePrepareProgress
+  mount the real manual-ingest route in-process, so every message-less contact they created
+  fired a REAL background pipeline with live keys. Fixed: `BACKGROUND_PREPARE=false|0|off`
+  guard (read per-call, default ON, no prod config needed), forced off in both smokes.
+- `smoke:draft` rewritten to the NEW invariant (was asserting the deleted all-or-nothing rule):
+  pasted/expired-draft bodies persist brief-less; known-mismatch bodies don't. 18→**20 checks**.
+- **NEW `smoke:pregen` 11/11, ZERO spend** (forces a tiny `LLM_DAILY_SPEND_CAP_USD` + seeds
+  usage over it, so generation throws at the pre-check before any model call): the full due
+  selection matrix, deferred accounting, capped-user posture, digest btrim gating,
+  producer→consumer handoff, nudges-ungated + scheduler/cron ordering (source-level).
+- `.env.example` documents `BACKGROUND_PREPARE` + `FOLLOWUP_PREGEN_MAX_PER_TICK`.
+
+**KNOWN + DEFERRED (deliberate, none silent):**
+- The in-flight dedupe map and the progress store are in-memory — same single-instance
+  assumption prepareProgress has always documented; an autoscale instance switch degrades to
+  one wasted duplicate generation, never a broken row.
+- Bulk imports do NOT queue background prepare (one call site, single manual-ingest only) —
+  auto-spending on a mass import is a decision nobody made; rows Generate on demand as before.
+- A paused/capped user's due rows simply wait for a later tick; the pushover NUDGE (not the
+  digest) is what surfaces chronically-failing rows to the rep.
+
+**Green:** build 0 · root 54/54 · e2e 8/8 · smoke:draft 20/20 · smoke:pregen 11/11 ·
+regenerate 13/13 · chatfollowup 17/17 · killswitch 20/20 · delivery 5/5 · bulk PASS.
 
 ## ⭐ SESSION 14 — CONTACTS: generate → preview → confirm (2026-07-14). Answers Murat's Q.
 
