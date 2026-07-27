@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2, MessageCircle } from "lucide-react";
+import { useLocation } from "wouter";
+import { ExternalLink, Loader2, MessageCircle, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import {
   postTestChannelLink,
   type TestChannel,
 } from "@/lib/api/test-channel";
+import { AddManualContactDialog } from "@/components/followup/AddManualContactDialog";
 
 const DEFAULT_MESSAGE = "Test message from Chat Followuper.";
 
@@ -58,9 +60,13 @@ interface Props {
 
 export function TestChannelMessage({ compact = false }: Props) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [channel, setChannel] = useState<TestChannel>("whatsapp");
   const [identifier, setIdentifier] = useState("");
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
+  // LinkedIn can't be self-tested (no automation, can't message yourself), so
+  // its tab launches the real "add a contact" flow instead of the send-path test.
+  const [addContactOpen, setAddContactOpen] = useState(false);
 
   useEffect(() => {
     // Always reset on channel switch: load that channel's saved identifier or
@@ -74,12 +80,9 @@ export function TestChannelMessage({ compact = false }: Props) {
   const test = useMutation({
     mutationFn: postTestChannelLink,
     onSuccess: (data) => {
+      // Only WhatsApp/Telegram reach here — the LinkedIn tab replaces this
+      // self-test with the add-contact flow, so `channel` is never "linkedin".
       localStorage.setItem(STORAGE_KEY[channel], identifier.trim());
-      // LinkedIn is clipboard-only — the "link" is just the profile URL (no
-      // message prefill), so copy the message for the SDR to paste.
-      if (channel === "linkedin") {
-        void navigator.clipboard.writeText(data.message).catch(() => {});
-      }
       // E6: a blocked popup makes window.open return null — don't claim success.
       const w = window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
       if (!w) {
@@ -91,11 +94,8 @@ export function TestChannelMessage({ compact = false }: Props) {
         return;
       }
       toast({
-        title: `Opening ${CHANNEL_LABEL[channel]}${channel === "linkedin" ? " — message copied" : ""}`,
-        description:
-          channel === "linkedin"
-            ? `Profile opened for ${data.target} — paste the copied message into LinkedIn.`
-            : `Message prefilled in the chat box — press send in the app to deliver to ${data.target}.`,
+        title: `Opening ${CHANNEL_LABEL[channel]}`,
+        description: `Message prefilled in the chat box — press send in the app to deliver to ${data.target}.`,
       });
     },
     onError: (err: ApiError) => {
@@ -133,11 +133,13 @@ export function TestChannelMessage({ compact = false }: Props) {
             className={`flex items-center gap-2 font-medium ${compact ? "text-sm" : "text-base"}`}
           >
             <MessageCircle className="h-4 w-4" />
-            Test {CHANNEL_LABEL[channel]} send path
+            {channel === "linkedin"
+              ? "Reach out on LinkedIn"
+              : `Test ${CHANNEL_LABEL[channel]} send path`}
           </h2>
           <p className="text-xs text-muted-foreground">
             {channel === "linkedin"
-              ? "Enter your own LinkedIn profile URL. Opens your profile and copies the message — LinkedIn can't prefill text, so paste it to confirm the path works."
+              ? "LinkedIn blocks message automation and you can't message yourself, so there's no self-test here. Add the contact you want to reach: generate a message to copy-paste into their LinkedIn, or write your own — adding them drops them into your LinkedIn follow-ups."
               : "Enter your own number or handle. Opens the chat with your message already in the compose box — no copy-paste. Press send in the app to confirm delivery works."}
           </p>
         </div>
@@ -159,54 +161,84 @@ export function TestChannelMessage({ compact = false }: Props) {
           </TabsList>
         </Tabs>
 
-        <div className="space-y-2">
-          <Label htmlFor="test-channel-id">
-            {channel === "whatsapp"
-              ? "Your WhatsApp number"
-              : channel === "linkedin"
-                ? "Your LinkedIn profile URL"
-                : "Your phone or @handle"}
-          </Label>
-          <Input
-            id="test-channel-id"
-            placeholder={
-              channel === "whatsapp"
-                ? "+972501234567"
-                : channel === "linkedin"
-                  ? "https://www.linkedin.com/in/you"
-                  : "+972501234567 or @you"
-            }
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            data-testid="test-channel-identifier"
-          />
-        </div>
+        {channel === "linkedin" ? (
+          <div className="space-y-3">
+            <Button
+              onClick={() => setAddContactOpen(true)}
+              size={compact ? "sm" : "default"}
+              data-testid="linkedin-add-contact"
+            >
+              <UserPlus className="h-4 w-4 mr-1" />
+              Add a LinkedIn contact
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              You'll enter their profile URL, then either{" "}
+              <strong>Generate</strong> a message to copy, or paste your own.
+              Adding the contact drops them into{" "}
+              <strong>Follow-ups → LinkedIn</strong>, where each follow-up gives
+              you the ready message to copy once it's generated.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="test-channel-id">
+                {channel === "whatsapp"
+                  ? "Your WhatsApp number"
+                  : "Your phone or @handle"}
+              </Label>
+              <Input
+                id="test-channel-id"
+                placeholder={
+                  channel === "whatsapp"
+                    ? "+972501234567"
+                    : "+972501234567 or @you"
+                }
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                data-testid="test-channel-identifier"
+              />
+            </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="test-channel-message">Message</Label>
-          <Textarea
-            id="test-channel-message"
-            rows={compact ? 2 : 3}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            data-testid="test-channel-message"
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="test-channel-message">Message</Label>
+              <Textarea
+                id="test-channel-message"
+                rows={compact ? 2 : 3}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                data-testid="test-channel-message"
+              />
+            </div>
 
-        <Button
-          onClick={handleOpenTestChat}
-          disabled={!identifier.trim() || test.isPending}
-          size={compact ? "sm" : "default"}
-          data-testid="test-channel-open"
-        >
-          {test.isPending ? (
-            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-          ) : (
-            <ExternalLink className="h-4 w-4 mr-1" />
-          )}
-          Open test chat
-        </Button>
+            <Button
+              onClick={handleOpenTestChat}
+              disabled={!identifier.trim() || test.isPending}
+              size={compact ? "sm" : "default"}
+              data-testid="test-channel-open"
+            >
+              {test.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <ExternalLink className="h-4 w-4 mr-1" />
+              )}
+              Open test chat
+            </Button>
+          </>
+        )}
       </CardContent>
+
+      <AddManualContactDialog
+        channel="linkedin"
+        open={addContactOpen}
+        onOpenChange={setAddContactOpen}
+        onAdded={() => {
+          // The dialog already closes + toasts "Contact added". Take the SDR to
+          // the LinkedIn follow-up queue so they can see the enrolled contact
+          // (and copy the message there).
+          navigate("/followup/linkedin");
+        }}
+      />
     </Card>
   );
 }

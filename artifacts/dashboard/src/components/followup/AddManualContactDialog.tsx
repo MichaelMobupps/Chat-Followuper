@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Loader2, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   useAddManualContact,
@@ -181,6 +181,11 @@ export function AddManualContactDialog({
   // four required fields are non-empty AND the phone matches E.164 shape.
   // The BE re-validates and is the source of truth for error reporting;
   // this just trims the obvious user mistakes before hitting the wire.
+  // Clipboard channels (LinkedIn, Telegram) can't prefill the composer, so the
+  // SDR pastes the drafted message by hand — show a Copy button for them.
+  // WhatsApp prefills on send, so it doesn't need one (matches the Copy gating
+  // on the other surfaces: FirstMessagePreviewDialog + the follow-up queue).
+  const isClipboardChannel = channel === "linkedin" || channel === "telegram";
   const phoneTrimmed = form.phone.trim();
   const phoneLooksValid =
     channel === "whatsapp"
@@ -345,6 +350,30 @@ export function AddManualContactDialog({
         },
       },
     );
+  }
+
+  /**
+   * Copy the current message to the clipboard. LinkedIn/Telegram can't prefill
+   * the composer, so the SDR pastes it in by hand — a visible Copy button beats
+   * hunting for select-all. Works for a generated draft or a typed one; there's
+   * no persistence here, so copying never creates or enrolls a contact.
+   */
+  async function handleCopyMessage() {
+    const text = draftMessage?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({
+        title: "Message copied",
+        description: `Paste it into ${CHANNEL_NAME[channel]}.`,
+      });
+    } catch {
+      toast({
+        title: "Couldn't copy",
+        description: "Select the message text and copy it manually.",
+        variant: "destructive",
+      });
+    }
   }
 
   function handleSubmit() {
@@ -638,26 +667,41 @@ export function AddManualContactDialog({
           <div className="space-y-1.5 border-t pt-4">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="manual-message">First message</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                data-testid="manual-generate"
-                title="Research the company and write the first message now"
-              >
-                {preview.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                <span className="ml-1.5">
-                  {/* Keyed on draftId, not the text: only a GENERATED message
-                      makes the next run a "Regenerate". */}
-                  {draftId === null ? "Generate message" : "Regenerate"}
-                </span>
-              </Button>
+              <div className="flex items-center gap-2">
+                {isClipboardChannel && draftMessage?.trim() ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleCopyMessage()}
+                    data-testid="manual-message-copy"
+                    title="Copy the message to paste into the chat"
+                  >
+                    <Copy className="h-4 w-4" />
+                    <span className="ml-1.5">Copy</span>
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  data-testid="manual-generate"
+                  title="Research the company and write the first message now"
+                >
+                  {preview.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  <span className="ml-1.5">
+                    {/* Keyed on draftId, not the text: only a GENERATED message
+                        makes the next run a "Regenerate". */}
+                    {draftId === null ? "Generate message" : "Regenerate"}
+                  </span>
+                </Button>
+              </div>
             </div>
 
             {preview.isPending ? (

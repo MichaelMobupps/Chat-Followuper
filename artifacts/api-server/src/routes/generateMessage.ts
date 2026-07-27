@@ -134,7 +134,8 @@ router.post(
 
     // ── Channel resolution ──
     // Use prospect.firstMessageChannel if set; default to whatsapp otherwise.
-    // whatsapp and telegram both have deep-link adapters + per-channel prompts.
+    // whatsapp/telegram have deep-link adapters; linkedin is clipboard-only.
+    // All three have per-channel writer/critic prompts (channelRegister.ts).
     const rawChannel = prospect.firstMessageChannel ?? "whatsapp";
     if (!isChannelCode(rawChannel)) {
       res.status(409).json({ error: "invalid_channel", channel: rawChannel });

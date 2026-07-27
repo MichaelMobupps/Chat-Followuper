@@ -16,6 +16,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { recordSendIntent } from "../services/channels/whatsapp";
+import { CHANNEL_CODES } from "../lib/channelRegister";
 
 async function main(): Promise<void> {
   const user = (await db.select().from(usersTable).limit(1))[0];
@@ -57,7 +58,10 @@ async function main(): Promise<void> {
         and(
           eq(followupsTable.id, f!.id),
           eq(followupsTable.status, "scheduled"),
-          inArray(followupsTable.channel, ["whatsapp", "telegram"]),
+          // Derive from the single channel source of truth so this due-query
+          // matches the production digest guards (which now include LinkedIn)
+          // instead of a stale hardcoded 2-channel list.
+          inArray(followupsTable.channel, [...CHANNEL_CODES]),
           isNull(followupsTable.sentAt),
           lte(followupsTable.scheduledAt, new Date()),
         ),

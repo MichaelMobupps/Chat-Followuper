@@ -17,6 +17,7 @@ import {
   MessageCircle,
   Send,
   Check,
+  Copy,
   Pencil,
   Trash2,
   PauseCircle,
@@ -367,6 +368,28 @@ export function ChannelFollowupPage({ channel }: Props) {
     );
   }
 
+  // F-A: copy the ready message to the clipboard WITHOUT opening a tab or
+  // recording a send. For LinkedIn/Telegram the SDR pastes it into the app by
+  // hand; decoupling copy from "Send next" lets them grab the text, paste it,
+  // and only then advance the row.
+  function copyMessage(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    void navigator.clipboard.writeText(t).then(
+      () =>
+        toast({
+          title: "Message copied",
+          description: `Paste it into ${CHANNEL_LABEL[channel]}.`,
+        }),
+      () =>
+        toast({
+          title: "Couldn't copy",
+          description: "Select the message text and copy it manually.",
+          variant: "destructive",
+        }),
+    );
+  }
+
   const Icon = CHANNEL_ICON[channel];
 
   return (
@@ -497,6 +520,8 @@ export function ChannelFollowupPage({ channel }: Props) {
                 <FollowupRow
                   key={item.prospect.id}
                   item={item}
+                  channel={channel}
+                  onCopy={copyMessage}
                   checked={selected.has(item.prospect.id)}
                   onToggle={() => toggleOne(item.prospect.id)}
                   onSendNext={() => handleSendNext(item)}
@@ -624,6 +649,8 @@ export function ChannelFollowupPage({ channel }: Props) {
 
 interface RowProps {
   item: FollowupListItem;
+  channel: SupportedChannel;
+  onCopy: (text: string) => void;
   checked: boolean;
   onToggle: () => void;
   onSendNext: () => void;
@@ -638,6 +665,8 @@ interface RowProps {
 
 function FollowupRow({
   item,
+  channel,
+  onCopy,
   checked,
   onToggle,
   onSendNext,
@@ -659,6 +688,10 @@ function FollowupRow({
   const scheduledAt = next?.scheduledAt ?? null;
   const messagePreview =
     next?.generatedMessage ?? last?.generatedMessage ?? prospect.firstMessageBody ?? "";
+  // F-A: clipboard channels (LinkedIn, Telegram) can't prefill the composer, so
+  // surface a visible Copy button on the row. WhatsApp prefills, so it's omitted
+  // there.
+  const isClipboardChannel = channel === "linkedin" || channel === "telegram";
   const canSendNext =
     derived.uiStatus !== "replied" &&
     derived.uiStatus !== "paused" &&
@@ -672,6 +705,19 @@ function FollowupRow({
   // a cancelled row and re-arm follow-ups.
   const canEditFirstMessage =
     item.followups.length === 0 && !!prospect.firstMessageBody;
+  // The message the SDR should actually paste NEXT: the next scheduled
+  // follow-up's generated text if it exists, else — only for a truly
+  // not-yet-sent prospect — the first message. Deliberately NOT messagePreview:
+  // that falls back to the previously-SENT stage (`last`) when the next stage
+  // isn't generated yet (follow-ups generate lazily on Send next), which would
+  // copy stale, wrong-stage text. Empty ⇒ nothing ready yet → Copy disabled;
+  // the SDR uses "Send next" to generate it (background pre-gen usually fills it
+  // in first, so Copy is normally live).
+  const copyTarget = next?.generatedMessage?.trim()
+    ? next.generatedMessage
+    : canEditFirstMessage
+      ? (prospect.firstMessageBody ?? "")
+      : "";
 
   return (
     <TableRow data-testid={`row-${prospect.id}`}>
@@ -771,6 +817,20 @@ function FollowupRow({
             <Send className="h-3.5 w-3.5 mr-1.5" />
             Send next
           </Button>
+          {isClipboardChannel ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onCopy(copyTarget)}
+              disabled={!copyTarget.trim()}
+              data-testid={`row-copy-${prospect.id}`}
+              aria-label="Copy message"
+              title="Copy the ready message to paste into the chat"
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Copy
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="ghost"

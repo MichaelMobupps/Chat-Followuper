@@ -2,12 +2,13 @@
  * /api/followups routes — Ticket 2.5-BE.
  *
  * Follow-up management for the per-channel follow-up pages
- * (/followup/whatsapp, /followup/telegram). Channel-parameterized so a
- * single router serves both chat-tool follow-up flows; both WhatsApp's and
- * Telegram's send mechanisms are implemented (they use the deep-link
- * generateLink + recordSendIntent services). The list/edit/bulk-archive
- * endpoints are channel-agnostic. (Teams/Slack were removed — never built
- * past a 501 stub.)
+ * (/followup/whatsapp, /followup/telegram, /followup/linkedin).
+ * Channel-parameterized so a single router serves all three chat-tool
+ * follow-up flows; WhatsApp, Telegram and LinkedIn send mechanisms are all
+ * implemented (WhatsApp/Telegram use deep-link generateLink; LinkedIn is
+ * clipboard-only — the profile URL opens and the FE copies the message). The
+ * list/edit/bulk-archive endpoints are channel-agnostic. (Teams/Slack were
+ * removed — never built past a 501 stub.)
  *
  * Routes:
  *   GET    /api/followups                    — list with filters (channel-parameterized)

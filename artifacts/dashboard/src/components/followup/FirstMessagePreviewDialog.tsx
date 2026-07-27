@@ -27,7 +27,7 @@
  * race the read in prepare and could send the pre-edit text.
  */
 import { useEffect, useState, type ChangeEvent } from "react";
-import { Loader2, RefreshCw, Send } from "lucide-react";
+import { Copy, Loader2, RefreshCw, Send } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -138,6 +138,11 @@ export function FirstMessagePreviewDialog({
     !sending &&
     !update.isPending;
   const busy = isGenerating || sending || update.isPending;
+  // Clipboard channels (LinkedIn, Telegram) can't reliably prefill the composer,
+  // so the SDR pastes the message by hand — give them a visible Copy button on
+  // the draft, not just the silent copy that fires on Send. WhatsApp prefills, so
+  // it doesn't need one.
+  const isClipboardChannel = channel === "linkedin" || channel === "telegram";
 
   const who = target.prospectName ?? "this contact";
   const where = target.company ? ` from ${target.company}` : "";
@@ -203,6 +208,24 @@ export function FirstMessagePreviewDialog({
     );
   }
 
+  async function handleCopy() {
+    const text = body.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({
+        title: "Message copied",
+        description: `Paste it into ${CHANNEL_LABEL[channel]}.`,
+      });
+    } catch {
+      toast({
+        title: "Couldn't copy",
+        description: "Select the message text and copy it manually.",
+        variant: "destructive",
+      });
+    }
+  }
+
   return (
     <Dialog
       open={open}
@@ -263,12 +286,27 @@ export function FirstMessagePreviewDialog({
                 {body.length} characters
                 {changed ? " · edited" : ""}
               </p>
-              {channel === "linkedin" ? (
-                <p className="text-xs text-muted-foreground">
-                  LinkedIn can't prefill text — we'll copy it for you.
-                </p>
+              {isClipboardChannel ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => void handleCopy()}
+                  disabled={trimmed.length === 0}
+                  data-testid="preview-copy"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy message
+                </Button>
               ) : null}
             </div>
+            {channel === "linkedin" ? (
+              <p className="text-xs text-muted-foreground">
+                LinkedIn can't prefill text — copy the message, open the profile,
+                and paste it in.
+              </p>
+            ) : null}
           </div>
         )}
 

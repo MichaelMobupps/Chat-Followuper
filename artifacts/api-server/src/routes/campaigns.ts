@@ -17,8 +17,8 @@
  * we do not distinguish "not found" from "not yours" — both are 404.
  *
  * Channel validation: defaultChannel is checked against the ChannelCode
- * enum. Only whatsapp / telegram are accepted; Teams and Slack were removed
- * (never built past a 501 stub).
+ * enum. whatsapp / telegram / linkedin are accepted; Teams and Slack were
+ * removed (never built past a 501 stub).
  */
 
 import {
@@ -42,9 +42,10 @@ const router: IRouter = Router();
 // Validation
 // ─────────────────────────────────────────────────────────────────
 
-// Channel enum at the route layer. Only whatsapp / telegram are supported;
-// Teams and Slack were removed (never built past a 501 stub). If a channel is
-// ever revived, add it here and the schema column will already tolerate it.
+// Channel enum at the route layer. whatsapp / telegram / linkedin are
+// supported; Teams and Slack were removed (never built past a 501 stub). If a
+// channel is ever revived, add it here and the schema column will already
+// tolerate it.
 const ALLOWED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 const channelSchema = z.enum(ALLOWED_CHANNELS);
 
