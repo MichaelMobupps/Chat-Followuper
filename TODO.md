@@ -128,6 +128,31 @@
    directly, which is what both smoke runs did. **Resolve this before the
    cutover step, not during it.**
 
+   **RESOLVED 2026-07-30 by Cutover prep C1**, for the api-server half, which
+   is the half the decision made load-bearing. `paths = ["/api"]` became
+   `paths = ["/api", "/chat"]` — one line, additive. `/api` still matches
+   first and unchanged, so nothing the app receives today routes differently;
+   the addition only makes the router hand `/chat/*` to the api-server, which
+   answers 404 for all of it while `BASE_PATH` is unset.
+
+   **Caveat (a) was expected to be unverifiable here — it turned out not to
+   be, and it is now verified in development.** The workspace's own artifact
+   router picked the change up live, with no restart. On the proxy at `:80`,
+   `/chat` and `/chat/anything` are answered by the api-server (`X-Powered-By:
+   Express`, 404 while `BASE_PATH` is unset), while the control paths
+   `/chatter`, `/chat.html` and `/login` still reach the dashboard's Vite
+   server with 200. So the router does honour a second entry in `paths`, it
+   matches on whole path segments rather than a raw string prefix, and the
+   api-server's `/chat` claim takes precedence over the dashboard's `/`.
+   That is exactly the behavior Bundle 2 was built against.
+   **Still to confirm at cutover:** the production router is a separate code
+   path from the development one, configured from the same file. The evidence
+   above is strong but is not proof for production — check `/chat/api/healthz`
+   first if anything 404s after the env vars go on. (b) artifact.toml is
+   system-managed (`replit.md`: "handled by the artifact tooling, not by
+   hand"). The tooling may rewrite or revert this file on its own schedule.
+   Re-check the line is still there immediately before cutover.
+
 7. **The dashboard's production static serving is bypassed under a prefix.**
    Consequence of item 6 and of the decision that the api-server serves the
    SPA. `[services.production] serve = "static"` with
@@ -138,6 +163,20 @@
    zero 404s), so under a prefix the dashboard's static service becomes
    redundant rather than broken. Decide at cutover whether to leave it serving
    `/` or retire it. No code change is needed either way.
+
+   **DECIDED 2026-07-30 by Cutover prep C1: the dashboard artifact keeps
+   serving `/` for now; retiring it is deferred.** Its artifact.toml was not
+   touched — `paths = ["/"]`, `serve = "static"` and the `/*` → `/index.html`
+   rewrite all stand exactly as they were. Consequence to be aware of: once
+   `BASE_PATH` is set, `/chat/*` is served by the api-server and `/` continues
+   to be served by the dashboard's static service off the same build output,
+   so the app is reachable at **both** addresses on the origin, with only the
+   prefixed one correct (at `/` the built `index.html` would reference
+   `/chat/assets/…`, which the static service cannot resolve). That is
+   harmless while the gateway only ever sends `/chat`, and it is what makes
+   rollback instant — unset the env vars and `/` is correct again. Retire or
+   redirect the `/` service only after the prefixed address has run quietly,
+   per the roadmap's two-day rule.
 
 ## External registrations discovered
 
@@ -187,6 +226,128 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-07-30 — Cutover prep C1: artifact routing for the prefix (CLOSED, ritual clean)
+
+Branch: `cutover-c1-artifact-routing`. Ordered scope: resolve open item 6 by
+changing one line in the api-server's artifact.toml, additively, so the
+artifact router will match `/chat` as well as `/api`. Nothing else in that
+file or any other file. Halt if the change would be anything beyond that line.
+
+**BLAST RADIUS (written before any edit)**
+
+Files to be touched (2): `artifacts/api-server/.replit-artifact/artifact.toml`
+— the single line `paths = ["/api"]` becomes `paths = ["/api", "/chat"]` — and
+`TODO.md` for this entry, the item 6/7 updates and the ledger. No source file,
+no config module, no dependency, no schema, no secret.
+
+Behaviors affected: **routing only, and only for paths that nothing serves
+today.** `/api` keeps matching first and unchanged, so every request the app
+currently receives is routed exactly as before. The addition makes the router
+also hand `/chat` and everything under it to the api-server process, which —
+with `BASE_PATH` unset, as it is everywhere today — answers 404 for all of it,
+because Bundle 2's SPA mount is inert at the default base. So the observable
+change with the env unset is: `/chat/*` moves from whatever the dashboard's
+static service returns to an api-server 404. Nothing in the app links to
+`/chat`, so no user path reaches it.
+
+Worst realistic failure: this is a system-managed file (`replit.md`: artifact
+routing is "handled by the artifact tooling, not by hand"). A malformed edit
+could make the artifact fail to parse, which would stop the api-server from
+being routed **at all** — the whole API down, not just `/chat`. The mitigation
+is that the edit is one array literal, gated behind a TOML parse check, a diff
+review proving exactly one changed line, and a dark smoke on the running
+services. A second, slower risk: the tooling may rewrite or revert this file
+on its own schedule, in which case the change silently disappears and the
+cutover fails later rather than now. Recorded rather than defended against.
+
+Not defended against and out of scope: whether Replit's router treats a second
+entry in `paths` the way this assumes. That is only observable in a deployed
+environment, and nothing is deployed here. This order makes the declaration;
+the cutover verifies it.
+
+Rollback path: git branch `cutover-c1-artifact-routing`; `main` untouched until
+the ritual closes clean, `snapshot-2026-07-30` behind it. Reverting is the
+same one-line edit backwards. Nothing deployed, restarted, or published.
+
+**WHAT SHIPPED**
+
+Two files, and the change itself is one line:
+
+```
+-paths = ["/api"]
++paths = ["/api", "/chat"]
+```
+
+`git diff --numstat` on that file reads `1 1` — one insertion, one deletion,
+nothing else in it. `TODO.md` carries this entry plus the item 6 and item 7
+updates the order asked for. No source file, no config module, no dependency,
+no schema, no secret. The blast radius held exactly: **2 files predicted, 2
+files touched.**
+
+Per step 3, the dashboard artifact was **not** touched: it keeps
+`paths = ["/"]`, `serve = "static"` and its `/*` → `/index.html` rewrite.
+Retiring it is deferred, and the consequence of leaving it — the app being
+reachable at both `/` and `/chat` on the origin once `BASE_PATH` is set, with
+only the prefixed one correct — is written up on item 7, along with the note
+that this is exactly what keeps rollback instant.
+
+**GATES — all three pass, unchanged from Bundle 2**
+
+- Typecheck — **PASS**, 4 projects.
+- Tests — **PASS, 34/34** across 4 packages.
+- Build — **PASS** (`PORT=23183 BASE_PATH=/ pnpm run build`, 2218 modules).
+
+Worth stating plainly: artifact.toml is not compiled into anything, so these
+gates cannot fail because of this change. They were run to prove the tree is
+still clean, not because they exercise the edit.
+
+**GODLIKE AUDIT — 3 rounds, closed clean, no findings**
+
+- Round 1 (technical / security / end-user): no defects. The diff is one line;
+  the file still parses as TOML with every other key intact (`localPort`,
+  `previewPath`, `id`, the production run args, the `/api/healthz` startup
+  health path); the other two artifact.toml files are untouched and still
+  parse. Security: the new claim adds no handler — with `BASE_PATH` unset,
+  `/chat`, `/chat/`, `/chat/login`, `/chat/api/healthz` and `/chat/assets/x.js`
+  all return a bare Express 404, because Bundle 2's SPA mount is inert at the
+  default base. End-user: the dashboard has **no `/chat` route** (all 14
+  routes enumerated), and every `/chat` string in either artifact's source is
+  a comment — so no user-facing path moves.
+- Round 2: no defects, and **one caveat resolved rather than carried.** The
+  blast radius said the router's handling of a second `paths` entry was only
+  observable in a deployed environment. That was wrong in a useful way: the
+  workspace's own artifact router picked the change up live, with no restart.
+  Evidence, on the proxy at `:80` — `/chat` and `/chat/anything` are answered
+  by the api-server (`X-Powered-By: Express`, 404), while the controls
+  `/chatter`, `/chat.html` and `/login` still reach Vite with 200. The router
+  therefore honours the second entry, matches whole path segments rather than
+  a raw string prefix, and lets `/chat` win over the dashboard's `/`. That is
+  the behavior Bundle 2 was built against. Item 6 updated to say so, with the
+  honest limit: the production router is a separate code path from the
+  development one, so this is strong evidence, not proof for production.
+- Round 3: clean. Re-verified the two-file diff, the one-line numstat, all
+  three artifact.toml files parsing, the gates still green, and all three
+  services healthy through the router (`/api/healthz`, `/`, `/__mockup` → 200).
+
+**SMOKE — dark, env unset — 17/17 byte-identical**
+
+The api-server was booted on a free port with no env set and probed against
+the still-running pre-change workflow process (pid 373, started 21:03:43,
+pre-Bundle-1 code in memory), the same baseline Bundle 1 and Bundle 2 used.
+The full 17-probe transcript — status, content-type, Location, Set-Cookie and
+body — **diffed empty**. No "Serving dashboard under base path" line, so the
+SPA mount is still inert. `/api/healthz` 200, `/api/health` 200,
+`/api/auth/me` 401 — the paths that must keep working are untouched.
+
+Only the process this order started was stopped, identified by its `PORT` in
+`/proc/<pid>/environ`. The three pre-existing workflows were left running and
+verified healthy afterwards (:8080, :23183, :8081 all 200). Nothing was
+deployed, restarted or published; no secret was written.
+
+**Out-of-scope findings recorded: 0.** Open item 6 is now resolved for the
+api-server half, with one production-side check carried to cutover; open
+item 7 is decided (deferred) rather than resolved.
 
 ### 2026-07-30 — Bundle 2: switchable base path (CLOSED, ritual clean)
 
