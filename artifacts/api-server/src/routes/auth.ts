@@ -4,10 +4,25 @@ import { requireAuth } from "../middlewares/auth";
 import {
   SESSION_COOKIE_NAME,
   clearedSessionCookieOptions,
+  clearedSessionCookiePaths,
 } from "../lib/session";
 import { appPath } from "../lib/appConfig";
 
 const router: IRouter = Router();
+
+/**
+ * Clear the session cookie at every path it could have been issued under.
+ * At the default base that is the single path "/", so the emitted header is
+ * unchanged from before Bundle 2.
+ */
+function clearSession(res: {
+  clearCookie: (name: string, options: Record<string, unknown>) => unknown;
+}): void {
+  const options = clearedSessionCookieOptions();
+  for (const path of clearedSessionCookiePaths()) {
+    res.clearCookie(SESSION_COOKIE_NAME, { ...options, path });
+  }
+}
 
 router.get("/auth/me", requireAuth, (req, res) => {
   // requireAuth guarantees req.user is populated
@@ -21,14 +36,14 @@ router.get("/auth/me", requireAuth, (req, res) => {
 });
 
 router.post("/auth/logout", (_req, res) => {
-  res.clearCookie(SESSION_COOKIE_NAME, clearedSessionCookieOptions());
+  clearSession(res);
   res.status(204).end();
 });
 
 // Convenience: GET /auth/logout also works (browser navigation flow).
 // Clears the cookie and redirects to /login.
 router.get("/auth/logout", (_req, res) => {
-  res.clearCookie(SESSION_COOKIE_NAME, clearedSessionCookieOptions());
+  clearSession(res);
   res.redirect(302, appPath("/login"));
 });
 

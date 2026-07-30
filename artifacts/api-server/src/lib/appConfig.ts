@@ -1,11 +1,12 @@
 /**
  * Single source of truth for this app's own public address and its rooted
- * paths (Bundle 1 — URL centralization).
+ * paths (Bundle 1 — URL centralization; Bundle 2 — made switchable).
  *
  * Everything the server emits that points back at itself — redirect targets,
- * cookie scope, the `/api` mount points, and the links embedded in outgoing
- * digest emails — resolves through this module instead of hardcoding a path
- * or reading an address env var directly.
+ * cookie scope, the `/api` mount points, the SPA mount, the OAuth redirect
+ * URI, and the links embedded in outgoing digest emails — resolves through
+ * this module instead of hardcoding a path or reading an address env var
+ * directly.
  *
  * Two knobs, both env-driven, both defaulting to exactly today's values so
  * that with no env vars set the resolved strings are byte-for-byte identical
@@ -19,39 +20,40 @@
  * When neither is set the value is the empty string, which is what
  * `(process.env.APP_PUBLIC_URL ?? "")` produced before this module existed.
  *
- * Bundle 1 only routes the call sites through here. Making the values
- * genuinely switchable (per-app cookie name, prefix-aware SPA catch-all) is
- * Bundle 2.
+ * This module holds no path arithmetic of its own. It reads env and delegates
+ * to `basePath.ts`, whose copy in the dashboard is byte-identical and whose
+ * behavior is pinned by `basePath.test.ts` in both artifacts.
  */
+import { createPathResolvers } from "./basePath";
 
-/**
- * Normalize a configured base path to a leading slash with no trailing slash,
- * except for the root, which stays "/". "" and "/" both mean "no prefix".
- *
- * Repeated slashes are collapsed. That is not cosmetic: without it a
- * misconfigured BASE_PATH of "//host" would make appPath() return
- * "//host/login", a protocol-relative URL, which would turn the login
- * redirects into an open redirect off this origin.
- */
-function normalizeBasePath(raw: string): string {
-  const trimmed = raw.trim();
-  if (trimmed === "" || trimmed === "/") return "/";
-  const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  const collapsed = withLeading.replace(/\/{2,}/g, "/");
-  const withoutTrailing = collapsed.replace(/\/+$/, "");
-  return withoutTrailing === "" ? "/" : withoutTrailing;
-}
+const resolvers = createPathResolvers(process.env["BASE_PATH"] ?? "/");
 
 /** The path prefix this app is served under. Default "/". */
-export const BASE_PATH: string = normalizeBasePath(
-  process.env["BASE_PATH"] ?? "/",
-);
+export const BASE_PATH: string = resolvers.BASE_PATH;
 
 /**
- * BASE_PATH in joinable form: "" at the root, otherwise "/prefix". Kept
- * private so callers go through appPath/apiPath and cannot mis-join.
+ * True when this app is served under a prefix. Every Bundle 2 behavior change
+ * is gated on this, so with BASE_PATH unset the app stays exactly as it was.
  */
-const PREFIX: string = BASE_PATH === "/" ? "" : BASE_PATH;
+export const IS_PREFIXED: boolean = resolvers.PREFIX !== "";
+
+/** Mount point of the API router. "/api" at the default base. */
+export const API_BASE_PATH: string = resolvers.API_BASE_PATH;
+
+/** Path scope for this app's cookies. "/" at the default base. */
+export const COOKIE_PATH: string = resolvers.COOKIE_PATH;
+
+/**
+ * Build a rooted app path under BASE_PATH.
+ * At the default base: appPath("/login") === "/login", appPath("/") === "/".
+ */
+export const appPath: (path: string) => string = resolvers.appPath;
+
+/**
+ * Build a rooted API path under BASE_PATH.
+ * At the default base: apiPath("/auth/me") === "/api/auth/me".
+ */
+export const apiPath: (path: string) => string = resolvers.apiPath;
 
 /** This app's absolute public address, no trailing slash. Default "". */
 export const PUBLIC_URL: string = (
@@ -61,30 +63,18 @@ export const PUBLIC_URL: string = (
 ).replace(/\/+$/, "");
 
 /**
- * Build a rooted app path under BASE_PATH.
- * At the default base: appPath("/login") === "/login", appPath("/") === "/".
+ * The origin half of PUBLIC_URL — the part to which a rooted path built by
+ * appPath()/apiPath() is appended.
+ *
+ * At cutover PUBLIC_URL is `https://tools.mobupps.net/chat`, i.e. it already
+ * carries the prefix, while appPath() adds the prefix too. Concatenating both
+ * would emit `https://tools.mobupps.net/chat/chat/api/...` into digest emails
+ * that cannot be recalled. Stripping a trailing prefix here means both
+ * spellings of PUBLIC_URL — with the prefix and without it — resolve to the
+ * same correct link. With BASE_PATH unset there is no prefix to strip and
+ * this is exactly PUBLIC_URL.
  */
-export function appPath(path: string): string {
-  const suffix = path.startsWith("/") ? path : `/${path}`;
-  const joined = `${PREFIX}${suffix}`;
-  const trimmed = joined.replace(/\/+$/, "");
-  return trimmed === "" ? "/" : trimmed;
-}
-
-/** Mount point of the API router. "/api" at the default base. */
-export const API_BASE_PATH: string = appPath("/api");
-
-/**
- * Build a rooted API path under BASE_PATH.
- * At the default base: apiPath("/auth/me") === "/api/auth/me".
- */
-export function apiPath(path: string): string {
-  const suffix = path.startsWith("/") ? path : `/${path}`;
-  return `${API_BASE_PATH}${suffix}`;
-}
-
-/** Path scope for this app's cookies. "/" at the default base. */
-export const COOKIE_PATH: string = appPath("/");
+export const PUBLIC_ORIGIN: string = resolvers.stripPrefix(PUBLIC_URL);
 
 /**
  * PUBLIC_URL for call sites that cannot produce a usable link without it.
@@ -101,10 +91,41 @@ export function requirePublicUrl(): string {
 }
 
 /**
- * Absolute URL for a rooted app path, built on the non-throwing PUBLIC_URL.
+ * Absolute URL for a rooted app path, built on the non-throwing PUBLIC_ORIGIN.
  * At the default base with no address configured this yields the bare rooted
  * path, which is what the follow-up fallback redirect produced before.
  */
 export function absoluteAppUrl(path: string): string {
-  return `${PUBLIC_URL}${appPath(path)}`;
+  return `${PUBLIC_ORIGIN}${appPath(path)}`;
+}
+
+/**
+ * Absolute URL for a rooted API path. Used for links that leave this process
+ * — digest emails and the Google OAuth redirect URI.
+ */
+export function absoluteApiUrl(path: string): string {
+  return `${PUBLIC_ORIGIN}${apiPath(path)}`;
+}
+
+/**
+ * The redirect URI handed to Google, both on the authorization request and on
+ * the token exchange. The two must be byte-identical to each other and to the
+ * value registered in the Google Cloud Console.
+ *
+ * `GOOGLE_OAUTH_REDIRECT_URI` still wins whenever it is set, which is the
+ * case in every environment today — so this is dark by construction and the
+ * registered value is never second-guessed. It is only when that variable is
+ * absent that the URI is derived from PUBLIC_URL, which is what lets a
+ * base-path move follow PUBLIC_URL without a code change. The throw when
+ * neither is available reproduces the previous `getEnv` message exactly.
+ */
+export function googleOAuthRedirectUri(): string {
+  const explicit = process.env["GOOGLE_OAUTH_REDIRECT_URI"];
+  if (explicit) return explicit;
+  if (PUBLIC_ORIGIN === "") {
+    throw new Error(
+      "Missing required environment variable: GOOGLE_OAUTH_REDIRECT_URI",
+    );
+  }
+  return absoluteApiUrl("/auth/google/callback");
 }

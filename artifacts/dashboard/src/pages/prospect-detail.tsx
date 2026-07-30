@@ -44,6 +44,12 @@ import {
   type ProspectBrief,
 } from "@/lib/api/prospects";
 import { generateMessage } from "@/lib/api/seeder";
+// The two back-links below are raw <a> elements whose onClick calls
+// navigate(). A plain click never uses the href, but middle-click, ctrl-click,
+// "open in new tab" and "copy link address" all do — so the href itself has
+// to carry the base or those paths 404 under a prefix. appPath() is the
+// identity at the default base, so today's markup is unchanged.
+import { appPath } from "@/lib/config";
 
 export default function ProspectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -126,7 +132,7 @@ export default function ProspectDetailPage() {
     return (
       <section className="space-y-4 max-w-2xl mx-auto">
         <a
-          href="/prospects"
+          href={appPath("/prospects")}
           onClick={(e) => {
             e.preventDefault();
             navigate("/prospects");
@@ -179,7 +185,7 @@ export default function ProspectDetailPage() {
     <section className="space-y-6 max-w-4xl">
       <header className="space-y-3">
         <a
-          href="/prospects"
+          href={appPath("/prospects")}
           onClick={(e) => {
             e.preventDefault();
             navigate("/prospects");

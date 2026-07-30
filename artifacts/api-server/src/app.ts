@@ -7,6 +7,7 @@ import apolloWebhookRouter from "./routes/apolloWebhook";
 import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
+import { mountSpa } from "./routes/spa";
 import { API_BASE_PATH, apiPath } from "./lib/appConfig";
 
 const app: Express = express();
@@ -49,5 +50,12 @@ app.use(API_BASE_PATH, loadUser);
 
 app.get(apiPath("/prospects/research/stream"), researchStreamRoute);
 app.use(API_BASE_PATH, router);
+
+// Bundle 2: serve the built dashboard under BASE_PATH. No-op at the default
+// base, so with BASE_PATH unset the stack above is the whole app, exactly as
+// before. Mounted last on purpose — the SPA catch-all must never shadow an
+// API route, and it additionally refuses anything under API_BASE_PATH so an
+// unmatched API path still answers with a JSON 404 rather than index.html.
+mountSpa(app);
 
 export default app;

@@ -12,7 +12,7 @@ import {
   signSession,
   sessionCookieOptions,
 } from "../lib/session";
-import { appPath } from "../lib/appConfig";
+import { appPath, googleOAuthRedirectUri } from "../lib/appConfig";
 
 const router: IRouter = Router();
 
@@ -47,7 +47,11 @@ function loginErrorRedirect(code: string): string {
 router.get("/auth/google/start", async (req, res) => {
   try {
     const clientId = getEnv("GOOGLE_OAUTH_CLIENT_ID");
-    const redirectUri = getEnv("GOOGLE_OAUTH_REDIRECT_URI");
+    // Bundle 2: GOOGLE_OAUTH_REDIRECT_URI still wins wherever it is set, so
+    // the value registered in the Google console is never second-guessed and
+    // this is dark by construction. Only when it is absent is the URI derived
+    // from PUBLIC_URL, which is what lets a base-path move follow PUBLIC_URL.
+    const redirectUri = googleOAuthRedirectUri();
 
     const state = randomBytes(24).toString("base64url");
 
@@ -133,7 +137,8 @@ router.get("/auth/google/callback", async (req, res) => {
 
     const clientId = getEnv("GOOGLE_OAUTH_CLIENT_ID");
     const clientSecret = getEnv("GOOGLE_OAUTH_CLIENT_SECRET");
-    const redirectUri = getEnv("GOOGLE_OAUTH_REDIRECT_URI");
+    // Must be byte-identical to the one sent on the authorization request.
+    const redirectUri = googleOAuthRedirectUri();
 
     const tokenRes = await fetch(GOOGLE_TOKEN, {
       method: "POST",

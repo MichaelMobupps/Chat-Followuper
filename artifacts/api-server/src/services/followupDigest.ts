@@ -9,7 +9,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
-import { apiPath, requirePublicUrl } from "../lib/appConfig";
+import { absoluteApiUrl, requirePublicUrl } from "../lib/appConfig";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -41,11 +41,17 @@ function escapeHtml(s: string): string {
 }
 
 function renderEmail(name: string | null, rows: DueRow[]): string {
-  const base = requirePublicUrl();
+  // Kept for its throw: an unconfigured deployment must still fail here, with
+  // the same message, rather than mailing links to a bare path. The URL is
+  // then built from PUBLIC_ORIGIN, which is PUBLIC_URL minus a prefix it may
+  // already carry — otherwise a PUBLIC_URL of "https://host/chat" and an
+  // apiPath() of "/chat/api/..." would compose into "/chat/chat/api/...",
+  // shipping dead links inside mail that cannot be recalled.
+  requirePublicUrl();
   const items = rows
     .map((r) => {
       const token = mintOpenToken(r.followupId, r.userId);
-      const url = `${base}${apiPath(`/followups/open/${r.followupId}`)}?t=${token}`;
+      const url = `${absoluteApiUrl(`/followups/open/${r.followupId}`)}?t=${token}`;
       const who = escapeHtml(r.prospectName ?? "this prospect");
       const co = r.company ? ` at ${escapeHtml(r.company)}` : "";
       return `<tr>
