@@ -3,6 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
+    // basePath.test.ts runs on Node's built-in test runner, which resolves ESM
+    // specifiers literally and therefore needs the ".ts" extension in the
+    // import. Safe here: this project is only ever run with --noEmit (esbuild
+    // does the build), and the dashboard tsconfig already sets the same flag.
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   "include": ["src"],

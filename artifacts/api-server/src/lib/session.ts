@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { COOKIE_PATH } from "./appConfig";
+import { COOKIE_PATH, IS_PREFIXED } from "./appConfig";
 
 export const SESSION_COOKIE_NAME = "cf_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -116,4 +116,22 @@ export function clearedSessionCookieOptions(): CookieOptions {
     path: COOKIE_PATH,
     maxAge: 0,
   };
+}
+
+/**
+ * Every cookie path a logout has to clear.
+ *
+ * A cookie is identified by name *and* path, so clearing `cf_session` at
+ * "/chat" does nothing to a `cf_session` at "/". Both are sent on a request
+ * to /chat/api/auth/logout, and the browser offers the more specific one
+ * first — so once the "/chat" cookie is cleared, a session left over at "/"
+ * becomes the one that is read, and the user is silently signed back in on
+ * the next request. That window is real on the legacy host during the
+ * base-path transition, where the same origin served the app at "/" first.
+ *
+ * At the default base this is exactly `["/"]`, i.e. one cookie cleared at one
+ * path, byte-for-byte the Set-Cookie header emitted today. Audit round 2.
+ */
+export function clearedSessionCookiePaths(): string[] {
+  return IS_PREFIXED ? [COOKIE_PATH, "/"] : [COOKIE_PATH];
 }

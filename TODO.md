@@ -13,6 +13,17 @@
    `artifacts/dashboard/` and `artifacts/api-server/`; this lives in `lib/` and
    is codegen output. **Bundle 2 must make the orval `baseUrl` prefix-aware and
    regenerate**, or the base-path switch ships broken auth.
+   **RESOLVED 2026-07-30 by Bundle 2 — without regenerating.** The prescription
+   above turned out to be unnecessary. `custom-fetch.ts` already exposed
+   `setBaseUrl()`, which prepends a base to any request path starting with
+   "/", so `artifacts/dashboard/src/main.tsx` now calls
+   `setBaseUrl(ROUTER_BASE)` before `createRoot`. orval's `baseUrl` stays
+   `"/api"`, no generated file changed, no codegen ran, and no dependency was
+   added. Proved end to end by bundling the real chain (config → setBaseUrl →
+   generated `getCurrentUser` → custom-fetch) with `import.meta.env.BASE_URL`
+   defined as Vite defines it: `/api/auth/me` dark, `/chat/api/auth/me` lit.
+   Pinned by 7 unit tests in `lib/api-client-react/src/custom-fetch.test.ts`
+   that assert against the exact literals orval emits today.
 
 2. **`lib/db` test suite fails on pre-existing schema/database drift.**
    `pnpm --filter @workspace/db run test` fails with
@@ -90,6 +101,44 @@
    check whether a sibling repo or an older Repl holds the missing 14
    migrations.
 
+6. **CUTOVER BLOCKER: the artifact router still has to be told about the
+   prefix.** (Found by Bundle 2; outside its scope, which is application code.)
+   Bundle 2 makes the *application* fully correct under `BASE_PATH`, and both
+   smoke runs prove it. But in this workspace the request never reaches the
+   app until Replit's artifact router routes it, and that routing is static
+   TOML which cannot read an env var:
+
+   - `artifacts/api-server/.replit-artifact/artifact.toml` has
+     `paths = ["/api"]`. It will not match `/chat/api/...`.
+   - `artifacts/dashboard/.replit-artifact/artifact.toml` has `paths = ["/"]`
+     with `serve = "static"` and a `/*` → `/index.html` rewrite, and
+     `[services.env] BASE_PATH = "/"`.
+
+   `replit.md` says artifact.toml routing is "handled by the artifact tooling,
+   not by hand", so Bundle 2 changed none of it. Michael's decision was that
+   the **api-server** serves the SPA under the prefix, which means at cutover
+   the api-server's `paths` must gain the prefix (e.g. `["/api", "/chat"]` —
+   additive, so `/` and `/api` keep routing exactly as they do today and dark
+   stays dark). The evidence that the router forwards the prefix rather than
+   stripping it is the sibling `mockup-sandbox` artifact, which runs at
+   `paths = ["/__mockup"]` with its own `BASE_PATH = "/__mockup"`.
+
+   Until that is settled, Bundle 2 is correct but unreachable in a deployed
+   Replit environment. It is fully reachable when the process is addressed
+   directly, which is what both smoke runs did. **Resolve this before the
+   cutover step, not during it.**
+
+7. **The dashboard's production static serving is bypassed under a prefix.**
+   Consequence of item 6 and of the decision that the api-server serves the
+   SPA. `[services.production] serve = "static"` with
+   `publicDir = artifacts/dashboard/dist/public` would 404 every asset under a
+   prefix anyway: Vite writes assets to `dist/public/assets/` while the built
+   `index.html` references `/chat/assets/…`. The api-server's
+   `express.static` mount at `BASE_PATH` resolves that correctly (verified —
+   zero 404s), so under a prefix the dashboard's static service becomes
+   redundant rather than broken. Decide at cutover whether to leave it serving
+   `/` or retire it. No code change is needed either way.
+
 ## External registrations discovered
 
 Recorded per Bundle 1's mandate. **None of these were changed** — how each
@@ -102,6 +151,14 @@ registers is untouched.
    `oauth_nonces.redirectUri` at `:56`. The registered value must point at
    `<public address>/api/auth/google/callback`; a base-path move requires
    adding the new URI in the Google console **before** cutover.
+   **Bundle 2 update:** both read sites now go through
+   `googleOAuthRedirectUri()` in `appConfig.ts`. The env var still wins
+   wherever it is set, so nothing about the registration changed. When it is
+   absent the URI derives from `PUBLIC_URL` as
+   `<PUBLIC_ORIGIN>/chat/api/auth/google/callback`. At cutover, either
+   register that value at Google and drop the env var, or keep the env var and
+   set it to the new address — both work, but the value sent and the value
+   registered must match exactly.
 
 2. **Apollo phone-reveal webhook URL** — registered in the Apollo dashboard,
    supplied to the app as `APOLLO_WEBHOOK_URL`.
@@ -130,6 +187,286 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-07-30 — Bundle 2: switchable base path (CLOSED, ritual clean)
+
+Branch: `bundle-2-base-path`. Scope: make the app fully servable under a URL
+prefix, controlled entirely by `BASE_PATH` and `PUBLIC_URL`. THE DARKNESS
+RULE: with both unset, behavior is byte-for-byte identical to today; every
+change activates only when `BASE_PATH` is something other than `/`.
+
+**BLAST RADIUS (written before any edit)**
+
+*Architecture finding that preceded the blast radius, and the decision taken.*
+Scope item 3 asks for "the SPA catch-all serving index.html for deep links
+under the prefix". **No such catch-all exists in application code.** The
+api-server mounts only `/api` (`app.ts:44-51`); the dashboard is served by
+Replit's artifact router — `artifacts/dashboard/.replit-artifact/artifact.toml`
+declares `serve = "static"` with a `publicDir` and a `/*` → `/index.html`
+rewrite, at `paths = ["/"]`. `replit.md` states artifact.toml routing is
+"handled by the artifact tooling, not by hand". The sibling `mockup-sandbox`
+artifact (`paths = ["/__mockup"]`, `BASE_PATH = "/__mockup"`) proves this
+workspace's router **forwards the full path without stripping** — each service
+owns its own prefix. Scope item 3's requirement that the bare prefix redirect
+to prefix-with-slash independently confirms the app receives `/chat`.
+Michael's decision (asked before any edit): **the api-server serves the SPA
+under the prefix, gated on `BASE_PATH !== "/"`.** In dark mode nothing mounts.
+
+Files to be touched (14):
+
+NEW
+
+- `artifacts/api-server/src/lib/basePath.ts` — pure, env-free path resolvers
+- `artifacts/api-server/src/lib/basePath.test.ts` — `node --test` unit tests
+- `artifacts/api-server/src/routes/spa.ts` — prefix-gated SPA serving
+- `artifacts/dashboard/src/lib/basePath.ts` — mirrored pure resolvers
+- `artifacts/dashboard/src/lib/basePath.test.ts` — same suite, dashboard copy
+
+MODIFIED
+
+- `artifacts/api-server/src/lib/appConfig.ts` — rebuilt on `basePath.ts`; adds
+  `PUBLIC_ORIGIN`, `absoluteApiUrl()`, `googleOAuthRedirectUri()`
+- `artifacts/api-server/src/app.ts` — mount the SPA when prefixed
+- `artifacts/api-server/src/routes/google-auth.ts` — redirect URI via config
+- `artifacts/api-server/src/services/followupDigest.ts` — `absoluteApiUrl()`
+- `artifacts/api-server/package.json` — `test` script
+- `artifacts/dashboard/src/lib/config.ts` — rebuilt on `basePath.ts`
+- `artifacts/dashboard/src/main.tsx` — `setBaseUrl(ROUTER_BASE)` at boot
+- `artifacts/dashboard/src/pages/prospect-detail.tsx` — 2 raw `<a href="/…">`
+- `artifacts/dashboard/package.json` — `test` script
+
+Explicitly NOT touched: `lib/api-client-react/src/generated/*` and
+`lib/api-spec/orval.config.ts` — open item 1 is solved through the existing
+`custom-fetch` `setBaseUrl` hook, so **no codegen runs and no generated file
+changes**, which also means no orval-driven dependency addition. Also not
+touched: any `artifact.toml` (system-managed), database, migrations, secrets,
+scheduler timing, `lib/db`, wouter `<Route path>` / `<Link href>` / `navigate()`
+targets (already base-relative through the Router base).
+
+Behaviors that could be affected: every dashboard→API call (the generated
+client now runs through a mutable module-level base), the AuthGate session
+check, Google OAuth start and callback, the session cookie's scope, all four
+server-side redirects, the digest email links, the public follow-up open
+redirect, and — new surface — static file serving from the api-server process.
+
+Worst realistic failure, in three flavors. (a) `setBaseUrl` is called with a
+non-empty value in dark mode, or the generated client fires a request before
+`main.tsx` runs: every `/api/...` call becomes `/x/api/...`, AuthGate reads
+401, and the whole dashboard renders as logged out. (b) The SPA catch-all is
+mounted too early or without excluding the API prefix: an unmatched
+`/chat/api/...` returns `200 text/html` instead of a JSON 404, and the client
+parses HTML as JSON on every miss. (c) `PUBLIC_URL` already contains the
+prefix (`https://tools.mobupps.net/chat`) while `apiPath()` adds it again,
+producing `https://tools.mobupps.net/chat/chat/api/...` in digest emails —
+dead links inside mail that cannot be recalled. (c) is a live defect in the
+Bundle 1 code under non-default values and is fixed here via `PUBLIC_ORIGIN`.
+
+Rollback path: git branch `bundle-2-base-path`; `main` is untouched until the
+ritual closes clean, with `snapshot-2026-07-30` behind it. Nothing is
+deployed, restarted, published, or written into Replit Secrets. Both smoke
+runs set env for the spawned process only.
+
+**BLAST RADIUS DELTA — 14 predicted, 20 touched.** The six extra files all
+came out of the audit and are listed here rather than folded silently into the
+count above: `artifacts/api-server/tsconfig.json` (needed
+`allowImportingTsExtensions` for the Node test runner);
+`artifacts/api-server/src/lib/session.ts` and `src/routes/auth.ts` (round-2
+cookie finding); `lib/api-client-react/src/custom-fetch.test.ts`,
+`package.json` and `tsconfig.json` (round-2 test pin for the cutover blocker).
+The stated NOT-touched list held in full: no generated file, no orval config,
+no artifact.toml, no `lib/db`, no migration, no secret, no dependency.
+
+**WHAT SHIPPED**
+
+20 files: 6 new, 14 modified. No dependency added anywhere —
+`git diff pnpm-lock.yaml` is empty.
+
+*Scope 1 — the generated API client (TODO.md open item 1, the cutover
+blocker).* Solved without touching a generated file and without running
+codegen. `lib/api-client-react/src/custom-fetch.ts` already exposed
+`setBaseUrl()`, which prepends a base to any request path starting with "/";
+`artifacts/dashboard/src/main.tsx` now calls `setBaseUrl(ROUTER_BASE)` before
+`createRoot`, so no hook can fire a request first. orval's `baseUrl` stays
+`"/api"` and the generated literals stay exactly as they are. At the default
+base `ROUTER_BASE` is `""`, which `setBaseUrl` stores as `null` — a true
+no-op.
+
+*Scope 2 — frontend base.* Verified, not changed: Vite's `base` already flows
+from `BASE_PATH`, and the LIT build proves it reaches every emitted reference,
+including `/chat/favicon.svg` from the public dir. wouter's `<Link>` and
+`navigate()` were re-verified against wouter 3.9.0's source — `href` is
+`router.base + to` (`src/index.js:303`) and navigation goes through
+`absolutePath(to, router.base)` (`:77`) — so Bundle 1's "leave them alone"
+decision holds under a non-default base. One real gap found and fixed:
+`pages/prospect-detail.tsx` had two raw `<a href="/prospects">` elements whose
+`onClick` calls `navigate()`. A plain click never uses the href, but
+middle-click, ctrl-click, "open in new tab" and "copy link address" do, and
+those would have 404'd under a prefix. Now `appPath("/prospects")`.
+
+*Scope 3 — backend under prefix.* New `artifacts/api-server/src/routes/spa.ts`,
+mounted last in `app.ts` and inert unless `BASE_PATH` is set: a bare-prefix →
+prefix-with-slash redirect, `express.static` over the built dashboard, and an
+index.html catch-all for deep links. It refuses anything under
+`API_BASE_PATH`, so a missed API path still answers a JSON 404 instead of
+handing the client HTML to parse. A missing dashboard build logs an error and
+leaves the API serving rather than failing to boot.
+
+*Scope 4 — redirects.* Already prefix-aware from Bundle 1; verified in the LIT
+run (`/chat/api/auth/logout` → `/chat/login`, post-login → `/chat`, follow-up
+fallback → `https://tools.mobupps.net/chat/followup/whatsapp`).
+
+*Scope 5 — cookies.* The cookie name needed no change: it has been
+`cf_session` since Ticket 1.3, so the per-app name the roadmap asks for was
+already in place. The scope already flowed from `COOKIE_PATH = appPath("/")`.
+Verified exactly equal to `BASE_PATH` in every mode — `/` dark, `/chat` lit,
+`/tools/chat` nested — and never wider. One defect found and fixed in audit
+round 2 (below).
+
+*Scope 6 — outgoing links and registrations.* Nothing registered anywhere was
+changed. Two fixes: (a) **a live defect in the Bundle 1 code under non-default
+values** — `followupDigest.ts` composed `PUBLIC_URL + apiPath(...)`, so the
+cutover's `PUBLIC_URL=https://tools.mobupps.net/chat` would have produced
+`https://tools.mobupps.net/chat/chat/api/...` in digest emails, dead links
+inside mail that cannot be recalled. Fixed with `PUBLIC_ORIGIN`, which strips
+a prefix `PUBLIC_URL` already carries, so both spellings of `PUBLIC_URL`
+resolve identically. (b) The Google OAuth redirect URI now derives from
+`PUBLIC_URL` — but `GOOGLE_OAUTH_REDIRECT_URI` still wins wherever it is set,
+which is every environment today, so the registered value is never
+second-guessed and this is dark by construction. With neither available it
+throws the same message `getEnv` threw.
+
+New surface in `appConfig.ts`: `IS_PREFIXED`, `PUBLIC_ORIGIN`,
+`absoluteApiUrl()`, `googleOAuthRedirectUri()`. The path arithmetic moved out
+of both config modules into `basePath.ts`, which is **byte-identical between
+the two artifacts** (`diff` is empty) and carries no env access at all, so it
+is unit-testable under a plain `node --test`.
+
+**GATES — all three pass**
+
+- Typecheck (`pnpm run typecheck`) — **PASS**, all 4 projects.
+- Tests (`pnpm -r --if-present run test`) — **PASS, 34/34** across 4 packages.
+  This is the first bundle with a green test gate from the start.
+  `lib/db` 3 (pre-existing, fixed by M1), and **31 new**: 12 in
+  `artifacts/api-server`, 12 in `artifacts/dashboard` (the same byte-identical
+  suite, one copy per artifact, so the two copies cannot drift), 7 in
+  `lib/api-client-react`. All run on Node 24's built-in test runner with
+  native TypeScript stripping — **no test framework and no dependency was
+  added**. The suites pin both modes: a DARK block asserting every resolved
+  value is today's literal, a LIT block asserting the prefix appears exactly
+  once, the cookie scope, the open-redirect guard, and the exact generated
+  URL literals the API client emits.
+- Build (`PORT=23183 BASE_PATH=/ pnpm run build`) — **PASS** (api-server
+  esbuild + dashboard vite, 2218 modules; 2217 before, +1 for `basePath.ts`).
+  Also built clean under `BASE_PATH=/chat/`.
+
+**GODLIKE AUDIT — 5 rounds, closed on two consecutive clean rounds**
+
+- Round 1 (technical / security): **2 in-scope findings, both fixed.**
+  (a) `app.get(BASE_PATH, …)` also matched `/chat/` — Express runs with
+  `strict routing` off — so the main page redirected to itself: **an infinite
+  redirect loop on `/chat/`**, caught by the first LIT smoke run. Replaced
+  with a middleware doing an exact `req.path` comparison. (b) `isApiPath` was
+  case-sensitive while Express matches routes case-insensitively, so a missed
+  `/chat/API/...` fell through to the SPA and answered `200 text/html` where
+  `/chat/api/...` answered 404 — the same path served two ways depending on
+  capitalization. Now compared case-insensitively.
+  Security sub-round on the new static surface found **no** defects: path
+  traversal (`/chat/../package.json`, `%2e%2e`, `..%2f`, and a four-level
+  climb from `/chat/assets/`) all return the SPA shell, never a real file;
+  the static root contains only the 5 built assets; `/chatter` and
+  `/chat.html` are not captured; non-GET under the prefix 404s.
+- Round 2 (end-user): **2 in-scope findings, both fixed.**
+  (a) The bare-prefix redirect dropped the query string. The post-login
+  redirect targets `appPath("/")` — the bare prefix — and the login page reads
+  `?error=` off `window.location`, so OAuth error codes would have been
+  silently swallowed and shown as a blank login form. The query is now
+  carried across. (b) **Logout did not log you out under a prefix.** A cookie
+  is identified by name *and* path, so clearing `cf_session` at `/chat` does
+  nothing to a `cf_session` left at `/` by the pre-move app on the same
+  origin; the browser offers the more specific one first, so once `/chat` was
+  cleared the leftover at `/` became the one read and the user was silently
+  signed back in on the next request. Logout now clears every path the cookie
+  could have been issued under. At the default base that list is exactly
+  `["/"]`, so the emitted header is unchanged — verified byte-for-byte.
+- Round 3 (re-verification): **1 finding, in the smoke harness, not the code.**
+  A LIT assertion said "no cookie is scoped to /", which the round-2 fix now
+  deliberately contradicts. Re-expressed as what actually matters: any `Path=/`
+  header must be a *deletion* (empty value, epoch expiry), and no
+  value-carrying cookie may be scoped wider than `BASE_PATH`. The issued
+  cookie was then probed directly through the real `sessionCookieOptions()`
+  and is exactly `BASE_PATH` in all three modes tested.
+- Round 4: clean. Verified the scope boundaries held (`lib/db`, `lib/api-spec`,
+  the generated client, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.replit` and
+  every `artifact.toml` all unchanged), the two `basePath.ts` copies are still
+  byte-identical after every edit, and the *emitted* dark artifacts are right:
+  `index.html` back to `/assets/…` and `/favicon.svg`, zero `//` malformations,
+  zero `/chat` strings in a dark bundle.
+- Round 5: clean. Final sweep for any rooted path bypassing the config across
+  both artifacts. The only remaining hits are benign — comments, wouter
+  `<Link>` (verified against wouter's source), and the two `index.html`
+  references Vite rewrites at build time (proved by the LIT build emitting
+  `/chat/favicon.svg`).
+
+**SMOKE — two runs, as ordered**
+
+*DARK RUN (env unset) — 17/17 byte-identical.* The still-running workflow
+process (pid 373, started 21:03:43, pre-Bundle-1 code in memory) served as a
+genuine before-baseline, exactly as in Bundle 1. The new build booted on a
+free port and the full 17-probe transcript — status, content-type, Location,
+Set-Cookie and body for each — **diffed empty** against it. Re-run three times
+across the audit, after each fix, and empty every time. `GET /api/auth/logout`
+→ `302 /login`; cookie `cf_session; Path=/`; OAuth `redirect_uri` still
+`https://chat-followuper.replit.app/api/auth/google/callback`; follow-up open
+→ `https://chat-followuper.replit.app/followup/whatsapp`. The SPA did not
+mount (no log line, and `/definitely-not-a-route-xyz` still 404s rather than
+returning index.html).
+
+*LIT RUN (`BASE_PATH=/chat/`, `PUBLIC_URL=https://tools.mobupps.net/chat`, set
+in the shell for the spawned process only, never written to Replit Secrets) —
+35/35 pass.* Main page at `/chat/` 200 html serving the SPA shell; `/chat`
+redirects to `/chat/` and settles in one hop; five deep links
+(`/chat/login`, `/chat/prospects`, `/chat/prospects/42`,
+`/chat/followup/whatsapp`, `/chat/activity`) all hard-load via the catch-all;
+**every rooted reference in the served index.html returns 200 and all are
+under `/chat/`** — zero 404s; API at `/chat/api/*` answers with bodies
+unchanged; the unprefixed origin is correctly not served; an API miss stays a
+404 and is never index.html; logout redirects to `/chat/login`; the cookie is
+`cf_session` at `Path=/chat`.
+
+Two things the LIT run could not prove by HTTP, proved directly instead:
+
+- *The digest link.* Nothing was sent. The real `appConfig` module was bundled
+  with the artifact's own esbuild and run under the cutover env, printing the
+  exact string `followupDigest.ts` composes:
+  `https://tools.mobupps.net/chat/api/followups/open/7?t=<TOKEN>` — the
+  required address, exactly once. Both spellings of `PUBLIC_URL` (with and
+  without the prefix) resolve identically; dark reproduces today's
+  `https://chat-followuper.replit.app/api/followups/open/7`; with the OAuth
+  env var removed the derivation yields
+  `https://tools.mobupps.net/chat/api/auth/google/callback`; with nothing
+  configured it throws the original message. A hostile `BASE_PATH=//evil.example`
+  still collapses to `/evil.example` — the M1-era `normalizeBasePath` guard
+  holds, and no resolved value is protocol-relative.
+- *The API client.* The real chain — `src/lib/config.ts` → `ROUTER_BASE` →
+  `setBaseUrl()` → the orval-generated `getCurrentUser()` → `custom-fetch` —
+  was bundled with `import.meta.env.BASE_URL` defined exactly as Vite defines
+  it, with `fetch` stubbed to record the URL. Dark emits `/api/auth/me` and
+  `/api/healthz`; lit emits `/chat/api/auth/me` and `/chat/api/healthz`. That
+  closes open item 1 end to end.
+
+Only the processes this bundle started were stopped, identified individually
+by their `PORT` in `/proc/<pid>/environ` rather than by pattern. The three
+pre-existing workflows were left running and verified healthy afterwards
+(:8080, :23183, :8081 all 200). Nothing was deployed, restarted or published;
+the mirror sync script was not run.
+
+Note for the record: the OAuth-start probe inserts one row into
+`oauth_nonces` per call, as it did in Bundle 1's smoke. That is the only
+database write this bundle caused; it is ephemeral (10-minute TTL) and no
+schema, migration or row of business data was touched.
+
+**Out-of-scope findings recorded: 2** (open items 6 and 7). Open item 1 is now
+resolved.
 
 ### 2026-07-30 — Bundle 1: URL centralization (CLOSED, ritual clean)
 
