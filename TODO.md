@@ -20,9 +20,12 @@
    Drizzle schema (`lib/db/src/schema/users.ts:96`, last changed in `ce8657b`,
    well before this bundle) declares columns the provisioned Postgres does not
    have. Bundle 1 changed no file under `lib/` and ran no migration, so this
-   predates the bundle. Not fixed here: the hard rules forbid touching database
-   schemas and migrations. Needs a decision from Michael — apply the pending
-   migration, or reconcile the schema.
+   predates the bundle.
+   **UPDATE 2026-07-30 (M1): diagnosis corrected — this is NOT a missing-
+   migration problem and cannot be fixed by applying migrations.** There are
+   zero unapplied migrations; the repo and the database are on two different
+   migration lineages. See the M1 ledger entry below. Blocked pending a
+   decision from Michael.
 
 3. **Stale `.bak` files hold pre-centralization copies of edited files.**
    e.g. `artifacts/api-server/src/routes/index.ts.bak.20260622-170802`,
@@ -231,3 +234,107 @@ into a genuine before-baseline.
 
 **Out-of-scope findings recorded: 4** (see Open items 1–4). Open item 1 is a
 blocker for Bundle 2 and should be read before it starts.
+
+### 2026-07-30 — Maintenance M1: resolve test-gate schema drift (HALTED, nothing applied)
+
+Branch: `maintenance-m1-db-drift`. Ordered scope: apply the unapplied `lib/db`
+migrations to clear the failing test gate.
+
+**HALTED at step 2 of the order. No backup taken, no migration applied, no
+schema touched, no file in `lib/db/` modified.** The order's premise does not
+hold: there are no unapplied migrations, and the one operation that *would*
+change this database drops columns, which the order says to halt on.
+
+**BLAST RADIUS (written before any action, as ordered)**
+
+Intended action was `pnpm --filter @workspace/db run migrate` (`tsx
+src/migrate.ts`) against `DATABASE_URL`. Files that would have been touched:
+`TODO.md`, `.gitignore`, plus a new `db-backup-<ts>.dump`. Behaviors at risk:
+every read and write in the app, since all eight tables sit behind one
+connection pool. Worst realistic failure: a migration that rewrites or drops a
+column destroys live prospect, follow-up, and conversation rows, which no code
+rollback recovers — only the dump would. Rollback path was to be the pg_dump
+from step 4. **None of this was executed; the blast radius stayed at zero.**
+
+**FINDING 1 — there are no unapplied migrations. Applying is a no-op.**
+
+`lib/db/drizzle/` holds 8 migrations (`0000`–`0007`). `drizzle.__drizzle_migrations`
+in the live database holds **22 applied rows**. All 8 repo migrations are
+already recorded as applied, matched by their journal `when` timestamps:
+
+| journal `when` | repo file | recorded in DB |
+|---|---|---|
+| 1777568440999 | 0000_worried_the_anarchist | yes (id 1) |
+| 1777574535662 | 0001_living_mantis | yes (id 2) |
+| 1777585421907 | 0002_broken_toxin | yes (id 3) |
+| 1777983720058 | 0003_confused_tarantula | yes (id 4) |
+| 1778007718041 | 0004_loud_triton | yes (id 5) |
+| 1778339783809 | 0005_early_green_goblin | yes (id 6) |
+| 1778532360720 | 0006_extend_stage_timing_with_doctrine_variant | yes (id 7) |
+| 1778616545760 | 0007_manual_ingest_columns | yes (id 8) |
+
+Drizzle's migrator selects work by comparing journal timestamps against
+`created_at`. All eight are present, so `run migrate` would apply nothing and
+the test would keep failing. Step 5 of the order cannot achieve step 6.
+
+**FINDING 2 — two applied migration files were edited after they ran.**
+
+Comparing the sha256 of each repo migration file against the hash recorded when
+it was applied:
+
+| file | repo sha256 | recorded sha256 | |
+|---|---|---|---|
+| 0001_living_mantis | `f4974a208ca34729…` | `7a37ada64acc4660…` | **MISMATCH** |
+| 0007_manual_ingest_columns | `3929a1c86eac4b3e…` | `6bddb1c57029709c…` | **MISMATCH** |
+
+The other six match exactly. The repo's copy of 0001 and 0007 is no longer what
+ran against this database, so the migration history is not a reliable record of
+how this database was built.
+
+**FINDING 3 — 14 migrations were applied that do not exist in this repo.**
+
+Rows 9–22 of `__drizzle_migrations` have no corresponding file anywhere in the
+workspace (`find` for `_journal.json` and `drizzle/*.sql` returns only
+`lib/db/drizzle`). Rows 9–16 carry suspiciously round `created_at` values
+(1778700000000, 1778780000000, 1778860000000, …), which drizzle-kit does not
+generate — those look hand-authored or written by a different runner. Rows
+17–22 carry realistic timestamps (1783545124180 … 1784106433067).
+
+**FINDING 4 — the two lineages diverge in both directions.**
+
+`users`, repo schema vs live database:
+
+- Declared by the repo, **absent** from the live DB: `microsoft_refresh_token`
+  (this is what fails the test), `slack_bot_token`.
+- Present in the live DB, **absent** from the repo schema (9): `digest_days`,
+  `followups_paused`, `message_template`, `preferred_channel`, `pushover_days`,
+  `pushover_hour_local`, `pushover_quiet_hour_end`, `pushover_quiet_hour_start`,
+  `pushover_user_key`.
+
+Whole tables:
+
+- Repo schema only: `magic_link_tokens`.
+- Live database only: `llm_calls`.
+
+Note `microsoft_refresh_token` is created by `0000_worried_the_anarchist.sql:14`,
+whose hash **matches** and which **is** recorded as applied — yet the column is
+not there. The live `users` table was rebuilt or altered by something outside
+this repo's migration chain. The live database was not built by this lineage.
+
+**Why no reconciliation was attempted:** the only command that would change the
+database to match the repo schema is `drizzle-kit push`, which diffs schema
+against the live DB. Here that diff necessarily **drops the 9 live-only
+columns** (the whole `pushover_*` group among them) and drops `llm_calls`.
+That is a destructive, data-losing operation. The order's step 2 says to halt
+without applying if anything drops. Halted.
+
+**Gates:** not run — nothing changed, so there is nothing to gate. The test gate
+remains failing for the reason above.
+
+**Audit rounds:** none — no diff to audit beyond this ledger entry.
+
+**Smoke:** not run — the app was not touched.
+
+**Out-of-scope findings recorded:** the diagnosis in Open item 2 was corrected
+in place; it previously suggested "apply the pending migration", which this
+investigation proves impossible.
