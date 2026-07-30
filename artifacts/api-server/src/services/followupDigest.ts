@@ -9,6 +9,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
+import { apiPath, requirePublicUrl } from "../lib/appConfig";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -28,16 +29,6 @@ interface DueRow {
   company: string | null;
 }
 
-function appBaseUrl(): string {
-  const u = process.env.APP_PUBLIC_URL;
-  if (!u) {
-    throw new Error(
-      "APP_PUBLIC_URL is not set; required to build follow-up open links.",
-    );
-  }
-  return u.replace(/\/+$/, "");
-}
-
 function escapeHtml(s: string): string {
   const map: Record<string, string> = {
     "&": "&amp;",
@@ -50,11 +41,11 @@ function escapeHtml(s: string): string {
 }
 
 function renderEmail(name: string | null, rows: DueRow[]): string {
-  const base = appBaseUrl();
+  const base = requirePublicUrl();
   const items = rows
     .map((r) => {
       const token = mintOpenToken(r.followupId, r.userId);
-      const url = `${base}/api/followups/open/${r.followupId}?t=${token}`;
+      const url = `${base}${apiPath(`/followups/open/${r.followupId}`)}?t=${token}`;
       const who = escapeHtml(r.prospectName ?? "this prospect");
       const co = r.company ? ` at ${escapeHtml(r.company)}` : "";
       return `<tr>

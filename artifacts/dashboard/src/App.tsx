@@ -19,6 +19,7 @@ import FollowupsPage from "@/pages/followups";
 import ActivityPage from "@/pages/activity";
 import AccountsPage from "@/pages/accounts";
 import NotFound from "@/pages/not-found";
+import { ROUTER_BASE } from "@/lib/config";
 
 const queryClient = new QueryClient();
 
@@ -51,7 +52,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <WouterRouter base={ROUTER_BASE}>
           <Switch>
             <Route path="/login" component={LoginPage} />
             <Route component={ProtectedRoutes} />

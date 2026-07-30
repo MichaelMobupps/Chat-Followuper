@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Mirrors src/services/urlResolver.ts ResolvedUrl + the response shape
@@ -28,7 +29,7 @@ export interface ResolveUrlsResponse {
 export function resolveUrls(
   input: ResolveUrlsInput,
 ): Promise<ResolveUrlsResponse> {
-  return apiFetch<ResolveUrlsResponse>("/api/prospector/resolve-urls", {
+  return apiFetch<ResolveUrlsResponse>(apiPath("/prospector/resolve-urls"), {
     method: "POST",
     body: JSON.stringify(input),
   });

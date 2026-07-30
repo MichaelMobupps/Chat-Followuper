@@ -17,6 +17,7 @@
  * surfacing stay consistent across modules. Don't reinvent the helper.
  */
 import { apiFetch } from "@/lib/api";
+import { apiPath } from "@/lib/config";
 
 // ─────────────────────────────────────────────────────────────────
 // Shared types — mirror the BE wire format
@@ -195,14 +196,14 @@ export function listFollowups(
   if (args.status) params.set("status", args.status);
   if (args.page) params.set("page", String(args.page));
   if (args.perPage) params.set("perPage", String(args.perPage));
-  return req("GET", `/api/followups?${params.toString()}`);
+  return req("GET", apiPath(`/followups?${params.toString()}`));
 }
 
 export function sendNextFollowup(
   prospectId: string,
   channel: SupportedChannel,
 ): Promise<SendNextFollowupResponse> {
-  return req("POST", `/api/prospects/${prospectId}/send-next-followup`, {
+  return req("POST", apiPath(`/prospects/${prospectId}/send-next-followup`), {
     channel,
   });
 }
@@ -211,13 +212,13 @@ export function patchFollowup(
   followupId: number,
   input: PatchFollowupInput,
 ): Promise<{ followup: Followup }> {
-  return req("PATCH", `/api/followups/${followupId}`, input);
+  return req("PATCH", apiPath(`/followups/${followupId}`), input);
 }
 
 export function bulkArchiveFollowups(
   input: BulkArchiveInput,
 ): Promise<BulkArchiveResponse> {
-  return req("POST", "/api/followups/bulk/archive", input);
+  return req("POST", apiPath("/followups/bulk/archive"), input);
 }
 
 export function markProspectReplied(
@@ -226,7 +227,7 @@ export function markProspectReplied(
 ): Promise<MarkRepliedResponse> {
   return req(
     "POST",
-    `/api/prospects/${prospectId}/mark-replied`,
+    apiPath(`/prospects/${prospectId}/mark-replied`),
     repliedAt ? { repliedAt } : {},
   );
 }
@@ -234,11 +235,11 @@ export function markProspectReplied(
 export function archiveProspect(
   prospectId: string,
 ): Promise<ArchiveProspectResponse> {
-  return req("POST", `/api/prospects/${prospectId}/archive`);
+  return req("POST", apiPath(`/prospects/${prospectId}/archive`));
 }
 
 export function bulkPauseProspects(
   input: BulkPauseInput,
 ): Promise<BulkPauseResponse> {
-  return req("POST", "/api/prospects/bulk/pause", input);
+  return req("POST", apiPath("/prospects/bulk/pause"), input);
 }

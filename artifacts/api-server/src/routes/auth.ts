@@ -5,6 +5,7 @@ import {
   SESSION_COOKIE_NAME,
   clearedSessionCookieOptions,
 } from "../lib/session";
+import { appPath } from "../lib/appConfig";
 
 const router: IRouter = Router();
 
@@ -28,7 +29,7 @@ router.post("/auth/logout", (_req, res) => {
 // Clears the cookie and redirects to /login.
 router.get("/auth/logout", (_req, res) => {
   res.clearCookie(SESSION_COOKIE_NAME, clearedSessionCookieOptions());
-  res.redirect(302, "/login");
+  res.redirect(302, appPath("/login"));
 });
 
 export default router;

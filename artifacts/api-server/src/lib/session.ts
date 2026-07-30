@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { COOKIE_PATH } from "./appConfig";
 
 export const SESSION_COOKIE_NAME = "cf_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -102,7 +103,7 @@ export function sessionCookieOptions(): CookieOptions {
     httpOnly: true,
     secure: process.env["NODE_ENV"] === "production",
     sameSite: "lax",
-    path: "/",
+    path: COOKIE_PATH,
     maxAge: SESSION_TTL_SECONDS * 1000,
   };
 }
@@ -112,7 +113,7 @@ export function clearedSessionCookieOptions(): CookieOptions {
     httpOnly: true,
     secure: process.env["NODE_ENV"] === "production",
     sameSite: "lax",
-    path: "/",
+    path: COOKIE_PATH,
     maxAge: 0,
   };
 }

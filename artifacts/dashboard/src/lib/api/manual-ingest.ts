@@ -12,6 +12,7 @@
  * ticket-2-9 once the t.me identifier-shape decision resolves.
  */
 import { apiFetch } from "@/lib/api";
+import { apiPath } from "@/lib/config";
 
 export const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
 export type ManualIngestChannel = (typeof MANUAL_INGEST_CHANNELS)[number];
@@ -59,7 +60,7 @@ export interface ManualIngestProspect {
 
 export function getManualIngestSettings(): Promise<ManualIngestSettings> {
   return apiFetch<ManualIngestSettings>(
-    "/api/users/me/manual-ingest-settings",
+    apiPath("/users/me/manual-ingest-settings"),
   );
 }
 
@@ -67,7 +68,7 @@ export function patchManualIngestSettings(
   input: ManualIngestToggleInput,
 ): Promise<ManualIngestSettings> {
   return apiFetch<ManualIngestSettings>(
-    "/api/users/me/manual-ingest-settings",
+    apiPath("/users/me/manual-ingest-settings"),
     {
       method: "PATCH",
       body: JSON.stringify(input),
@@ -78,7 +79,7 @@ export function patchManualIngestSettings(
 export function postManualIngest(
   input: ManualIngestCreateInput,
 ): Promise<ManualIngestProspect> {
-  return apiFetch<ManualIngestProspect>("/api/prospects/manual-ingest", {
+  return apiFetch<ManualIngestProspect>(apiPath("/prospects/manual-ingest"), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -134,7 +135,7 @@ export function postManualIngestBulk(
   input: ManualIngestBulkInput,
 ): Promise<ManualIngestBulkResponse> {
   return apiFetch<ManualIngestBulkResponse>(
-    "/api/prospects/manual-ingest/bulk",
+    apiPath("/prospects/manual-ingest/bulk"),
     {
       method: "POST",
       body: JSON.stringify(input),

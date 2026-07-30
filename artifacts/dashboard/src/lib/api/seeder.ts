@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Input shape for the research SSE stream.
@@ -30,7 +31,7 @@ export interface CostBreakdown {
  */
 export function buildResearchStreamUrl(input: ResearchInput): string {
   const encoded = encodeURIComponent(JSON.stringify(input));
-  return `/api/prospects/research/stream?input=${encoded}`;
+  return apiPath(`/prospects/research/stream?input=${encoded}`);
 }
 
 /**
@@ -49,7 +50,7 @@ export function generateMessage(
   prospectId: string,
 ): Promise<GenerateMessageResult> {
   return apiFetch<GenerateMessageResult>(
-    `/api/prospects/${prospectId}/generate-message`,
+    apiPath(`/prospects/${prospectId}/generate-message`),
     { method: "POST" },
   );
 }

@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Wraps GET /api/prospects/:id/whatsapp-link and POST
@@ -16,7 +17,7 @@ export interface WhatsappLinkResponse {
 
 export function getWhatsappLink(prospectId: string): Promise<WhatsappLinkResponse> {
   return apiFetch<WhatsappLinkResponse>(
-    `/api/prospects/${prospectId}/whatsapp-link`,
+    apiPath(`/prospects/${prospectId}/whatsapp-link`),
   );
 }
 
@@ -28,7 +29,7 @@ export function recordSendIntent(
   prospectId: string,
   input: SendIntentInput,
 ): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/prospects/${prospectId}/send-intent`, {
+  return apiFetch(apiPath(`/prospects/${prospectId}/send-intent`), {
     method: "POST",
     body: JSON.stringify(input),
   });

@@ -12,6 +12,7 @@ import {
   signSession,
   sessionCookieOptions,
 } from "../lib/session";
+import { appPath } from "../lib/appConfig";
 
 const router: IRouter = Router();
 
@@ -40,7 +41,7 @@ function getAllowedDomains(): string[] {
 }
 
 function loginErrorRedirect(code: string): string {
-  return `/login?error=${encodeURIComponent(code)}`;
+  return `${appPath("/login")}?error=${encodeURIComponent(code)}`;
 }
 
 router.get("/auth/google/start", async (req, res) => {
@@ -214,7 +215,7 @@ router.get("/auth/google/callback", async (req, res) => {
 
     const token = signSession({ userId: user.id, email: user.email });
     res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
-    res.redirect(302, "/");
+    res.redirect(302, appPath("/"));
   } catch (err) {
     req.log?.error({ err }, "google oauth callback failed");
     res.redirect(302, loginErrorRedirect("oauth_callback_failed"));
