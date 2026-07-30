@@ -10,6 +10,7 @@
  * variant-aware critic ticket lands.
  */
 import { apiFetch } from "@/lib/api";
+import { apiPath } from "@/lib/config";
 
 export const DOCTRINE_VARIANTS = [
   "new_insight",
@@ -42,13 +43,13 @@ export interface SequenceConfig {
 export type SequenceConfigPatch = Partial<SequenceConfig>;
 
 export function getSequenceConfig(): Promise<SequenceConfig> {
-  return apiFetch<SequenceConfig>("/api/users/me/sequence-config");
+  return apiFetch<SequenceConfig>(apiPath("/users/me/sequence-config"));
 }
 
 export function patchSequenceConfig(
   input: SequenceConfigPatch,
 ): Promise<SequenceConfig> {
-  return apiFetch<SequenceConfig>("/api/users/me/sequence-config", {
+  return apiFetch<SequenceConfig>(apiPath("/users/me/sequence-config"), {
     method: "PATCH",
     body: JSON.stringify(input),
   });

@@ -7,6 +7,7 @@ import apolloWebhookRouter from "./routes/apolloWebhook";
 import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
+import { API_BASE_PATH, apiPath } from "./lib/appConfig";
 
 const app: Express = express();
 
@@ -37,16 +38,16 @@ app.use(cookieParser());
 // bytes for HMAC signature verification. JSON-parsing in place would
 // destroy the bytes Apollo signed against. The router contains its
 // own express.raw middleware scoped to the webhook path.
-app.use("/api", apolloWebhookRouter);
+app.use(API_BASE_PATH, apolloWebhookRouter);
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Best-effort session loader: populates req.user when a valid session cookie
 // is present. Routes opt-in to authentication via `requireAuth`.
-app.use("/api", loadUser);
+app.use(API_BASE_PATH, loadUser);
 
-app.get("/api/prospects/research/stream", researchStreamRoute);
-app.use("/api", router);
+app.get(apiPath("/prospects/research/stream"), researchStreamRoute);
+app.use(API_BASE_PATH, router);
 
 export default app;

@@ -4,12 +4,12 @@ import { db, followupsTable, prospectsTable } from "@workspace/db";
 import { verifyOpenToken } from "../lib/followupLinkToken";
 import { generateLink } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
+import { absoluteAppUrl } from "../lib/appConfig";
 
 const router: IRouter = Router();
 
 function dashboardFallback(): string {
-  const base = (process.env.APP_PUBLIC_URL ?? "").replace(/\/+$/, "");
-  return `${base}/followup/whatsapp`;
+  return absoluteAppUrl("/followup/whatsapp");
 }
 
 /**

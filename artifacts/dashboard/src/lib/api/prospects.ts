@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Mirrors the server's ProspectBrief interface (services/prospectResearch.ts).
@@ -127,11 +128,11 @@ export type UpdateProspectInput = Partial<
 };
 
 export function getProspect(id: string): Promise<Prospect> {
-  return apiFetch<Prospect>(`/api/prospects/${id}`);
+  return apiFetch<Prospect>(apiPath(`/prospects/${id}`));
 }
 
 export function createProspect(input: CreateProspectInput): Promise<Prospect> {
-  return apiFetch<Prospect>("/api/prospects", {
+  return apiFetch<Prospect>(apiPath("/prospects"), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -141,14 +142,14 @@ export function updateProspect(
   id: string,
   input: UpdateProspectInput,
 ): Promise<Prospect> {
-  return apiFetch<Prospect>(`/api/prospects/${id}`, {
+  return apiFetch<Prospect>(apiPath(`/prospects/${id}`), {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 export function deleteProspect(id: string): Promise<void> {
-  return apiFetch<void>(`/api/prospects/${id}`, { method: "DELETE" });
+  return apiFetch<void>(apiPath(`/prospects/${id}`), { method: "DELETE" });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -228,6 +229,6 @@ export function listProspects(
   if (params.sortDir) search.set("sortDir", params.sortDir);
 
   const qs = search.toString();
-  const url = qs ? `/api/prospects?${qs}` : "/api/prospects";
+  const url = qs ? apiPath(`/prospects?${qs}`) : apiPath("/prospects");
   return apiFetch<ListProspectsResponse>(url);
 }

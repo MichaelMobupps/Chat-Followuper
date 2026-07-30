@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { apiPath } from "@/lib/config";
 
 const ERROR_MESSAGES: Record<string, string> = {
   domain_not_allowed:
@@ -42,7 +43,7 @@ export default function LoginPage() {
   function handleSignIn() {
     // Browser navigates the top frame to the OAuth start endpoint, which
     // 302-redirects to Google. Cannot use fetch() here.
-    window.location.assign("/api/auth/google/start");
+    window.location.assign(apiPath("/auth/google/start"));
   }
 
   const errorMessage =

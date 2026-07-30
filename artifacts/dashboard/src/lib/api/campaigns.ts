@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Channel enum mirrors the api-server's accepted values.
@@ -47,17 +48,17 @@ export function listCampaigns(
   opts: { includeArchived?: boolean } = {},
 ): Promise<Campaign[]> {
   const qs = opts.includeArchived ? "?includeArchived=true" : "";
-  return apiFetch<Campaign[]>(`/api/campaigns${qs}`);
+  return apiFetch<Campaign[]>(apiPath(`/campaigns${qs}`));
 }
 
 export function getCampaign(id: string): Promise<CampaignDetail> {
-  return apiFetch<CampaignDetail>(`/api/campaigns/${id}`);
+  return apiFetch<CampaignDetail>(apiPath(`/campaigns/${id}`));
 }
 
 export function createCampaign(
   input: CreateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>("/api/campaigns", {
+  return apiFetch<Campaign>(apiPath("/campaigns"), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -67,26 +68,26 @@ export function updateCampaign(
   id: string,
   input: UpdateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}`, {
+  return apiFetch<Campaign>(apiPath(`/campaigns/${id}`), {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 export function archiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}/archive`, {
+  return apiFetch<Campaign>(apiPath(`/campaigns/${id}/archive`), {
     method: "POST",
   });
 }
 
 export function unarchiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(`/api/campaigns/${id}/unarchive`, {
+  return apiFetch<Campaign>(apiPath(`/campaigns/${id}/unarchive`), {
     method: "POST",
   });
 }
 
 export function deleteCampaign(id: string): Promise<void> {
-  return apiFetch<void>(`/api/campaigns/${id}`, {
+  return apiFetch<void>(apiPath(`/campaigns/${id}`), {
     method: "DELETE",
   });
 }

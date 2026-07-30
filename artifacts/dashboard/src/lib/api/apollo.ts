@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "../config";
 
 /**
  * Mirrors src/services/apollo.ts ApolloOrgSummary.
@@ -96,7 +97,7 @@ export interface SearchPeopleInput {
 export function searchOrg(
   input: SearchOrgInput,
 ): Promise<{ orgs: ApolloOrgSummary[] }> {
-  return apiFetch("/api/apollo/search-org", {
+  return apiFetch(apiPath("/apollo/search-org"), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -105,7 +106,7 @@ export function searchOrg(
 export function searchPeople(
   input: SearchPeopleInput,
 ): Promise<{ people: ApolloPersonSummary[] }> {
-  return apiFetch("/api/apollo/search-people", {
+  return apiFetch(apiPath("/apollo/search-people"), {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -114,7 +115,7 @@ export function searchPeople(
 export function revealContact(
   personId: string,
 ): Promise<{ contact: ApolloRevealedContact; bookkeepingWarning?: string }> {
-  return apiFetch("/api/apollo/reveal", {
+  return apiFetch(apiPath("/apollo/reveal"), {
     method: "POST",
     body: JSON.stringify({ personId }),
   });
@@ -147,7 +148,7 @@ export function requestPhoneReveal(
   input: RequestPhoneRevealInput,
 ): Promise<RequestPhoneRevealResponse> {
   return apiFetch<RequestPhoneRevealResponse>(
-    "/api/apollo/request-phone-reveal",
+    apiPath("/apollo/request-phone-reveal"),
     {
       method: "POST",
       body: JSON.stringify(input),
