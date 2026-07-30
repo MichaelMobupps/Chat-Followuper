@@ -49,3 +49,6 @@ Thumbs.db
 .local/
 attached_assets/
 *-snapshot.tar.gz
+
+# Database backups taken before migrations (never commit these)
+db-backup-*

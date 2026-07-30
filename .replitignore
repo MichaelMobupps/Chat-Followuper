@@ -3,3 +3,7 @@
 
 # No need to store the pnpm store twice.
 .local
+
+# Pre-migration database dumps. They contain real row data and must never be
+# baked into a deployed image.
+db-backup-*
