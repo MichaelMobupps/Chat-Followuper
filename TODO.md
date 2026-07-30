@@ -20,9 +20,14 @@
    Drizzle schema (`lib/db/src/schema/users.ts:96`, last changed in `ce8657b`,
    well before this bundle) declares columns the provisioned Postgres does not
    have. Bundle 1 changed no file under `lib/` and ran no migration, so this
-   predates the bundle. Not fixed here: the hard rules forbid touching database
-   schemas and migrations. Needs a decision from Michael — apply the pending
-   migration, or reconcile the schema.
+   predates the bundle.
+   **RESOLVED 2026-07-30 by Maintenance M1.** The diagnosis was corrected
+   first: this was never a missing-migration problem — there were zero
+   unapplied migrations, and the repo and database are on two different
+   lineages. Fixed by hand-writing one additive-only migration
+   (`0008_additive_schema_reconciliation`) that adds the five items the repo
+   schema declared and the live database lacked. Test gate now passes 3/3.
+   The underlying lineage divergence is **not** resolved — see open item 5.
 
 3. **Stale `.bak` files hold pre-centralization copies of edited files.**
    e.g. `artifacts/api-server/src/routes/index.ts.bak.20260622-170802`,
@@ -36,6 +41,54 @@
    which the artifact runner injects from `artifact.toml`. Running
    `pnpm run build` without them fails at config load. Pre-existing; the
    working invocation is `PORT=23183 BASE_PATH=/ pnpm run build`.
+
+5. **DEFERRED: investigate the divergent migration lineage.** (M1 option 4,
+   deferred by decision on 2026-07-30.)
+   M1 fixed the *symptom* additively. The *cause* is untouched: this database
+   was not built by this repo's migration chain, and nobody knows what built
+   it. Until that is understood, `drizzle-kit generate` and `push` cannot be
+   trusted in this repo, and the same class of drift will recur.
+
+   Three findings to chase:
+
+   **(a) Two applied migration files were edited after they ran.** sha256 of
+   the file on disk vs the hash recorded when it was applied:
+
+   | file | repo sha256 | recorded sha256 | |
+   |---|---|---|---|
+   | 0000_worried_the_anarchist | `26c32a9e61e3019a…` | `26c32a9e61e3019a…` | match |
+   | 0001_living_mantis | `f4974a208ca34729…` | `7a37ada64acc4660…` | **MISMATCH** |
+   | 0002_broken_toxin | `358aa53154b39eed…` | `358aa53154b39eed…` | match |
+   | 0003_confused_tarantula | `1750f3b3343a78bc…` | `1750f3b3343a78bc…` | match |
+   | 0004_loud_triton | `e1d77d9333df2dd8…` | `e1d77d9333df2dd8…` | match |
+   | 0005_early_green_goblin | `b956e4d4789ce279…` | `b956e4d4789ce279…` | match |
+   | 0006_extend_stage_timing_with_doctrine_variant | `b69a488d423ccf00…` | `b69a488d423ccf00…` | match |
+   | 0007_manual_ingest_columns | `3929a1c86eac4b3e…` | `6bddb1c57029709c…` | **MISMATCH** |
+
+   **(b) 14 applied migrations have no file in this repo.** Rows 9–22 of
+   `drizzle.__drizzle_migrations`. Rows 9–16 carry implausibly round
+   `created_at` values (1778700000000, 1778780000000, 1778860000000,
+   1778940000000, 1779020000000, 1779100000000, 1779180000000, 1779260000000)
+   which drizzle-kit does not generate — hand-authored, or written by another
+   runner. Rows 17–22 carry realistic timestamps (1783545124180, 1783546850280,
+   1783626809056, 1784103497961, 1784104112221, 1784106433067). A `find` across
+   the whole workspace turns up no other `_journal.json` or `drizzle/*.sql`, so
+   those files are not here at all.
+
+   **(c) 22 live-only items the repo schema does not describe**, left
+   deliberately untouched by M1 and still undescribed: table `llm_calls`
+   (12 columns), `daily_usage.pushover_sent`, and nine `users` columns
+   (`pushover_days`, `pushover_hour_local`, `pushover_quiet_hour_start`,
+   `pushover_quiet_hour_end`, `pushover_user_key`, `digest_days`,
+   `followups_paused`, `message_template`, `preferred_channel`). The
+   `pushover_*` group is notable: Bundle 1 searched for Pushover callbacks and
+   found no Pushover code in either artifact, yet the database carries a full
+   Pushover configuration surface. That is a strong hint that this database was
+   shaped by a **different, more advanced version of this application**.
+
+   Suggested first step: ask whoever ran Replit Agent on this project, and
+   check whether a sibling repo or an older Repl holds the missing 14
+   migrations.
 
 ## External registrations discovered
 
@@ -231,3 +284,235 @@ into a genuine before-baseline.
 
 **Out-of-scope findings recorded: 4** (see Open items 1–4). Open item 1 is a
 blocker for Bundle 2 and should be read before it starts.
+
+### 2026-07-30 — Maintenance M1: resolve test-gate schema drift (HALTED, nothing applied)
+
+Branch: `maintenance-m1-db-drift`. Ordered scope: apply the unapplied `lib/db`
+migrations to clear the failing test gate.
+
+**HALTED at step 2 of the order. No backup taken, no migration applied, no
+schema touched, no file in `lib/db/` modified.** The order's premise does not
+hold: there are no unapplied migrations, and the one operation that *would*
+change this database drops columns, which the order says to halt on.
+
+**BLAST RADIUS (written before any action, as ordered)**
+
+Intended action was `pnpm --filter @workspace/db run migrate` (`tsx
+src/migrate.ts`) against `DATABASE_URL`. Files that would have been touched:
+`TODO.md`, `.gitignore`, plus a new `db-backup-<ts>.dump`. Behaviors at risk:
+every read and write in the app, since all eight tables sit behind one
+connection pool. Worst realistic failure: a migration that rewrites or drops a
+column destroys live prospect, follow-up, and conversation rows, which no code
+rollback recovers — only the dump would. Rollback path was to be the pg_dump
+from step 4. **None of this was executed; the blast radius stayed at zero.**
+
+**FINDING 1 — there are no unapplied migrations. Applying is a no-op.**
+
+`lib/db/drizzle/` holds 8 migrations (`0000`–`0007`). `drizzle.__drizzle_migrations`
+in the live database holds **22 applied rows**. All 8 repo migrations are
+already recorded as applied, matched by their journal `when` timestamps:
+
+| journal `when` | repo file | recorded in DB |
+|---|---|---|
+| 1777568440999 | 0000_worried_the_anarchist | yes (id 1) |
+| 1777574535662 | 0001_living_mantis | yes (id 2) |
+| 1777585421907 | 0002_broken_toxin | yes (id 3) |
+| 1777983720058 | 0003_confused_tarantula | yes (id 4) |
+| 1778007718041 | 0004_loud_triton | yes (id 5) |
+| 1778339783809 | 0005_early_green_goblin | yes (id 6) |
+| 1778532360720 | 0006_extend_stage_timing_with_doctrine_variant | yes (id 7) |
+| 1778616545760 | 0007_manual_ingest_columns | yes (id 8) |
+
+Drizzle's migrator selects work by comparing journal timestamps against
+`created_at`. All eight are present, so `run migrate` would apply nothing and
+the test would keep failing. Step 5 of the order cannot achieve step 6.
+
+**FINDING 2 — two applied migration files were edited after they ran.**
+
+Comparing the sha256 of each repo migration file against the hash recorded when
+it was applied:
+
+| file | repo sha256 | recorded sha256 | |
+|---|---|---|---|
+| 0001_living_mantis | `f4974a208ca34729…` | `7a37ada64acc4660…` | **MISMATCH** |
+| 0007_manual_ingest_columns | `3929a1c86eac4b3e…` | `6bddb1c57029709c…` | **MISMATCH** |
+
+The other six match exactly. The repo's copy of 0001 and 0007 is no longer what
+ran against this database, so the migration history is not a reliable record of
+how this database was built.
+
+**FINDING 3 — 14 migrations were applied that do not exist in this repo.**
+
+Rows 9–22 of `__drizzle_migrations` have no corresponding file anywhere in the
+workspace (`find` for `_journal.json` and `drizzle/*.sql` returns only
+`lib/db/drizzle`). Rows 9–16 carry suspiciously round `created_at` values
+(1778700000000, 1778780000000, 1778860000000, …), which drizzle-kit does not
+generate — those look hand-authored or written by a different runner. Rows
+17–22 carry realistic timestamps (1783545124180 … 1784106433067).
+
+**FINDING 4 — the two lineages diverge in both directions.**
+
+`users`, repo schema vs live database:
+
+- Declared by the repo, **absent** from the live DB: `microsoft_refresh_token`
+  (this is what fails the test), `slack_bot_token`.
+- Present in the live DB, **absent** from the repo schema (9): `digest_days`,
+  `followups_paused`, `message_template`, `preferred_channel`, `pushover_days`,
+  `pushover_hour_local`, `pushover_quiet_hour_end`, `pushover_quiet_hour_start`,
+  `pushover_user_key`.
+
+Whole tables:
+
+- Repo schema only: `magic_link_tokens`.
+- Live database only: `llm_calls`.
+
+Note `microsoft_refresh_token` is created by `0000_worried_the_anarchist.sql:14`,
+whose hash **matches** and which **is** recorded as applied — yet the column is
+not there. The live `users` table was rebuilt or altered by something outside
+this repo's migration chain. The live database was not built by this lineage.
+
+**Why no reconciliation was attempted:** the only command that would change the
+database to match the repo schema is `drizzle-kit push`, which diffs schema
+against the live DB. Here that diff necessarily **drops the 9 live-only
+columns** (the whole `pushover_*` group among them) and drops `llm_calls`.
+That is a destructive, data-losing operation. The order's step 2 says to halt
+without applying if anything drops. Halted.
+
+**Gates:** not run — nothing changed, so there is nothing to gate. The test gate
+remains failing for the reason above.
+
+**Audit rounds:** none — no diff to audit beyond this ledger entry.
+
+**Smoke:** not run — the app was not touched.
+
+**Out-of-scope findings recorded:** the diagnosis in Open item 2 was corrected
+in place; it previously suggested "apply the pending migration", which this
+investigation proves impossible.
+
+### 2026-07-30 — Maintenance M1 (resumed): additive-only schema reconciliation (CLOSED, ritual clean)
+
+Branch: `maintenance-m1-db-drift`. Resumed after the halt above, on Michael's
+decision to take option 1 (additive-only) plus record-keeping.
+
+**BLAST RADIUS (written before the apply)**
+
+Files touched: `lib/db/drizzle/0008_additive_schema_reconciliation.sql` (new),
+`lib/db/drizzle/meta/_journal.json`, `.gitignore`, `.replitignore`, `TODO.md`.
+**No application code and no schema source touched** — verified by
+`git diff --stat -- artifacts/ lib/db/src/` being empty at close.
+Behaviors at risk: every read and write in the app, since one migration runs
+against the single live database behind all eight tables. Worst realistic
+failure: a statement that rewrites or drops a column destroys live prospect,
+follow-up and conversation rows, which no code rollback recovers.
+Rollback path: `db-backup-20260730-213332.dump` (pg_dump custom format, 40K,
+84 objects, verified readable with `pg_restore --list` before applying), plus
+the branch itself for the file changes.
+
+**SCOPE CORRECTION (found before applying)**
+
+The order enumerated three items. The full column-level diff — which the
+earlier halt report had not done for `prospects` — showed **five**:
+
+| item | in original order | |
+|---|---|---|
+| `users.microsoft_refresh_token` | yes | |
+| `users.slack_bot_token` | yes | |
+| `magic_link_tokens` table | yes | |
+| `prospects.teams_email` | **no** | found by the full diff |
+| `prospects.slack_user_id` | **no** | found by the full diff |
+
+The two extras were not cosmetic: `db.select().from(prospectsTable)` — the
+query shape used by `fetchOwnedProspect` (`routes/prospects.ts:398`),
+`generateMessage.ts:98` and `followups.ts:327,439,486` — failed against the
+live database, so `GET/PATCH/DELETE /api/prospects/:id`, `generate-message`
+and `send-next-followup` were returning 500s. Confirmed by running the exact
+query read-only before any change. Michael chose to include all five.
+
+**WHAT SHIPPED**
+
+One hand-written migration, six statements, every one `IF NOT EXISTS`:
+
+- `ALTER TABLE users ADD COLUMN microsoft_refresh_token text` (nullable)
+- `ALTER TABLE users ADD COLUMN slack_bot_token text` (nullable)
+- `ALTER TABLE prospects ADD COLUMN teams_email text` (nullable)
+- `ALTER TABLE prospects ADD COLUMN slack_user_id text` (nullable)
+- `CREATE TABLE magic_link_tokens` (8 columns, PK, unique on token, FK to
+  users ON DELETE CASCADE)
+- `CREATE INDEX magic_link_tokens_token_idx`
+
+Nothing dropped, renamed, retyped or rewritten. The 22 live-only items were
+deliberately left alone.
+
+**VERIFICATION BEFORE APPLYING**
+
+An automated checker parsed the migration statement by statement and rejected
+DROP / RENAME / TRUNCATE / DELETE FROM / UPDATE…SET / INSERT INTO /
+ALTER COLUMN / SET DATA TYPE / ADD COLUMN without IF NOT EXISTS / ADD COLUMN
+NOT NULL without DEFAULT. Result: 6 statements, 0 non-additive. The checker
+was itself self-tested against three known-destructive statements and rejected
+all three, so the pass is not vacuous.
+
+One false positive was caught and corrected during this step: the first
+checker flagged the `CREATE TABLE` because `ON DELETE cascade` / `ON UPDATE no
+action` matched a naive DML keyword scan. Those are foreign-key referential
+actions on the new table, not DML. The **checker** was tightened; the
+migration was not weakened.
+
+**GATES — all three pass, for the first time in this project's recent history**
+
+- Typecheck — **PASS** (4 projects).
+- Tests — **PASS, 3/3** (`lib/db` vitest). Previously 0/3 with a hard failure.
+  This was the whole point of M1.
+- Build — **PASS** (`PORT=23183 BASE_PATH=/ pnpm run build`).
+
+**GODLIKE AUDIT — 4 rounds, closed on a fully clean round**
+
+- Round 1 (diff, data preservation): no defects. Confirmed the dump is
+  gitignored and untracked, `magic_link_tokens` is inert (no app code uses it
+  yet), and row counts survived intact (users 1, prospects 1, followups 1,
+  action_logs 119, daily_usage 4, oauth_nonces 7).
+- Round 2 (type fidelity): no defects. The earlier diff compared column *names*
+  only, so this round compared types, nullability, defaults, constraints and
+  indexes of every created object against the Drizzle schema. All exact:
+  `serial` PK, `uuid` FK with ON DELETE CASCADE, `timestamptz` throughout,
+  `created_at` defaulting to `now()`, unique on `token`, the token index
+  present, and all four added columns `text` / nullable.
+- Round 3: **1 in-scope finding, fixed.** `.replitignore` did not exclude
+  `db-backup-*`, so a future publish would have baked a full database dump —
+  real user, prospect and action-log rows — into the deployed image. The dump
+  is my own artifact, so this was in scope. Added the exclusion.
+- Round 4: clean. Re-verified the additive check still passes, journal and SQL
+  files agree (9 entries, 9 files), the dump is excluded from both git and the
+  deploy image, and no application or schema source was touched.
+
+**SMOKE**
+
+- The three previously-failing queries now succeed: `select ALL from prospects`
+  (was the live 500), `select ALL from users`, and `select ALL from
+  magic_link_tokens` (new, 0 rows).
+- Post-migration schema diff: **0 repo-declared items missing from live** (was
+  12); **22 live-only items still preserved**.
+- api-server booted clean on a free port (`Server listening`, no errors);
+  `/api/health` and `/api/healthz` 200, `/api/auth/me` and `/api/campaigns`
+  401, `/api/auth/logout` 302 → `/login` (Bundle 1's centralization still
+  intact). Stopped only the process this order started; the pre-existing
+  workflow was left running and verified healthy afterwards.
+- Migration recorded as `drizzle.__drizzle_migrations` id 23,
+  created_at 1785447358140.
+
+**DATABASE TOUCHED**
+
+`postgres@helium:5432/heliumdb`, `sslmode=disable` — the workspace-local
+Postgres from the `postgresql-16` module in `.replit`. Used by the app, the
+tests, the migrator and drizzle-kit alike, all via `DATABASE_URL`. Evidence
+that this is **not** the deployment's database: an in-container host, SSL
+disabled, and single-digit row counts. **Not proof** — the deployment's
+environment is not visible from the workspace. Confirm before assuming
+production carries this fix; production may still have the original drift.
+
+**Out-of-scope findings recorded: 1** (open item 5 — the divergent migration
+lineage, deferred by decision). Open item 2 is now resolved.
+
+**Backup retention:** `db-backup-20260730-213332.dump` is left in the project
+root as the rollback path. It is excluded from git and from deploy images but
+contains real row data — delete it once M1 is confirmed settled.
