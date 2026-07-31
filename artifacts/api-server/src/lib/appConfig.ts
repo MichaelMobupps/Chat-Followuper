@@ -40,6 +40,22 @@ export const IS_PREFIXED: boolean = resolvers.PREFIX !== "";
 /** Mount point of the API router. "/api" at the default base. */
 export const API_BASE_PATH: string = resolvers.API_BASE_PATH;
 
+/**
+ * The API mount the *platform* probes, which is not affected by BASE_PATH.
+ *
+ * `artifacts/api-server/.replit-artifact/artifact.toml` declares
+ * `[services.production.health.startup] path = "/api/healthz"` — a literal, in
+ * a file the artifact tooling owns and that cannot read an env var. So the
+ * startup health check asks for `/api/healthz` whatever BASE_PATH says, while
+ * API_BASE_PATH moves to `/chat/api` the moment BASE_PATH is set. Without a
+ * mount here a prefixed deployment would fail its own startup probe.
+ *
+ * This constant is deliberately not built from `appPath()`: its whole job is
+ * to be the address in that TOML file, unmoved by configuration. If the health
+ * path in artifact.toml ever changes, change this with it.
+ */
+export const PLATFORM_API_BASE_PATH: string = "/api";
+
 /** Path scope for this app's cookies. "/" at the default base. */
 export const COOKIE_PATH: string = resolvers.COOKIE_PATH;
 

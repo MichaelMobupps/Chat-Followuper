@@ -52,6 +52,14 @@
    which the artifact runner injects from `artifact.toml`. Running
    `pnpm run build` without them fails at config load. Pre-existing; the
    working invocation is `PORT=23183 BASE_PATH=/ pnpm run build`.
+   **PARTLY RESOLVED 2026-07-31 by CP1.** `BASE_PATH` is no longer required —
+   it defaults to `/`, which is what let its `artifact.toml` pin be removed.
+   `PORT` is still required, so the bare invocation still fails; the working
+   one is now `PORT=23183 pnpm run build`. Making `PORT` optional was not in
+   CP1's scope: it is only used by `server`/`preview`, never by a build, so a
+   build requiring it is pure friction — but it is also the one thing keeping
+   a mistyped port from silently binding somewhere else in dev, so the change
+   deserves its own decision rather than a drive-by.
 
 5. **DEFERRED: investigate the divergent migration lineage.** (M1 option 4,
    deferred by decision on 2026-07-30.)
@@ -152,6 +160,17 @@
    system-managed (`replit.md`: "handled by the artifact tooling, not by
    hand"). The tooling may rewrite or revert this file on its own schedule.
    Re-check the line is still there immediately before cutover.
+   **Re-checked 2026-07-31 by CP1's lineage check: still there.** It survived
+   the `4d28466` Replit deployment commit and a full workspace restart, and
+   CP1 changed nothing in that file — its `git diff` is empty. CP1 also
+   observed the other half of the tooling's behavior: editing the
+   *dashboard's* artifact.toml did not restart that service, so these files
+   appear to be read passively rather than watched. One more re-check
+   immediately before cutover is still the right move.
+   **And one addition to the "check `/chat/api/healthz` first" advice:** since
+   CP1, `/api/healthz` answers too, on both sides of the switch. If the
+   prefixed health path 404s but the unprefixed one answers, the app is up and
+   the *router* is the problem; if neither answers, the app never started.
 
 7. **The dashboard's production static serving is bypassed under a prefix.**
    Consequence of item 6 and of the decision that the api-server serves the
@@ -177,6 +196,75 @@
    rollback instant — unset the env vars and `/` is correct again. Retire or
    redirect the `/` service only after the prefixed address has run quietly,
    per the roadmap's two-day rule.
+
+   **Mechanism corrected 2026-07-31 by CP1.** The conclusion above is right;
+   the reason given for it is not. At `/` the assets **do** resolve: the built
+   `index.html` references `/chat/assets/…`, and `/chat` is claimed by the
+   api-server (C1), whose `express.static` serves them correctly — C1 verified
+   the router hands `/chat/*` to the api-server on whole-segment matches. So
+   the shell and its assets both load at `/`. What breaks is one level up: the
+   SPA boots with a wouter router base of `/chat` while `window.location` is
+   `/`, so no route matches and the page renders empty. Same conclusion — only
+   the prefixed address is correct — but if anyone debugs a blank page at `/`
+   after cutover, it is a router-base mismatch, not a 404 storm.
+
+8. **CUTOVER: once `BASE_PATH` is set, the whole unprefixed `/api` surface
+   404s except health.** (Found by CP1, audit round 2. Outside its scope,
+   which was the three named findings.)
+   Verified against the LIT run: with `BASE_PATH=/chat/`, `/api/healthz` and
+   `/api/health` answer 200 — that is CP1's finding-1 mount, and it is
+   deliberate — while `/api/auth/me`, `/api/prospects`,
+   `/api/auth/google/start` and `/api/followups/open/:id` all return 404,
+   because the API router now sits at `/chat/api`.
+
+   That is correct and expected for anything the dashboard calls, since the
+   dashboard calls the prefixed paths. It matters for exactly one surface:
+   **`/api/followups/open/:id` is the link already sitting in reps' inboxes.**
+   Every digest email sent so far contains
+   `https://chat-followuper.replit.app/api/followups/open/<id>?t=<token>`.
+   The moment `BASE_PATH` goes on, that URL 404s — mail that cannot be
+   recalled, pointing at a dead path. This is the concrete mechanism behind
+   external registration 3 below, which recorded the risk but not how it
+   fires.
+
+   Three ways to handle it, to be decided at cutover, not now: (a) make the old
+   address a permanent redirect that preserves the path — the roadmap's step 7
+   already calls for this, and it is the only option that fixes already-sent
+   mail; (b) mount `followupOpen` unprefixed the way CP1 mounted health, which
+   is a two-line change but widens the "unmoved by configuration" surface from
+   a health probe to a token-authenticated redirect and should not be done
+   casually; (c) accept the breakage for links older than the cutover. Note
+   that (a) is the only one that survives retiring this origin entirely.
+
+9. **`artifacts/mockup-sandbox/vite.config.ts` has the same unvalidated
+   `base` that CP1 fixed in the dashboard.** (Found by CP1, audit round 3.)
+   `vite.config.ts:22-31` reads `process.env.BASE_PATH` and passes it straight
+   to `base`, with no validation — the exact script-injection path CP1's
+   finding 3 closed. Left untouched: CP1's step 5 names the dashboard's build
+   config, and mockup-sandbox is a different artifact (a design canvas
+   template, per `replit.md`, not part of the app).
+   Reachability is currently nil: its `artifact.toml` pins
+   `BASE_PATH = "/__mockup"` in its own `[services.env]`, which beats the
+   environment, so a workspace-level `BASE_PATH` cannot reach it. That pin is
+   the mirror image of the one CP1 removed from the dashboard — here it is
+   load-bearing, because this artifact really does always live at `/__mockup`.
+   Fix it if mockup-sandbox is ever promoted past template status, or when a
+   sibling app's canvas is migrated.
+
+10. **An unmatched API path returns an HTML 404, not a JSON one.**
+    (Found by CP1, smoke. Pre-existing; not introduced by any bundle.)
+    `GET /api/<unknown>` returns Express's default
+    `text/html` `Cannot GET …` page, dark and lit alike. Bundle 2's ledger
+    described this as "a JSON 404", and the CP1 order asked to verify one;
+    both were describing the property that actually holds and actually
+    matters — that the SPA catch-all never answers an API miss with
+    `index.html`, which is verified and true. A client that parses every
+    response as JSON still gets a parse error rather than a typed error body.
+    Not fixed here: adding a JSON 404 handler over `API_BASE_PATH` would
+    change the dark response, so it cannot ship inside an order whose whole
+    premise is that dark stays byte-identical. It wants its own small bundle,
+    and it should land **before** the cutover if it lands at all, so the
+    change is observed at the old address rather than blamed on the new one.
 
 ## External registrations discovered
 
@@ -218,6 +306,11 @@ registers is untouched.
    already in reps' inboxes. Read (now via the config module) at
    `artifacts/api-server/src/services/followupDigest.ts:44` and
    `artifacts/api-server/src/routes/followupOpen.ts:12`.
+   **CP1 update:** the stranding is not hypothetical and does not require
+   changing this variable at all — simply setting `BASE_PATH` moves the API
+   off `/api`, so the `…/api/followups/open/<id>?t=<token>` links already in
+   inboxes 404 on the origin they were sent for. Verified in CP1's LIT run.
+   See open item 8 for the three ways out.
 
 Searched for and **not found**: Telegram bot webhook registration (Telegram is
 deep-link only via `t.me`, no bot token, no `setWebhook`), Pushover callbacks
@@ -226,6 +319,362 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-07-31 — Cutover prep CP1: three sibling-app findings (CLOSED, ritual clean)
+
+Branch: `cutover-cp1-prep`. Ordered scope: the bundles in this repo predate
+three findings made later on sibling apps. Apply all three, each dark by
+construction — (1) the platform startup health check must answer regardless of
+`BASE_PATH`, because unsetting the env vars is the rollback and the rolled-back
+state must stay healthy; (2) the dashboard's `BASE_PATH` must not be pinned in
+`artifact.toml` or the deployment environment can never set it; (3) the
+dashboard's build config stamps `BASE_PATH` into asset URLs unvalidated, which
+is a script-injection path.
+
+**LINEAGE CHECK (before any edit)**
+
+- **Git.** Working tree clean. `HEAD` = `main` = `4d28466`, which descends from
+  `snapshot-2026-07-30`. All four prior branches (`bundle-1-url-centralization`,
+  `bundle-2-base-path`, `maintenance-m1-db-drift`, `cutover-c1-artifact-routing`)
+  are ancestors of `main`. `origin/main` is one commit behind at `564ee85` — the
+  Replit deployment commit `4d28466` ("Published your App", `.replit` +
+  `CLAUDE_CODE_BUNDLE2.md`) was never pushed. CP1's push will carry it.
+- **C1's change survived that deployment commit.** `artifacts/api-server/.replit-artifact/artifact.toml`
+  still reads `paths = ["/api", "/chat"]`. The system-managed-file risk C1
+  recorded has not fired.
+- **Bundle 2's invariants hold.** `basePath.ts` and `basePath.test.ts` are still
+  byte-identical between the two artifacts (`diff` empty in both cases), and
+  `routes/spa.ts` / `dashboard/src/lib/config.ts` are present.
+- **The Bundle 1/2 baseline process is GONE.** Those bundles diffed against
+  pid 373, which had pre-Bundle-1 code in memory. This workspace restarted at
+  2026-07-31 18:37; the api-server now running on `:8080` (pid 362) was built
+  from `main` at boot. It is therefore a valid **`main` baseline** — which is
+  exactly what CP1's dark run must match — but it is no longer a pre-Bundle-1
+  baseline, and nothing in this workspace can produce one again. The 17-probe
+  transcript was re-recorded from it before any edit and is the recorded
+  baseline for this order.
+- **Migration lineage** (open item 5) is untouched and still deferred. This
+  order goes nowhere near `lib/db`.
+- **Env lineage.** The running api-server has `BASE_PATH` and `PUBLIC_URL`
+  unset (`APP_PUBLIC_URL` only) — dark. The running dashboard Vite server has
+  `BASE_PATH=/` injected from its `artifact.toml`, which is the pin step 4
+  removes.
+
+**BLAST RADIUS (written before any edit)**
+
+Files to be touched (9):
+
+- `artifacts/api-server/src/app.ts` — mount the health router a second time, at
+  the literal unprefixed API base
+- `artifacts/api-server/src/lib/appConfig.ts` — the literal-base constant, tied
+  by comment to `artifact.toml`'s health path
+- `artifacts/api-server/src/lib/basePath.ts` — harden `normalizeBasePath`
+- `artifacts/dashboard/src/lib/basePath.ts` — the byte-identical mirror
+- `artifacts/api-server/src/lib/basePath.test.ts` — pin the hardened behavior
+- `artifacts/dashboard/src/lib/basePath.test.ts` — the byte-identical mirror
+- `artifacts/dashboard/vite.config.ts` — default `BASE_PATH` to `/` when unset;
+  resolve `base` through the shared validator instead of stamping it verbatim
+- `artifacts/dashboard/.replit-artifact/artifact.toml` — delete the single line
+  `BASE_PATH = "/"` from the unscoped `[services.env]`
+- `TODO.md` — this entry
+
+Files deliberately NOT touched: `artifacts/api-server/.replit-artifact/artifact.toml`
+(step 2 is **already satisfied** — C1 made `paths = ["/api", "/chat"]`, so the
+additive claim exists and re-editing it would violate "change nothing else");
+its `[services.production.health.startup] path = "/api/healthz"` (step 3 says
+leave it); `artifacts/mockup-sandbox/.replit-artifact/artifact.toml` and its
+`vite.config.ts` (a different artifact, out of scope — see the finding below);
+every generated file, `lib/api-spec/orval.config.ts`, `lib/db`, migrations,
+secrets, `.replit`, `pnpm-lock.yaml`, `package.json`.
+
+*One deliberate widening of step 5, stated up front.* Step 5 asks for the
+server's `normalizeBasePath` validation to be mirrored into the vite config.
+It is instead **imported** into it — `vite.config.ts` calls the same
+`src/lib/basePath.ts` the app uses — and the hardening lands in that shared
+module rather than in a private copy inside the build config. Reason: a
+hardened copy in `vite.config.ts` beside an unhardened original in
+`basePath.ts` would mean the build and the server disagree about what the base
+*is* (the build would resolve `//evil.example/` to `/`, the server to
+`/evil.example`), which is precisely the drift Bundle 2's byte-identical-copy
+design exists to prevent. The consequence is that the server's resolution is
+hardened too, which additionally closes a same-class defect on the server side:
+`normalizeBasePath` collapses `//` but does nothing about a backslash, so
+`BASE_PATH=/\evil.example` made `appPath("/login")` return `/\evil.example/login`,
+which browsers fold to `//evil.example/login` — an open redirect off this
+origin, in the same `res.redirect` call the Bundle 1 audit hardened against
+`//`. Dark by construction either way: only values that are already broken
+change.
+
+Behaviors affected:
+
+- **Health.** `/api/health` and `/api/healthz` gain a second, unconditional
+  mount at the literal `/api`. At the default base the existing `/api` mount is
+  registered first and answers, so the new mount is unreachable and dark is
+  byte-identical. Under a prefix it is the only thing answering the platform's
+  configured startup path.
+- **Base-path resolution, both artifacts.** Hostile values now resolve to `/`
+  instead of to a normalized-but-retained path. Every legitimate value — unset,
+  `/`, `/chat`, `/chat/`, `chat`, `/tools/chat`, `/__mockup` — resolves exactly
+  as it does today.
+- **Dashboard build and dev server.** `BASE_PATH` becomes optional with the
+  code default `/`. Removing the `artifact.toml` pin means the value flows from
+  the deployment environment; it is unset there today, so both the dev service
+  and the production build resolve to `/` — the same value the pin supplied.
+
+Worst realistic failure, in four flavors:
+
+- (a) **The dashboard artifact edit lands while `vite.config.ts` still throws on
+  an unset `BASE_PATH`** (open item 4). The artifact tooling picked C1's
+  `artifact.toml` change up live with no restart; if it restarts the dashboard
+  service on this one, Vite would fail at config load and the workspace's `/`
+  would go down. Mitigated by ordering: the vite default lands first and is
+  proved by a build before the pin is removed.
+- (b) **The hardened validator rejects a legitimate base.** `/chat` resolving to
+  `/` would stamp `/assets/…` into an `index.html` served at `/chat/`, so every
+  asset 404s and the cutover is a white page. Mitigated by the ordered build
+  matrix (step 6) and by unit tests in both artifacts.
+- (c) **The second health mount shadows a live route in dark mode.** Mitigated
+  by mounting it *after* the main API router — so at the default base it is
+  never reached — and proved by the byte-identical dark smoke.
+- (d) **`artifact.toml` is system-managed** (`replit.md`: routing is "handled by
+  the artifact tooling, not by hand"). The tooling may rewrite or revert the
+  dashboard file exactly as C1 recorded for the api-server file. Recorded, not
+  defended against; re-check both files immediately before cutover.
+
+Rollback path: git branch `cutover-cp1-prep`; `main` untouched until the ritual
+closes clean, `snapshot-2026-07-30` behind it. Nothing deployed, restarted or
+published; no secret written; the running workflow is never touched — every
+boot is on a free port from an entry point that starts no scheduler.
+
+**WHAT SHIPPED — 9 files predicted, 9 files touched. The blast radius held
+exactly.** No dependency added (`pnpm-lock.yaml` unchanged), no generated file,
+no orval config, no `lib/` file, no migration, no secret, no `.replit`, no
+`package.json`.
+
+*Step 2 — artifact routing. Already satisfied; nothing changed.* C1 made
+`paths = ["/api", "/chat"]` and the lineage check confirms it survived the
+`4d28466` deployment commit. The order asked for the prefix to be added
+additively so the array becomes `["/api", "/chat"]`; it is already exactly
+that, so the correct action was to verify and stop. `git diff` on
+`artifacts/api-server/.replit-artifact/artifact.toml` is **empty**.
+
+*Step 3 — the platform health check.* `artifact.toml` does declare a startup
+health path, at the literal `/api/healthz`
+(`[services.production.health.startup]`), and it is the only one in the repo.
+That literal cannot move with `BASE_PATH`, but `API_BASE_PATH` does — so a
+prefixed deployment would have failed its own startup probe, and the
+rolled-back state had to keep passing it too. One line in `app.ts` mounts the
+**same `healthRouter`, the same `ok` handler** at a new
+`PLATFORM_API_BASE_PATH = "/api"` constant in `appConfig.ts`, tied by comment
+to the TOML. `artifact.toml`'s health path is untouched, as ordered.
+
+The mount is unconditional but **not** a dark-mode behavior change, and the
+mechanism is the mount order rather than a flag: it sits *after*
+`app.use(API_BASE_PATH, router)`, so at the default base the two mount points
+are the same string, the router registered first answers, and this line is
+never reached. Gating it on `IS_PREFIXED` was rejected on purpose — it would
+put the health of a deployment back under the control of the one variable it
+exists to be independent of.
+
+*Step 4 — the dashboard BASE_PATH pin.* It was there:
+`[services.env] BASE_PATH = "/"`, unscoped, which always beats the deployment
+environment, so setting `BASE_PATH` on the deployment could never have reached
+the dashboard build. Removed — one line, `git diff --numstat` reads `0 1`.
+`PORT = "23183"` stays. The value now flows from the environment, where it is
+unset today, so the build resolves to `/` exactly as the pin supplied.
+
+*Step 5 — build-config hardening.* `vite.config.ts` now **imports** the app's
+own `normalizeBasePath` from `./src/lib/basePath` instead of carrying a copy,
+and the hardening lands in that shared module (the widening declared in the
+blast radius above). It also stops requiring `BASE_PATH`, defaulting to `/`,
+which is what makes step 4 safe. A rejected value logs a warning rather than
+failing the build — falling back to the root is the safe outcome, and failing
+the build would turn a bad env var into an outage.
+
+The hardening rejects, in `isUnsafeBasePath`: any scheme (`javascript:`,
+`https:`, `data:`), any leading `//` at any depth, a backslash anywhere (a
+browser folds `\` into `/`, so `/\evil.example/` *is* `//evil.example/` by the
+time it is resolved — the case the old slash-collapsing missed entirely), and
+anything outside an allowlist of plain path segments, which is what rejects
+queries, fragments, percent-escapes, whitespace, control characters and dot
+segments. Rejection resolves to `/`.
+
+**The defect was real, and was proved rather than assumed.** Building the
+dashboard with `main`'s `vite.config.ts` and `BASE_PATH=//evil.example/` emits
+
+```
+<script type="module" crossorigin src="//evil.example/assets/index-Docq07-G.js"></script>
+<link rel="stylesheet" crossorigin href="//evil.example/assets/index-BQ1Hep_e.css">
+<link rel="icon" type="image/svg+xml" href="//evil.example/favicon.svg" />
+```
+
+— an attacker's origin in `<script src>` in a static file, executing on every
+page load for every user. With CP1's config the same value emits `/assets/…`.
+
+**BUILD MATRIX (step 6) — 8 builds, all as ordered**
+
+`tree_hash` below is the sha256 of the sorted sha256 of every emitted file, so
+it compares the whole `dist/public` tree, not just index.html.
+
+| BASE_PATH | index.html references | tree hash |
+|---|---|---|
+| *unset* | `/assets/…`, `/favicon.svg` | `51b5f13e…` |
+| `/chat/` | `/chat/assets/…`, `/chat/favicon.svg` | `57428bd4…` |
+| `//evil.example/` | `/assets/…` | `51b5f13e…` |
+| `///evil.example/` | `/assets/…` | `51b5f13e…` |
+| `/\evil.example/` | `/assets/…` | `51b5f13e…` |
+| `https://evil.example/` | `/assets/…` | `51b5f13e…` |
+| `javascript:x` | `/assets/…` | `51b5f13e…` |
+| *unset*, rebuilt | `/assets/…` | `51b5f13e…` |
+
+**Every hostile value produces a build byte-identical to the unset state**, and
+the unset build is reproducible. Each hostile build emitted the warning; the
+two legitimate builds emitted none. No output file in any hostile build
+contains the string `evil.example` or `javascript:x`. The LIT bundle carries
+exactly one `/chat`, and it is the `createPathResolvers("/chat/")` call Vite
+inlined from `import.meta.env.BASE_URL`; the dark bundle carries zero.
+
+**GATES — all three pass**
+
+- Typecheck (`pnpm run typecheck`) — **PASS**, 4 projects.
+- Tests (`pnpm -r --if-present run test`) — **PASS, 38/38** across 4 packages,
+  up from 34. The four new ones are two per artifact copy: every named hostile
+  value plus 15 neighbouring spellings must resolve to the root, and a
+  legitimate-value list (`/chat`, `chat`, `/chat/`, `/tools/chat`, `/__mockup`,
+  `/v1.0`, `/a_b~c.d-e`, …) that must never be rejected — the darkness rule's
+  other half, since a wrongly-rejected `/chat` would stamp `/assets/…` into an
+  index.html served under a prefix and 404 every asset.
+- Build — **PASS** both as `PORT=23183 BASE_PATH=/ pnpm run build` (the
+  documented invocation) and, now, with `BASE_PATH` unset entirely.
+
+**GODLIKE AUDIT — 5 rounds, closed on two consecutive clean rounds**
+
+- Round 1 (technical / security / end-user): **2 in-scope findings, both fixed,
+  both quality rather than behavior.** The warning condition in `vite.config.ts`
+  tested `rawBasePath.trim()` twice inline and read as an unrelated triple
+  condition; hoisted to a named `trimmedBasePath` and reordered so the
+  "rejected" clause reads last. And `PLATFORM_API_BASE_PATH` was declared
+  without the `: string` annotation every other export in `appConfig.ts`
+  carries. Re-verified after both: the emitted build tree hash is unchanged
+  (`51b5f13e…`), and the dark smoke re-diffed empty.
+- Round 2 (invariants and scope boundaries): clean in scope. Both `basePath.ts`
+  copies and both `basePath.test.ts` copies are still byte-identical after
+  every edit; `lib/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`,
+  `.replit`, `replit.md`, the api-server's `.replit-artifact/`, the whole
+  `mockup-sandbox` artifact, both artifact `package.json`s and
+  `dashboard/index.html` are all untouched. **One out-of-scope finding** (open
+  item 8, the unprefixed `/api` surface under a prefix).
+- Round 3 (full sweep): clean in scope. Every `BASE_PATH` read in both
+  in-scope artifacts goes through `createPathResolvers`, including `spa.ts`,
+  which takes the already-normalized value from `appConfig`. Only one platform
+  health path is declared anywhere in the repo, and it is the one step 3
+  handled. **One out-of-scope finding** (open item 9, mockup-sandbox).
+- Round 4 (the emitted artifacts, and hostile input at *runtime* rather than
+  build time): **clean, and one caveat closed rather than carried.** The dark
+  `dist` contains zero `/chat` strings, zero `//` malformations and zero
+  `evil.example`. Then the built server was booted with
+  `BASE_PATH=//evil.example` and its 17-probe transcript **diffed empty against
+  the dark baseline** — 17/17. Before CP1 that value resolved to
+  `/evil.example`, which mounted `express.static` at `/evil.example`, scoped
+  the session cookie there and put the string into every redirect. It now logs
+  no SPA mount at all and is indistinguishable from an unset `BASE_PATH`.
+- Round 5 (final read-through): clean. Exactly the 9 predicted files modified,
+  no untracked file anywhere, both copies still identical, mount order correct
+  (`PLATFORM_API_BASE_PATH` after the API router, before `mountSpa`), all three
+  workflow processes still at their original start times and healthy.
+
+**SMOKE — two runs, on free ports, from an entry point that starts no
+scheduler**
+
+*The recorded baseline.* Per the lineage check, the Bundle 1/2 baseline process
+is gone; the api-server running on `:8080` (pid 362, started 18:37:46) was
+built from `main` at workspace boot, with `BASE_PATH` and `PUBLIC_URL` unset.
+It is a `main` baseline, which is what a dark run has to match. Its 17-probe
+transcript — status, content-type, Location, Set-Cookie and body per probe,
+with the OAuth `state` nonce and signed tokens redacted — was recorded **before
+any edit** and is the reference for everything below.
+
+*DARK RUN (`BASE_PATH` and `PUBLIC_URL` unset), `:8123` — 17/17
+byte-identical.* The transcript **diffed empty**, twice: once on the first
+build and again after the round-1 fixes. `/api/healthz` and `/api/health` 200
+`{"status":"ok"}`, `/api/auth/me` 401, `GET /api/auth/logout` → `302 /login`
+with `cf_session=; Path=/`, OAuth `redirect_uri` still
+`https://chat-followuper.replit.app/api/auth/google/callback`, follow-up open →
+`https://chat-followuper.replit.app/followup/whatsapp`. No "Serving dashboard
+under base path" line, so the SPA is still inert. Seven extra probes
+(`/chat`, `/chat/`, `/chat/login`, `/chat/api/healthz`, `/chat/assets/x.js`,
+`/api/HEALTHZ`, an unknown path) return the same status on the baseline and on
+CP1 — the new health mount is genuinely unreachable at the default base.
+
+*LIT RUN (`BASE_PATH=/chat/`, `PUBLIC_URL=https://tools.mobupps.net/chat`, set
+for the spawned process only, never written to Replit Secrets; the prefixed
+dashboard build supplied through `DASHBOARD_DIST_DIR` so the repo's `dist`
+stayed dark throughout) — 49/49 assertions pass, twice.*
+
+- **Zero asset 404s.** All three rooted references in the served index.html
+  (`/chat/favicon.svg`, `/chat/assets/index-BMxKci97.js`,
+  `/chat/assets/index-BQ1Hep_e.css`) return 200, all are under `/chat/`, none
+  is protocol-relative.
+- **Prefixed API calls.** `/chat/api/{auth/me,prospects,followups,campaigns,
+  users/me/sequence-config,admin/whoami}` all answer `401
+  {"error":"not_authenticated"}`, byte-identical to their dark counterparts;
+  the Apollo webhook answers `401 {"error":"invalid_signature"}`. The
+  17-probe run under the prefix matches the dark baseline status-for-status on
+  16 of 17 — the seventeenth is the app root, `404` dark and `302 → /chat/` lit,
+  which is the bare-prefix redirect working.
+- **Health on both forms.** `/chat/api/healthz`, `/chat/api/health`,
+  `/api/healthz` and `/api/health` all return `200 {"status":"ok"}`, and the
+  unprefixed one is JSON rather than the SPA shell. This is the finding-1
+  behavior, and it is the only thing on the unprefixed `/api` that still
+  answers — see open item 8.
+- **Exactly one prefix in generated URLs.** Probed through the real config
+  module, bundled with the artifact's own esbuild and run under the cutover
+  env: digest link
+  `https://tools.mobupps.net/chat/api/followups/open/7?t=TOKEN` — one `/chat`,
+  and identical for **both** spellings of `PUBLIC_URL` (with the prefix and
+  origin-only). Follow-up fallback
+  `https://tools.mobupps.net/chat/followup/whatsapp` — one `/chat`. Derived
+  OAuth redirect URI `https://tools.mobupps.net/chat/api/auth/google/callback`
+  — one `/chat`; with `GOOGLE_OAUTH_REDIRECT_URI` set, as in every environment
+  today, the registered value still wins untouched. With nothing configured it
+  throws the original message. `PLATFORM_API_BASE_PATH` stays `/api` in every
+  mode.
+- **Deep links, cookie, redirects.** Six deep links hard-load through the
+  catch-all; `/chat` → `/chat/` in one hop and carries the query string;
+  logout redirects to `/chat/login` and clears `cf_session` at `Path=/chat`
+  with every `Path=/` header being a deletion; no value-carrying cookie is
+  scoped wider than the base.
+- **Negative surface.** The unprefixed app (`/`, `/login`, `/prospects`,
+  `/assets/…`, `/favicon.svg`) is not served. Path traversal out of the static
+  root (`/chat/../package.json`, `%2e%2e`, a four-level climb) leaks no file.
+
+**One deviation from the order's wording, stated plainly.** Step 8 asks for a
+"JSON 404 on unknown API paths". What this app actually returns for an
+unmatched API path — dark and lit, before CP1 and after — is Express's default
+**HTML** 404 (`text/html`, `Cannot GET …`). What was verified is the property
+that matters and that Bundle 2 built for: `/chat/api/<unknown>`,
+`/chat/api/`, `/chat/API/<unknown>` and `/api/<unknown>` all return **404 and
+are never index.html**, so the client never parses the SPA shell as JSON.
+Making it JSON would change the dark response and so could not ship inside a
+dark order; recorded as open item 10 instead.
+
+Only the processes this order started were stopped, each identified
+individually by its `PORT` in `/proc/<pid>/environ` (`:8123`, `:8124`, `:8125`,
+`:8126`). The five pre-existing workflow processes are still at their original
+`18:37:43`/`18:37:46` start times — **nothing was restarted, including by the
+artifact tooling in response to the `artifact.toml` edit** — and `:8080`,
+`:23183` and `:8081` were verified healthy afterwards. The repo's
+`dist/public` was left in the dark state (`/assets/…`). Nothing was deployed,
+restarted or published; no secret was written; the mirror sync script was not
+run.
+
+As in Bundle 1 and Bundle 2, the OAuth-start probe inserts one row into
+`oauth_nonces` per call. That is the only database write this order caused; it
+is ephemeral (10-minute TTL) and no schema, migration or row of business data
+was touched.
+
+**Out-of-scope findings recorded: 3** (open items 8, 9, 10). Open item 4 is
+now partly resolved and open item 7's mechanism is corrected.
 
 ### 2026-07-30 — Cutover prep C1: artifact routing for the prefix (CLOSED, ritual clean)
 

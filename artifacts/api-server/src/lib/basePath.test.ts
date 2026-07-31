@@ -21,7 +21,7 @@ test("normalizeBasePath: the root spellings all collapse to /", () => {
 });
 
 test("normalizeBasePath: a prefix gets one leading slash and no trailing one", () => {
-  for (const raw of ["/chat", "chat", "/chat/", "chat/", " /chat/ ", "//chat//"]) {
+  for (const raw of ["/chat", "chat", "/chat/", "chat/", " /chat/ "]) {
     assert.equal(normalizeBasePath(raw), "/chat", `input ${JSON.stringify(raw)}`);
   }
 });
@@ -29,18 +29,87 @@ test("normalizeBasePath: a prefix gets one leading slash and no trailing one", (
 test("normalizeBasePath: nested prefixes keep their inner slash", () => {
   assert.equal(normalizeBasePath("/tools/chat/"), "/tools/chat");
   assert.equal(normalizeBasePath("tools//chat"), "/tools/chat");
+  // The mockup-sandbox artifact's own base, so the allowlist must pass "_".
+  assert.equal(normalizeBasePath("/__mockup"), "/__mockup");
 });
 
 test("normalizeBasePath: repeated slashes cannot produce a protocol-relative URL", () => {
   // The Bundle 1 audit finding. "//evil.example" must not survive as a
   // leading "//", or appPath() would emit "//evil.example/login" and every
   // login redirect would leave this origin.
+  //
+  // CP1 strengthened the answer: it no longer merely collapses to
+  // "/evil.example" but resolves to the root, so the attacker-chosen string
+  // does not appear in a redirect target or an asset URL at all. The
+  // assertions Bundle 1 wrote still hold and are kept.
   const hostile = createPathResolvers("//evil.example");
-  assert.equal(hostile.BASE_PATH, "/evil.example");
-  assert.equal(hostile.appPath("/login"), "/evil.example/login");
+  assert.equal(hostile.BASE_PATH, "/");
+  assert.equal(hostile.appPath("/login"), "/login");
   assert.ok(!hostile.appPath("/login").startsWith("//"));
   assert.ok(!hostile.apiPath("/auth/me").startsWith("//"));
   assert.ok(!hostile.COOKIE_PATH.startsWith("//"));
+});
+
+test("CP1: a hostile base resolves to the root, never into a URL", () => {
+  // The five values the CP1 order names, plus the neighbours that make each
+  // of them reachable by another spelling. Every one must be indistinguishable
+  // from an unset BASE_PATH — that is what makes a hostile build byte-identical
+  // to the dark build.
+  const hostile = [
+    "//evil.example/",
+    "///evil.example/",
+    "/\\evil.example/",
+    "https://evil.example/",
+    "javascript:x",
+    // Same classes, other spellings.
+    "//evil.example",
+    "\\\\evil.example",
+    "/chat\\..\\..",
+    "JavaScript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "http://evil.example",
+    "//evil.example/#",
+    "/chat?x=1",
+    "/chat#frag",
+    "/../etc",
+    "/chat/../..",
+    "/ev il",
+    "/%2e%2e%2f",
+    "/chat\u0000",
+    "/chat\nSet-Cookie: a=b",
+  ];
+  for (const raw of hostile) {
+    const r = createPathResolvers(raw);
+    const where = `input ${JSON.stringify(raw)}`;
+    assert.equal(r.BASE_PATH, "/", where);
+    assert.equal(r.PREFIX, "", where);
+    assert.equal(r.API_BASE_PATH, "/api", where);
+    assert.equal(r.COOKIE_PATH, "/", where);
+    assert.equal(r.appPath("/login"), "/login", where);
+    assert.equal(r.apiPath("/auth/me"), "/api/auth/me", where);
+  }
+});
+
+test("CP1: the hardening never rejects a legitimate base", () => {
+  // The darkness rule's other half. If this list ever shrinks, a cutover
+  // stamps "/assets/…" into an index.html served under a prefix and every
+  // asset 404s.
+  const legitimate: Array<[string, string]> = [
+    ["", "/"],
+    ["/", "/"],
+    ["/chat", "/chat"],
+    ["chat", "/chat"],
+    ["/chat/", "/chat"],
+    [" /chat/ ", "/chat"],
+    ["/tools/chat", "/tools/chat"],
+    ["/__mockup", "/__mockup"],
+    ["/v1.0", "/v1.0"],
+    ["/chat-followupper", "/chat-followupper"],
+    ["/a_b~c.d-e", "/a_b~c.d-e"],
+  ];
+  for (const [raw, expected] of legitimate) {
+    assert.equal(normalizeBasePath(raw), expected, `input ${JSON.stringify(raw)}`);
+  }
 });
 
 test("DARK: with no base configured every resolved value is today's literal", () => {

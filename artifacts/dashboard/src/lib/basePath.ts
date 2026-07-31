@@ -18,6 +18,61 @@
  */
 
 /**
+ * One path segment that is safe to appear in a base path. Deliberately an
+ * allowlist: a base path is a piece of deployment configuration naming a route
+ * prefix, so it never legitimately needs a colon, a query, a fragment, an
+ * escape, whitespace or a control character.
+ */
+const SAFE_BASE_SEGMENT = /^[A-Za-z0-9._~-]+$/;
+
+/**
+ * Values that must never reach a URL, whether as a redirect target on the
+ * server or stamped into an asset URL at build time (CP1, finding 3).
+ *
+ * Collapsing repeated slashes — which is all this module used to do — defends
+ * one spelling of one attack. It does not defend these:
+ *
+ *   "//evil.example/"      protocol-relative; the browser reads the first
+ *                          segment as a hostname and leaves this origin
+ *   "///evil.example/"     the same, past a naive startsWith("//") check
+ *   "/\evil.example/"      browsers and the URL spec fold "\" into "/", so
+ *                          this *is* "//evil.example/" by the time it is
+ *                          resolved — and nothing here collapses backslashes
+ *   "https://evil.example/" an absolute URL: prefixing "/" only produces
+ *                          "/https:/evil.example", but the scheme has no
+ *                          business in a path prefix either way
+ *   "javascript:x"         a scheme that executes rather than navigates
+ *
+ * Stamped into `<script src>` in a built index.html, the first three load and
+ * run an attacker's JavaScript in every user's browser on every page. On the
+ * server the same values turn every `res.redirect(appPath(...))` into an open
+ * redirect. Both are configuration-reachable, not request-reachable, so this
+ * is a guard against a hostile or fat-fingered deployment value rather than
+ * against a request — which is exactly why it must fail closed and silently
+ * to the safe value rather than propagate.
+ */
+function isUnsafeBasePath(trimmed: string): boolean {
+  // Any scheme at all: "javascript:x", "https://evil.example/", "data:…".
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed)) return true;
+  // Protocol-relative, at any number of leading slashes.
+  if (trimmed.startsWith("//")) return true;
+  // Backslash anywhere — it is a "/" to a browser, so it can reconstruct the
+  // leading "//" that the check above rejects.
+  if (trimmed.includes("\\")) return true;
+  // Everything else must be plain rooted path segments. This is what rejects
+  // queries, fragments, credentials, percent-escapes, whitespace, control
+  // characters and dot-segment traversal.
+  const segments = trimmed.split("/").filter((segment) => segment !== "");
+  if (segments.length === 0) return true;
+  return segments.some(
+    (segment) =>
+      segment === "." ||
+      segment === ".." ||
+      !SAFE_BASE_SEGMENT.test(segment),
+  );
+}
+
+/**
  * Normalize a configured base path to a leading slash with no trailing slash,
  * except for the root, which stays "/". "" and "/" both mean "no prefix".
  *
@@ -25,10 +80,17 @@
  * misconfigured base of "//host" would make appPath() return "//host/login",
  * a protocol-relative URL, which would turn the login redirects into an open
  * redirect off this origin. (Bundle 1, audit round 1.)
+ *
+ * Anything `isUnsafeBasePath` rejects resolves to "/" — the app serves at the
+ * root, exactly as it does with BASE_PATH unset, rather than carrying a
+ * hostile value into a redirect or an asset URL. (CP1, finding 3.) Every
+ * legitimate spelling is unaffected: unset, "/", "/chat", "chat", "/chat/",
+ * "/tools/chat" and "/__mockup" all resolve exactly as they did before.
  */
 export function normalizeBasePath(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed === "" || trimmed === "/") return "/";
+  if (isUnsafeBasePath(trimmed)) return "/";
   const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   const collapsed = withLeading.replace(/\/{2,}/g, "/");
   const withoutTrailing = collapsed.replace(/\/+$/, "");

@@ -4,11 +4,16 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import apolloWebhookRouter from "./routes/apolloWebhook";
+import healthRouter from "./routes/health";
 import { researchStreamRoute } from "./routes/researchStream";
 import { logger } from "./lib/logger";
 import { loadUser } from "./middlewares/auth";
 import { mountSpa } from "./routes/spa";
-import { API_BASE_PATH, apiPath } from "./lib/appConfig";
+import {
+  API_BASE_PATH,
+  PLATFORM_API_BASE_PATH,
+  apiPath,
+} from "./lib/appConfig";
 
 const app: Express = express();
 
@@ -50,6 +55,23 @@ app.use(API_BASE_PATH, loadUser);
 
 app.get(apiPath("/prospects/research/stream"), researchStreamRoute);
 app.use(API_BASE_PATH, router);
+
+// CP1: the platform's startup health check, which asks for the literal
+// "/api/healthz" declared in artifact.toml no matter what BASE_PATH is. Same
+// router, same handler as the prefixed route above — this only adds a second
+// address for it.
+//
+// Unconditional on purpose. Gating it on IS_PREFIXED would put the health of a
+// deployment back under the control of the very variable this exists to be
+// independent of, and unsetting BASE_PATH is the cutover's rollback: the
+// rolled-back state has to stay healthy too.
+//
+// Mounted *after* the API router, which is what keeps the default base
+// byte-identical: at BASE_PATH="/" the two mount points are the same string,
+// the router above is registered first and answers /api/health and
+// /api/healthz, and this line is never reached. Under a prefix the router
+// above sits at /chat/api and this is the only thing serving /api/healthz.
+app.use(PLATFORM_API_BASE_PATH, healthRouter);
 
 // Bundle 2: serve the built dashboard under BASE_PATH. No-op at the default
 // base, so with BASE_PATH unset the stack above is the whole app, exactly as
