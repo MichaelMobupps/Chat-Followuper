@@ -676,6 +676,25 @@ was touched.
 **Out-of-scope findings recorded: 3** (open items 8, 9, 10). Open item 4 is
 now partly resolved and open item 7's mechanism is corrected.
 
+**CLOSE-OUT — merged locally, PUSH BLOCKED, and the reason is environmental.**
+`cutover-cp1-prep` is committed and merged into `main` with `--no-ff`, matching
+every prior bundle. **Neither branch reached `origin`.** Both pushes failed
+with `remote: Invalid username or token. Password authentication is not
+supported for Git operations.` There is no GitHub credential in this
+workspace right now: `gh auth status` reports not logged in, there is no
+`credential.helper` configured, and no token is present in the environment.
+This is not a repo problem and nothing about the work is in doubt — the
+prior bundles pushed successfully, so the credential was present in earlier
+sessions and is not present after this workspace's 18:37 restart. Recovery
+is `gh auth login` (or reconnecting the Replit Git pane), then
+`git push origin cutover-cp1-prep && git push origin main`. Note that the
+push will carry three commits, not two: `4d28466` ("Published your App", the
+Replit deployment commit that added `.replit` and `CLAUDE_CODE_BUNDLE2.md`)
+has been sitting unpushed on `main` since before this order started. The
+`gitsafe-backup` remote is reachable, but nothing was pushed there — the order
+said `origin`, and mirroring the work to a different remote is not the same
+action.
+
 ### 2026-07-30 — Cutover prep C1: artifact routing for the prefix (CLOSED, ritual clean)
 
 Branch: `cutover-c1-artifact-routing`. Ordered scope: resolve open item 6 by
