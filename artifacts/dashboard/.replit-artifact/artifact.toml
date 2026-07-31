@@ -28,4 +28,3 @@ to = "/index.html"
 
 [services.env]
 PORT = "23183"
-BASE_PATH = "/"
