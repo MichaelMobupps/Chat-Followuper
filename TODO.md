@@ -694,11 +694,13 @@ prescribes *permanent* redirects for old addresses, which is what produced the
 **Not deployed, not published, not restarted.** Production still serves the
 308 until someone republishes; publishing is Michael's call.
 
-**MERGE DONE, PUSH TO `origin` BLOCKED — the same condition CP1 recorded on
-2026-07-31, unchanged since.** `cutover-l1a-307` is committed at `7689f50` and
-merged into `main` at `123c1fa` with `--no-ff`; the directional check
-`git diff cutover-l1a-307 main` is **empty**, so `main` holds everything the
-branch holds. Both pushes then failed identically:
+**MERGED AND PUSHED — both branches, after a transient auth failure worth
+recording.** `cutover-l1a-307` is committed at `7689f50`, merged into `main` at
+`123c1fa` with `--no-ff`, and this close-out note follows in `3f822e2` /
+`096eb1f`. The directional check `git diff cutover-l1a-307 main` is **empty**,
+so `main` holds everything the branch holds.
+
+The first push attempt on **both** refs failed with
 
 ```
 remote: Invalid username or token. Password authentication is not supported
@@ -707,15 +709,18 @@ fatal: Authentication failed for
        'https://github.com/MichaelMobupps/Chat-Followuper/'
 ```
 
-GitHub credentials are not available to this session (`GIT_ASKPASS=replit` is
-set, but the credential it supplies is rejected; no credential helper is
-configured). `origin/main` is still at `3a33203`, **three commits behind**
-`main`: the deployment commit `4376b2e`, L1a's `7689f50`, and the merge
-`123c1fa`. Nothing was force-pushed and nothing was mirrored to
-`gitsafe-backup` — the order said `origin`, and pushing to a different remote
-is a different action, exactly as CP1 concluded. Once the GitHub connection is
-re-authenticated the two commands are
-`git push origin cutover-l1a-307` and `git push origin main`.
+— the same message CP1 hit on 2026-07-31, which is why that order never
+pushed. It is **not** a permanent condition: retried unchanged, `git push
+origin main` succeeded (`3a33203..096eb1f`) and `git push origin
+cutover-l1a-307` succeeded on its own retry (`* [new branch]`). `GIT_ASKPASS`
+is Replit's helper and evidently returns a stale credential until it
+refreshes. **Worth knowing for every future order: an auth failure here is
+worth one retry before it is recorded as blocked.** The one deployment commit
+that was still local, `4376b2e`, went up with this push.
+
+Confirmed on the remote: `refs/heads/main` = `096eb1f`,
+`refs/heads/cutover-l1a-307` = `3f822e2`. Nothing was force-pushed; nothing
+was mirrored to `gitsafe-backup`.
 
 ### 2026-08-02 — Post-cutover repair: black screen at the old addresses (CLOSED)
 
