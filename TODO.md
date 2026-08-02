@@ -253,9 +253,9 @@
    that (a) is the only one that survives retiring this origin entirely.
 
    **RESOLVED 2026-08-02 with option (a) (post-cutover repair).** `app.ts`
-   mounts a 308 redirect at `PLATFORM_API_BASE_PATH` that maps
+   mounts a **307** redirect at `PLATFORM_API_BASE_PATH` that maps
    `/api/<anything>` onto `API_BASE_PATH` with method and query preserved —
-   `/api/followups/open/42?t=abc` → 308 → `/chat/api/followups/open/42?t=abc`,
+   `/api/followups/open/42?t=abc` → 307 → `/chat/api/followups/open/42?t=abc`,
    verified in the lit run. Mounted *after* the platform health router, so
    `/api/healthz` and `/api/health` keep answering 200 directly and the
    startup probe never depends on a redirect; gated on `IS_PREFIXED`, because
@@ -264,7 +264,7 @@
    redirects, so rollback stays intact. This same redirect also un-breaks the
    Google OAuth callback (external registration 1): `GOOGLE_OAUTH_REDIRECT_URI`
    still names the unprefixed `/api/auth/google/callback`, which had been
-   404ing — the browser now follows the 308 and the token exchange still sends
+   404ing — the browser now follows the 307 and the token exchange still sends
    the byte-identical registered URI, so nothing at Google needs to change
    (though re-registering the prefixed URI remains the cleaner end state). The
    Apollo webhook (external registration 2) cannot rely on a redirect —
@@ -303,6 +303,50 @@
     premise is that dark stays byte-identical. It wants its own small bundle,
     and it should land **before** the cutover if it lands at all, so the
     change is observed at the old address rather than blamed on the new one.
+
+11. **The "Git safety rule 1" that L1a was asked to reword does not exist in
+    this repo.** (Found by L1a, before any edit.) The order asked to correct
+    `ROADMAP.md`'s Git safety rule 1 — worded as a tree-equality check between
+    branches, which goes stale as soon as `main` takes a commit another branch
+    lacks and produces false STOPs — into the directional form: *does another
+    branch hold content `main` lacks*, answered with `git diff <branch> main`.
+    **There is no Git safety section, and no numbered git rules, in
+    `ROADMAP.md`.** Verified with a case-insensitive search for "safety" across
+    `ROADMAP.md` on **all 18 refs** in this repo (9 local branches, 9 remotes,
+    including `gitsafe-backup/main`) — zero hits on every one; `ROADMAP.md` has
+    been touched by exactly one commit, `0c5c8cf`, and its sections are Goal,
+    Architecture, Status board, Migration order, The per-app migration cycle,
+    Smoke checklist, Standing bundle ritual, TODO.md ledger, What never moves.
+    `replit.md` and `CLAUDE_CODE_BUNDLE2.md` carry no such rule either; the only
+    git rules in this repo are `CLAUDE_CODE_BUNDLE2.md`'s "Hard rules" (no
+    destructive git, no force-push), which are unrelated. **Nothing was
+    reworded and nothing was invented** — writing a governance rule that the
+    owner did not author, into the file that governs every app in this
+    migration, is not a documentation fix. The rule presumably lives in the
+    canonical `ROADMAP.md` held elsewhere (this copy is dated 2026-07-30 and has
+    never been updated since). To land here it needs either that copy synced
+    into this repo, or the owner's go-ahead to author the section fresh. The
+    correction itself, for whoever applies it: tree equality between two
+    branches is not the question — `git diff <branch> main` answers the one that
+    matters, *does `<branch>` hold content `main` lacks*, and stays true after
+    `main` moves ahead.
+
+12. **`ROADMAP.md` prescribes "permanent redirects" for old addresses, which is
+    what produced the 308 that L1a had to undo.** (Found by L1a, audit round 1.)
+    Architecture bullet 3 ("Old addresses become permanent redirects") and the
+    migration cycle's step 7 ("Convert the old address into a permanent
+    redirect") both predate the discovery that permanence and the one-minute
+    rollback of step 8 are in direct conflict: a cached permanent redirect
+    outlives the deployment that issued it, so it survives the rollback that is
+    supposed to undo it. Open item 8's option (a) above inherits the same
+    wording. The distinction the roadmap is missing is **when**: during the
+    migration window, while unsetting the env vars is still the rollback, the
+    hop must be temporary (307); a permanent redirect is only safe once the old
+    address is being retired for good and rollback is no longer the plan.
+    Left untouched — `ROADMAP.md` governs all four apps and rewording it is the
+    owner's call, and L1a's scope was one status code. It should be reworded
+    before the Prospector, Email Followupper and Leadfinder cutovers, or each
+    will ship the same 308.
 
 ## External registrations discovered
 
@@ -358,7 +402,302 @@ own URL.
 
 ## Ledger
 
+### 2026-08-02 — Cutover L1a: legacy `/api` redirect 308 → 307 (CLOSED, ritual clean)
+
+Branch: `cutover-l1a-307`. Scope: one status code, plus the comment and
+documentation lines that name it. Nothing else.
+
+**WHY.** The legacy redirect shipped in the post-cutover repair below as a
+**308 Permanent Redirect**, which is permanent by name and heuristically
+cacheable by definition (RFC 7538 §3). Rollback in this project is "unset
+`BASE_PATH` and `PUBLIC_URL`, redeploy" — one minute, no code change
+(ROADMAP, per-app migration cycle, step 8), and the entire migration rests on
+that guarantee. A client holding a cached 308 keeps rewriting `/api/...` to
+`/chat/api/...` *by itself*, without asking this origin; the moment the prefix
+is withdrawn, `/chat/api/...` 404s and that client is broken by the very
+action that was supposed to repair it. No server-side change can reach a cache
+entry a client already holds — which is exactly why the code must stop
+creating new ones. **307 Temporary Redirect makes the identical guarantee
+about preserving the request method and body** (RFC 7231 §6.4.7 — the reason
+this mount is not a 301/302 in the first place), preserves the query string
+the same way, and is not cacheable unless a `Cache-Control` header says so,
+which this response does not send. The permanence was never load-bearing; the
+method preservation was.
+
+**302 is excluded on purpose**, here and anywhere on this path: it permits a
+client to downgrade a POST to a GET, which is the one thing this redirect
+exists to prevent.
+
+**LINEAGE CHECK (before any edit)**
+
+- **Git.** Working tree clean at branch point. `HEAD` = `cutover-l1a-307`, cut
+  from `main` = `4376b2e` ("Published your App"). `origin/main` is one commit
+  behind at `82bd434`; the three later Replit deployment commits are local
+  only, and this branch's push will carry them.
+- **The change under repair is deployed.** Unlike the sibling apps, where the
+  same finding was caught before publish, this 308 is *live*: `main` carries
+  it, and the four "Published your App" commits dated 2026-08-01/02 sit on top
+  of the post-cutover repair. See the exposure note below.
+- **The running baseline.** The api-server on `:8080` (pid 356) was built from
+  `main` at workspace boot — its `dist/index.mjs` contains exactly one
+  `res.redirect(308` — and runs with `BASE_PATH` and `PUBLIC_URL` unset
+  (`APP_PUBLIC_URL` only). It is therefore a valid **`main` baseline in the
+  rolled-back state**, which is exactly what a dark run has to match. Its
+  24-probe transcript (the 17 baseline probes plus 7 prefix-surface probes)
+  was recorded **before any edit**, twice, diffing empty between the two
+  recordings, and is the reference for the dark smoke below.
+- Nothing near `lib/db` — open item 5's migration lineage is untouched and
+  still deferred.
+
+**BLAST RADIUS (written before any edit)**
+
+Files to be touched (2):
+
+- `artifacts/api-server/src/app.ts` — the status code in the legacy redirect
+  (one argument), and the comment block above it, which names 308 and argues
+  for its permanence
+- `TODO.md` — this entry, plus the open item 8 resolution text, which names
+  308 three times in the live open-items section
+
+Files deliberately NOT touched: `spa.ts`'s bare-prefix `res.redirect(302, …)`
+(a different mount, guarded to GET/HEAD, pre-existing — see the audit note);
+every other `res.redirect(302, …)` in the tree (login, OAuth error, follow-up
+fallback — all GET-only browser navigations, all pre-existing); the Apollo
+webhook's legacy first-class mount (it deliberately does not rely on a
+redirect at all); `basePath.ts` and its mirror; `appConfig.ts`; every
+`artifact.toml`; `lib/`, migrations, secrets, `.replit`, `pnpm-lock.yaml`,
+`package.json`. No dependency added.
+
+A third file was predicted by the order — `ROADMAP.md`, to correct a "Git
+safety rule 1" worded as a tree-equality check between branches. **That rule
+does not exist in this repo's copy of ROADMAP.md**, on any ref. Verified
+before any edit and recorded as open item 11 rather than invented; ROADMAP.md
+is left untouched.
+
+Behaviors affected:
+
+- **The legacy `/api/*` redirect, and only it.** Under a prefix the response
+  status line changes from `308 Permanent Redirect` to `307 Temporary
+  Redirect`. The `Location` header, the method, the body and the query string
+  are unchanged: both codes are defined to preserve the method, and the target
+  is built by the same one line of string arithmetic. The redirect stays
+  mounted after the platform health router and stays gated on `IS_PREFIXED`.
+- **Dark: nothing at all.** The mount is inside `if (IS_PREFIXED)`, so with
+  `BASE_PATH` unset this code never runs. The dark run must be byte-identical
+  to the recorded baseline, and that is the point: dark is the rollback state.
+
+Worst realistic failure:
+
+- (a) **A client caches the 307 anyway.** Some intermediaries cache 307 when
+  told to; this response carries no `Cache-Control`, so nothing tells them to.
+  Bounded and self-limiting in a way 308 is not.
+- (b) **The status is changed in the code but a doc line keeps saying 308**,
+  and the next person "restores consistency" by putting the permanence back.
+  Mitigated by treating the comment and the open-item text as part of the
+  change, and by this entry.
+- (c) **Someone reads "temporary" as "may drop the method"** and later
+  downgrades it to 302. Mitigated by the comment rewrite, which states the
+  method-preservation requirement first and 302's downgrade explicitly.
+
+Rollback path: git branch `cutover-l1a-307`; `main` untouched until the ritual
+closes clean. Nothing deployed, restarted or published; no secret written; the
+running workflow is never touched — every boot is on a free port
+(`:8123`/`:8124`), and `:8080` is only ever read from.
+
+**THE CACHED 308 THAT CANNOT BE RECALLED — recorded honestly**
+
+This is the material difference from the sibling apps, where the same finding
+was raised before anything shipped. Here the 308 was written, published and
+served. **Any client that has already followed it holds a cached permanent
+redirect, and no server-side change can clear that entry** — not this one, not
+a redeploy, not the rollback. Changing the code stops *new* cache entries from
+being created; it cannot revoke the ones already handed out.
+
+The exposure is bounded, and worth stating precisely:
+
+- It covers only clients that **actually hit a legacy `/api/...` path since
+  the cutover** — in practice, browsers following the emailed
+  `/api/followups/open/<id>?t=…` links, and the Google OAuth callback hop from
+  `GOOGLE_OAUTH_REDIRECT_URI`. A client that never touched a legacy path
+  cached nothing.
+- The dashboard is not exposed: it calls the prefixed paths directly.
+- The Apollo webhook is not exposed: its legacy address is a first-class mount
+  of the same router, not a redirect, so Apollo was never handed a 3xx to
+  cache.
+- Browsers key such an entry per exact URL. A `/api/followups/open/42?t=…`
+  link is single-use in practice, so the cached hop is mostly re-followed only
+  for the OAuth callback path and any repeated legacy URL.
+- The window is from the cutover publish to the publish that carries this
+  change.
+
+The residual, stated plainly: **if a rollback happens, the clients inside that
+window may still bounce to a 404 until their cache entry expires or is
+cleared, and the only remedies are client-side.** After this change ships, the
+population stops growing.
+
+**WHAT SHIPPED — 2 files predicted, 2 files touched. The blast radius held
+exactly.** `git status` reads two modified files and zero untracked files:
+`artifacts/api-server/src/app.ts` (one argument, `308` → `307`, plus the
+comment block above it) and `TODO.md` (this entry, the open item 8 text, the
+supersession note on the entry below, and out-of-scope open items 11 and 12).
+No dependency, no generated file, no `lib/` file, no migration, no secret, no
+`artifact.toml`, no `.replit`, no `pnpm-lock.yaml`. `basePath.ts` and
+`basePath.test.ts` are still byte-identical between the two artifacts (`diff`
+empty on both pairs). `ROADMAP.md` untouched — see open item 11.
+
+**GATES — all pass.**
+
+- **Typecheck:** `pnpm run typecheck` — `tsc --build` for the libs plus all
+  four projects (`api-server`, `dashboard`, `mockup-sandbox`, `scripts`),
+  clean.
+- **Tests:** 46/46 across the four packages that have a suite —
+  `api-server` 18/18, `dashboard` 18/18, `api-client-react` 7/7, `db` 3/3.
+  No test pinned the old status code, so none needed changing; the redirect
+  has no unit test at either code, and its behavior is pinned by the smoke.
+- **Build:** `PORT=23183 pnpm run build` — clean. The emitted
+  `artifacts/api-server/dist/index.mjs` contains exactly one
+  `res.redirect(307` and zero `res.redirect(308`. The dashboard rebuilt to the
+  same asset hashes it already had (`index-DLG9_phr.js`,
+  `index-BQ1Hep_e.css`) with zero `/chat` in `index.html`, so the tree's dark
+  build is unchanged.
+
+**GODLIKE AUDIT — 6 rounds, clean in scope from the first, closed on a clean
+round with no in-scope finding in any of them.**
+
+- Round 1 (technical, the diff and the whole tree): clean. The only surviving
+  `308` in tracked code is in the new comment, twice, both times telling the
+  next reader not to go back to it — which is the point. `git grep 308` finds
+  nothing else outside this ledger. **One out-of-scope finding** (open item 12,
+  the roadmap's "permanent redirects" wording — the source of the 308).
+- Round 2 (security, hostile request lines through the legacy mount, lit on
+  `:8125`): clean, with evidence rather than assertion. Nine hostile spellings
+  — `/api//evil.example`, `/api/\evil.example`, `//api/evil.example`,
+  `/api/%2f%2fevil.example`, `/api/..//evil.example`,
+  `/api/x?next=//evil.example`, a CRLF-bearing path, an absolute-form request
+  line naming `evil.example`, and a POST variant — produce a `Location` that
+  begins `/chat/api` in every case that redirects at all (`//api/…` does not
+  match the mount and 404s). None is protocol-relative, none is absolute, and
+  the CRLF stays percent-encoded: no injected header appears in the response.
+  The same-origin-by-construction claim in the comment holds under the new
+  status code, unchanged. The response carries **no `Cache-Control`, no
+  `Expires`, no `Surrogate-Control`** — only `Vary: Accept` — so nothing tells
+  any cache to store the hop, which is the whole point of the change.
+- Round 3 (end-user, lit on `:8126`): clean. The two flows that actually
+  matter, followed the way a browser follows them:
+  **the emailed link** `/api/followups/open/42?t=TOKEN` → 307 →
+  `/chat/api/followups/open/42?t=TOKEN` → 302 → the WhatsApp fallback, token
+  intact across the hop; **the Google OAuth callback**
+  `/api/auth/google/callback?code=X&state=Y` → 307 →
+  `/chat/api/auth/google/callback?code=X&state=Y` → 302 →
+  `/chat/login?error=oauth_state_invalid`, which is the correct answer for a
+  callback presented without the state cookie and proves the handler is
+  reached with its query intact. (Note for the record: the first flow's last
+  hop is an absolute `https://tools.mobupps.net/chat/...` URL, so that one
+  GET left the sandbox to the live gateway. Read-only, and the app's own
+  address.)
+- Round 4 (mount boundary and methods, lit): clean. `/api` → `/chat/api` and
+  `/api/` → `/chat/api/` (empty suffix is handled); `/apiary` and `/apiary/x`
+  are **not** redirected — the mount is segment-bounded, so the `/apiary`
+  observation from the post-cutover repair still holds. Every method that can
+  carry a body is preserved: GET, HEAD, POST, PUT, PATCH and DELETE all answer
+  307 with the same `Location`. `OPTIONS` answers `204` directly from the
+  `cors()` middleware ahead of the mount rather than redirecting — pre-existing
+  and correct, since browsers do not follow redirects on a preflight. Uppercase
+  `/API/campaigns` redirects too, matching Express's case-insensitive routing
+  and `isApiPath`'s deliberately case-insensitive guard; pre-existing.
+- Round 5 (tree and process state): clean. Exactly the two predicted files
+  modified, zero untracked files anywhere, both mirror pairs still identical,
+  the dark build still in the tree, and all eleven workflow processes still at
+  their original 17:16:20–17:16:24 start times. `:8080` answers
+  `/api/healthz` 200 throughout. Every port I opened (`:8123`–`:8126`) is free
+  again; each server was killed by its own PID, never by name or pattern.
+- Round 6 (final read-through after the out-of-scope items were written):
+  clean, no finding. Ritual closed.
+
+**SMOKE — two runs, on free ports, against the built artifact; the running
+workflow on `:8080` was only ever read from.**
+
+*The recorded baseline.* The api-server on `:8080` (pid 356, started 17:16:24)
+was built from `main` at workspace boot — one `res.redirect(308` in its
+`dist` — with `BASE_PATH` and `PUBLIC_URL` unset. That is `main` in the
+rolled-back state, which is exactly what a dark run must match. Its 24-probe
+transcript (status, content-type, `Location`, `Set-Cookie` and body per probe,
+with the OAuth `state` nonce and any hex token redacted) was recorded **before
+any edit**, twice, and the two recordings diffed empty.
+
+*DARK RUN (`BASE_PATH` and `PUBLIC_URL` unset), `:8124` — 24/24
+byte-identical.* The transcript **diffed empty** against the recorded
+baseline. No `301`, `307` or `308` appears anywhere in it; the three `302`s
+are the pre-existing GET-only ones (`GET /api/auth/logout` → `/login`, the
+OAuth start, the follow-up fallback) and they are byte-identical to baseline,
+`Set-Cookie` and all. The boot log shows `Server listening` and **no**
+"Serving dashboard under base path" line, so the SPA is still inert and
+`/chat`, `/chat/`, `/chat/login`, `/chat/api/healthz` and `/chat/assets/x.js`
+all still 404 exactly as they do on `main`. **The rollback path is intact and
+unchanged by this order.**
+
+*LIT RUN (`BASE_PATH=/chat/`, `PUBLIC_URL=https://tools.mobupps.net/chat`, set
+for the spawned process only, never written to Replit Secrets), `:8123` — run
+twice, output identical across both runs (PIDs aside).*
+
+- **A POST to a legacy path answers 307.** `POST /api/campaigns` →
+  `HTTP/1.1 307 Temporary Redirect`, `Location: /chat/api/campaigns`.
+- **The method actually arrives as POST at the prefixed path — from the
+  server's own access log, not asserted.** pino-http logs every completed
+  request with its method and path. Following the hop with `curl -L` produced
+  two consecutive log entries:
+
+  ```
+     4  POST   /api/campaigns                 -> 307
+     5  POST   /chat/api/campaigns            -> 401
+  ```
+
+  The second line is the server recording that what reached the prefixed mount
+  was a **POST**, not a GET. The client side agrees: `curl -v` shows
+  `> POST /api/campaigns` with `Content-Length: 15`, then
+  `> POST /chat/api/campaigns` with `Content-Length: 15` — the body was
+  re-sent on the redirected request — and the chain ends `401
+  {"error":"not_authenticated"}` at
+  `http://127.0.0.1:8123/chat/api/campaigns`, which is the right answer for an
+  unauthenticated POST that arrived intact. A 302 here would have produced
+  `GET /chat/api/campaigns` on line 5; that is the failure this order exists to
+  keep out of the code.
+- **The query string survives.** `GET /api/followups/open/42?t=abc123` → 307 →
+  `Location: /chat/api/followups/open/42?t=abc123`.
+- **Zero 308s and zero 302s on any legacy `/api` path** across the whole run,
+  counted from the access log.
+- **Ordering intact.** `/api/healthz` and `/api/health` answer `200
+  {"status":"ok"}` **directly**, with no hop — the startup probe never depends
+  on a redirect, which is what the mount order after the platform health
+  router buys.
+- **The Apollo webhook is still first-class at both addresses.** `POST
+  /api/apollo/webhook/phone-reveal` and `POST
+  /chat/api/apollo/webhook/phone-reveal` both answer `401
+  {"error":"invalid_signature"}` — the legacy webhook is a real mount, not a
+  redirect, so nothing about it depends on a sender following a 3xx on POST.
+- **The prefixed surface is unchanged.** All 15 prefixed API probes answer
+  status-for-status exactly as the dark baseline does at the unprefixed
+  address; the SPA probes under `/chat/` behave as they did after the
+  post-cutover repair (`/chat` → 302 → `/chat/`, `/chat/` and `/chat/login` →
+  200), and `/no-such-path-xyz` still 404s. The dashboard was served from the
+  existing dark build via `DASHBOARD_DIST_DIR` — this order changes no
+  dashboard code, so no prefixed dashboard build was needed and the repo's
+  `dist` stayed dark throughout.
+
+**OUT-OF-SCOPE FINDINGS — 2, both recorded, neither touched:** open item 11
+(the Git safety rule this order was asked to reword does not exist in this
+repo's `ROADMAP.md`, on any ref) and open item 12 (`ROADMAP.md` still
+prescribes *permanent* redirects for old addresses, which is what produced the
+308 in the first place and will produce it again on the next three apps).
+
+**Not deployed, not published, not restarted.** Production still serves the
+308 until someone republishes; publishing is Michael's call.
+
 ### 2026-08-02 — Post-cutover repair: black screen at the old addresses (CLOSED)
+
+> **Superseded in part by L1a (above), same day: the redirect status code
+> recorded below as 308 is now 307.** The prose is left as the record of what
+> actually shipped that day; the code says 307 and must not be moved back.
 
 Reported live: `https://chat-followuper.replit.app/` renders a black page.
 Root cause is open item 7's predicted router-base mismatch, now fired in
