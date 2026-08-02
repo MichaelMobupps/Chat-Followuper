@@ -208,6 +208,22 @@
    the prefixed address is correct — but if anyone debugs a blank page at `/`
    after cutover, it is a router-base mismatch, not a 404 storm.
 
+   **FIRED IN PRODUCTION AND FIXED 2026-08-02 (post-cutover repair).** The
+   blank page happened exactly as predicted: after cutover,
+   `https://chat-followuper.replit.app/` (the address everyone had) served the
+   prefixed build at the root and rendered black. Fix is client-side, because
+   the dashboard's static service — not the api-server — answers `/`, so no
+   server can redirect it: `outOfBaseRedirectTarget()` in `basePath.ts` (both
+   copies, still byte-identical, pinned by the shared tests) computes the same
+   path under the base, and `main.tsx` calls `location.replace()` with it
+   *before* mounting — `/` → `/chat/`, `/login?e=x` → `/chat/login?e=x`,
+   `/prospects/42` → `/chat/prospects/42`. Query and fragment ride along;
+   containment is case-insensitive and segment-aware (`/chatter` is outside);
+   the target is same-origin by construction (base first). Dark: the helper
+   returns null for every address at the root base, so the app boots exactly
+   as before — pinned by the new DARK test. Requires a republish to reach
+   production.
+
 8. **CUTOVER: once `BASE_PATH` is set, the whole unprefixed `/api` surface
    404s except health.** (Found by CP1, audit round 2. Outside its scope,
    which was the three named findings.)
@@ -235,6 +251,28 @@
    a health probe to a token-authenticated redirect and should not be done
    casually; (c) accept the breakage for links older than the cutover. Note
    that (a) is the only one that survives retiring this origin entirely.
+
+   **RESOLVED 2026-08-02 with option (a) (post-cutover repair).** `app.ts`
+   mounts a 308 redirect at `PLATFORM_API_BASE_PATH` that maps
+   `/api/<anything>` onto `API_BASE_PATH` with method and query preserved —
+   `/api/followups/open/42?t=abc` → 308 → `/chat/api/followups/open/42?t=abc`,
+   verified in the lit run. Mounted *after* the platform health router, so
+   `/api/healthz` and `/api/health` keep answering 200 directly and the
+   startup probe never depends on a redirect; gated on `IS_PREFIXED`, because
+   at the default base the two mount points are the same string and a redirect
+   would loop — the dark run confirms `/api` still answers directly with zero
+   redirects, so rollback stays intact. This same redirect also un-breaks the
+   Google OAuth callback (external registration 1): `GOOGLE_OAUTH_REDIRECT_URI`
+   still names the unprefixed `/api/auth/google/callback`, which had been
+   404ing — the browser now follows the 308 and the token exchange still sends
+   the byte-identical registered URI, so nothing at Google needs to change
+   (though re-registering the prefixed URI remains the cleaner end state). The
+   Apollo webhook (external registration 2) cannot rely on a redirect —
+   webhook senders do not reliably follow 3xx on POST — so its legacy address
+   is a first-class second mount of the same router, before `express.json` so
+   raw-body HMAC capture holds, also gated on `IS_PREFIXED`; verified
+   byte-identical behavior on both mounts. Requires a republish to reach
+   production.
 
 9. **`artifacts/mockup-sandbox/vite.config.ts` has the same unvalidated
    `base` that CP1 fixed in the dashboard.** (Found by CP1, audit round 3.)
@@ -319,6 +357,47 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-08-02 — Post-cutover repair: black screen at the old addresses (CLOSED)
+
+Reported live: `https://chat-followuper.replit.app/` renders a black page.
+Root cause is open item 7's predicted router-base mismatch, now fired in
+production — the cutover env vars are on (`BASE_PATH=/chat`,
+`PUBLIC_URL=https://tools.mobupps.net/chat`), the prefixed surface at
+`/chat/` and on the gateway is fully healthy, but every *pre-cutover* address
+broke: `/` and old deep links render empty (item 7), the emailed
+`/api/followups/open/<id>` links 404 (item 8), the OAuth callback registered
+at Google 404s (registration 1 — login was down entirely), and Apollo's
+webhook address 404s (registration 2).
+
+Three changes, all dark by construction and pinned by tests:
+
+1. **Client**: `outOfBaseRedirectTarget()` added to `basePath.ts` (both
+   copies, byte-identical, md5-verified; 6 new shared tests, 18/18 pass in
+   each artifact) and called from `main.tsx` before mount —
+   `location.replace()` onto the same path under the base. Fixes item 7 for
+   `/` and every stale deep link.
+2. **Server**: 308 method/query-preserving redirect `/api/*` →
+   `API_BASE_PATH/*`, mounted after the platform health router, gated on
+   `IS_PREFIXED`. Fixes item 8 (emailed links) and registration 1 (OAuth
+   callback — the token exchange still sends the registered URI, so the
+   Google console is untouched).
+3. **Server**: legacy first-class mount of the Apollo webhook router at the
+   unprefixed address, before `express.json` (raw-body HMAC), gated on
+   `IS_PREFIXED`. Fixes registration 2 without trusting POST
+   redirect-following.
+
+Audit: typecheck clean both artifacts; lit run on `:8123` (health direct 200,
+legacy 308s carry query+method, webhook byte-identical on both mounts,
+prefixed surface unchanged, `/apiary` and non-prefix paths untouched); dark
+run on `:8124` (zero redirects, no SPA mount, `/chat` 404s — rollback
+intact); lit dashboard build carries the redirect, dark build restored in the
+tree. Open-redirect review: both redirect targets are same-origin by
+construction (normalized base/API mount first, request-controlled suffix
+after). **Not deployed by this change — republish to take effect.** Cleaner
+end state, later: re-register the prefixed OAuth URI and update
+`GOOGLE_OAUTH_REDIRECT_URI`, re-point Apollo's webhook URL, then retire the
+legacy webhook mount.
 
 ### 2026-07-31 — Cutover prep CP1: three sibling-app findings (CLOSED, ritual clean)
 

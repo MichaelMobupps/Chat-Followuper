@@ -1,4 +1,8 @@
-import express, { type Express } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+} from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -11,6 +15,7 @@ import { loadUser } from "./middlewares/auth";
 import { mountSpa } from "./routes/spa";
 import {
   API_BASE_PATH,
+  IS_PREFIXED,
   PLATFORM_API_BASE_PATH,
   apiPath,
 } from "./lib/appConfig";
@@ -46,6 +51,18 @@ app.use(cookieParser());
 // own express.raw middleware scoped to the webhook path.
 app.use(API_BASE_PATH, apolloWebhookRouter);
 
+// Cutover (TODO external registration 2): the webhook URL registered in the
+// Apollo dashboard predates the prefix and points at the unprefixed
+// "/api/apollo/webhook/phone-reveal". A redirect is not enough here — webhook
+// senders do not reliably follow 3xx on POST — so the legacy address stays a
+// first-class second mount of the same router, same HMAC gate, same raw-body
+// capture (which is why it sits here, before express.json, like the mount
+// above). Gated on IS_PREFIXED: at the default base the two mount points are
+// the same string and this would register the router twice.
+if (IS_PREFIXED) {
+  app.use(PLATFORM_API_BASE_PATH, apolloWebhookRouter);
+}
+
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -72,6 +89,34 @@ app.use(API_BASE_PATH, router);
 // /api/healthz, and this line is never reached. Under a prefix the router
 // above sits at /chat/api and this is the only thing serving /api/healthz.
 app.use(PLATFORM_API_BASE_PATH, healthRouter);
+
+// Cutover (TODO open item 8, option (a)): everything else still asking for
+// the unprefixed API — the "/api/followups/open/<id>?t=…" links already
+// sitting in reps' inboxes, the OAuth callback address registered at Google
+// and pinned in GOOGLE_OAUTH_REDIRECT_URI, any stale client — is answered
+// with a permanent, method- and query-preserving redirect onto the prefixed
+// mount. 308 rather than 301 because the callback and the email links must
+// keep their query strings and a permanent status lets browsers cache the
+// hop. This is the option that keeps working if this origin is ever retired
+// behind the gateway, and the only one that repairs mail that cannot be
+// recalled.
+//
+// Ordering: after the platform health router, so /api/healthz and /api/health
+// keep answering 200 directly — the startup probe must never depend on a
+// redirect. Gated on IS_PREFIXED: at the default base this mount point IS the
+// API mount, and a redirect here would loop. Unset BASE_PATH (the rollback)
+// and this disappears with everything else.
+//
+// The target is same-origin by construction: API_BASE_PATH is a normalized
+// rooted path ("/chat/api"), and whatever hostile suffix a request line
+// carries is appended *after* it, so the Location header can never begin
+// "//" or name another origin.
+if (IS_PREFIXED) {
+  app.use(PLATFORM_API_BASE_PATH, (req: Request, res: Response) => {
+    const suffix = req.originalUrl.slice(PLATFORM_API_BASE_PATH.length);
+    res.redirect(308, `${API_BASE_PATH}${suffix}`);
+  });
+}
 
 // Bundle 2: serve the built dashboard under BASE_PATH. No-op at the default
 // base, so with BASE_PATH unset the stack above is the whole app, exactly as

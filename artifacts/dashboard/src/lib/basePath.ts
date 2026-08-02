@@ -97,6 +97,49 @@ export function normalizeBasePath(raw: string): string {
   return withoutTrailing === "" ? "/" : withoutTrailing;
 }
 
+/**
+ * Where to send a browser that loaded this app *outside* its configured base
+ * (post-cutover fix; TODO open item 7's "blank page at /").
+ *
+ * After cutover the origin serves the prefixed build at every path: the
+ * dashboard's static service answers "/" and "/login" with an index.html whose
+ * assets live under the prefix, so the bundle loads and runs — but the router
+ * base is the prefix while window.location is not under it, no route can
+ * match, and the page renders empty. The addresses that reach this state are
+ * exactly the pre-cutover ones: the bare origin users have bookmarked, and
+ * every deep link sent before the move.
+ *
+ * The repair is a client-side redirect onto the same path under the prefix,
+ * decided *before* the app mounts: "/" → "<base>/", "/login?e=x" →
+ * "<base>/login?e=x". Query and fragment ride along untouched.
+ *
+ * Returns the redirect target, or null when no redirect is needed. Null in
+ * two cases: the base is "/" (darkness rule — at the default base this
+ * function never fires), or the location is already under the base. The
+ * containment check is case-insensitive to match how the rest of the stack
+ * routes (Express matches paths case-insensitively, so "/Chat/login" is
+ * served exactly like "/chat/login" and must not be re-redirected), and it is
+ * segment-aware ("/chatter" is outside a "/chat" base, not inside it).
+ *
+ * The target is always same-origin by construction: it begins with the
+ * normalized base, whose first character is a single "/" — a
+ * window.location.pathname of "//host" cannot produce a protocol-relative
+ * target because the base, not the pathname, comes first.
+ */
+export function outOfBaseRedirectTarget(
+  rawBase: string,
+  pathname: string,
+  searchAndHash: string,
+): string | null {
+  const base = normalizeBasePath(rawBase);
+  if (base === "/") return null;
+  const p = pathname.toLowerCase();
+  const b = base.toLowerCase();
+  if (p === b || p.startsWith(`${b}/`)) return null;
+  const rooted = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${base}${rooted}${searchAndHash}`;
+}
+
 export interface PathResolvers {
   /** The normalized prefix this app is served under. "/" at the default. */
   readonly BASE_PATH: string;

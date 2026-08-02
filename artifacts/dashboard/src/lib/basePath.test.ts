@@ -12,7 +12,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createPathResolvers, normalizeBasePath } from "./basePath.ts";
+import {
+  createPathResolvers,
+  normalizeBasePath,
+  outOfBaseRedirectTarget,
+} from "./basePath.ts";
 
 test("normalizeBasePath: the root spellings all collapse to /", () => {
   for (const raw of ["", "/", "  ", " / ", "//", "///"]) {
@@ -234,4 +238,67 @@ test("stripPrefix only strips a genuine path segment, not a lookalike suffix", (
   const lit = createPathResolvers("/chat");
   // "…/livechat" ends with "chat" but not with the "/chat" segment.
   assert.equal(lit.stripPrefix("https://x.test/livechat"), "https://x.test/livechat");
+});
+
+test("outOfBaseRedirectTarget: DARK — never fires at the root base", () => {
+  // The darkness rule. At the default base there is no prefix to be outside
+  // of, so the pre-mount redirect in main.tsx must be a no-op for every
+  // address, and the app boots exactly as it did before this function existed.
+  for (const base of ["", "/", "//", " / "]) {
+    for (const path of ["/", "/login", "/prospects/42", "/chat", "/chat/login"]) {
+      assert.equal(
+        outOfBaseRedirectTarget(base, path, ""),
+        null,
+        `base ${JSON.stringify(base)} path ${JSON.stringify(path)}`,
+      );
+    }
+  }
+});
+
+test("outOfBaseRedirectTarget: LIT — stale unprefixed addresses land on the same path under the prefix", () => {
+  // The post-cutover blank page: the bare origin and every pre-cutover deep
+  // link load the prefixed bundle at an unprefixed location. Each must be
+  // sent to its own path under the base, query and fragment intact.
+  assert.equal(outOfBaseRedirectTarget("/chat", "/", ""), "/chat/");
+  assert.equal(
+    outOfBaseRedirectTarget("/chat", "/login", "?error=oauth_denied"),
+    "/chat/login?error=oauth_denied",
+  );
+  assert.equal(
+    outOfBaseRedirectTarget("/chat", "/prospects/42", ""),
+    "/chat/prospects/42",
+  );
+  assert.equal(
+    outOfBaseRedirectTarget("/chat", "/followup/whatsapp", "?id=7#top"),
+    "/chat/followup/whatsapp?id=7#top",
+  );
+  // The raw base may carry its deployment spelling; it is normalized first.
+  assert.equal(outOfBaseRedirectTarget("/chat/", "/", ""), "/chat/");
+});
+
+test("outOfBaseRedirectTarget: LIT — anything already under the base is left alone", () => {
+  // No self-redirects, or the main page would loop.
+  for (const path of ["/chat", "/chat/", "/chat/login", "/chat/prospects/42"]) {
+    assert.equal(
+      outOfBaseRedirectTarget("/chat", path, ""),
+      null,
+      `path ${JSON.stringify(path)}`,
+    );
+  }
+  // Case-insensitive containment, matching Express's case-insensitive routing
+  // and the isApiPath guard in spa.ts: "/Chat/login" is served like
+  // "/chat/login", so re-prefixing it would double the base.
+  assert.equal(outOfBaseRedirectTarget("/chat", "/Chat/login", ""), null);
+  // Segment-aware: "/chatter" is outside the base, not inside it. It
+  // redirects to its own path under the prefix, where the SPA's own
+  // not-found page answers — better than the blank page it produced before.
+  assert.equal(outOfBaseRedirectTarget("/chat", "/chatter", ""), "/chat/chatter");
+});
+
+test("outOfBaseRedirectTarget: the target is always a same-origin path", () => {
+  // A pathname of "//host" is legal in window.location; the base coming
+  // first is what keeps the target from becoming protocol-relative.
+  const target = outOfBaseRedirectTarget("/chat", "//evil.example", "");
+  assert.equal(target, "/chat//evil.example");
+  assert.ok(target !== null && !target.startsWith("//"));
 });
