@@ -377,7 +377,15 @@
     before the Prospector, Email Followupper and Leadfinder cutovers, or each
     will ship the same 308.
 
-13. **OPEN: the 307 is not pinned by a test, which ROADMAP v3 now requires.**
+13. **RESOLVED 2026-08-02 by L1b.** `artifacts/api-server/src/app.test.ts`
+    boots the built artifact lit and dark and asserts all four properties
+    listed below; `package.json`'s `test` script runs it, so it is a gate.
+    Proved to bite by four mutations of `app.ts` (308, 302, 301, and removing
+    the `IS_PREFIXED` gate), each failing the suite — see the L1b ledger entry
+    for which assertion fires for which mutation. `app.ts` itself was restored
+    byte-identical. **The original finding:**
+
+    **The 307 is not pinned by a test, which ROADMAP v3 now requires.**
     (Raised by v3's arrival, 2026-08-02 17:51, immediately after L1a closed.)
     v3's redirect convention rule 6: "Pin the status code with a test that
     boots the app, so a future edit fails a gate rather than passing silently."
@@ -450,6 +458,225 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-08-02 — Cutover L1b: pin the legacy redirect status code (CLOSED, ritual clean)
+
+Branch: `cutover-l1b-pin-status`. Scope: resolve open item 13 — ROADMAP v3's
+redirect rule 6, "Pin the status code with a test that boots the app, so a
+future edit fails a gate rather than passing silently." **Test-only. No
+production code changes, and nothing to publish.**
+
+**WHY.** L1a proved the 307 with a lit smoke, which is a manual run by a human
+who chose to do it. Nothing in `pnpm test` fails today if someone puts the 308
+back — the only defenses are a code comment and this ledger, and both are
+advisory. The gate is what makes the status code hold when nobody is looking.
+
+**LINEAGE CHECK (before any edit)**
+
+- **Git.** Working tree clean. `HEAD` = `cutover-l1b-pin-status`, cut from
+  `main` = `86e208c`, which contains L1a's merge and the owner's publish
+  `5c72224` (ROADMAP v3). `origin/main` = `86e208c`, in sync.
+- **The property to pin is live.** `app.ts:125` reads `res.redirect(307, …)`;
+  its sha256 is recorded here as
+  `1d684ae2d5901774dbb3286c52b00ed28a70b188160269be0ffec804b5e874da` (blob
+  `11e7823`) and must be byte-identical at close, since step 3 of this order
+  deliberately edits it and puts it back.
+- **How this artifact tests.** Node's built-in runner over TypeScript with
+  native type stripping, no framework, no dependency:
+  `node --test src/lib/basePath.test.ts`. Two `.mjs` integration scripts sit in
+  `tests/` unwired to any script; they are not touched.
+- **The app cannot be imported in-process.** `node` resolves ESM strictly:
+  `import router from "./routes"` is a directory import, so
+  `import("./src/app.ts")` fails with `ERR_UNSUPPORTED_DIR_IMPORT`. Verified,
+  not assumed. The test must therefore boot the **built** artifact — which is
+  the better subject anyway: it pins the bundle that actually ships, not a
+  re-assembled approximation of it.
+- **A boot needs `DATABASE_URL`.** `lib/db/src/index.ts:7` throws at import
+  without it. The existing `lib/db` suite already runs against the live
+  database, so this is the environment every gate in this repo already assumes;
+  no probe in this test reaches a query (all four answer before the DB).
+
+**BLAST RADIUS (written before any edit)**
+
+Files to be touched (3):
+
+- `artifacts/api-server/src/app.test.ts` — NEW. Boots the built artifact twice,
+  lit and dark, on OS-assigned free ports, and asserts the four properties of
+  open item 13.
+- `artifacts/api-server/package.json` — the `test` script gains the new file.
+  Test wiring, not production code; it is the one line that turns the file into
+  a gate.
+- `TODO.md` — this entry, and open item 13 closed out.
+
+Files deliberately NOT touched: **`artifacts/api-server/src/app.ts`** — it is
+edited three times in step 3 to prove the test bites, and restored to the byte
+recorded above; the close-out check is `git diff` empty plus a sha256
+comparison against the recorded blob. Also untouched: every other production
+file, `tests/*.mjs`, `basePath.ts` and its mirror, both `basePath.test.ts`
+copies, `lib/`, migrations, secrets, `.replit`, `artifact.toml`,
+`pnpm-lock.yaml`. **No dependency added** — no supertest, no framework; the
+test uses `node:test`, `node:assert`, `node:child_process`, `node:net` and
+`fetch`.
+
+Behaviors affected:
+
+- **The api-server test gate only.** It grows from 18 assertions to 18 plus
+  four HTTP-level ones, and from ~0.2s to a few seconds, because it builds the
+  artifact and boots it twice. Nothing the app does at runtime changes.
+- **`dist/` is rebuilt when the suite runs.** The test builds before booting,
+  on purpose: a test that boots a stale `dist` would pass while the source said
+  308, which is the exact failure this order exists to prevent. That rebuild
+  writes the same directory the workflow's already-running process was started
+  from — harmless, since Node has the bundle in memory and nothing restarts it,
+  and identical to what the build gate already does.
+
+Worst realistic failure:
+
+- (a) **The test is flaky and someone deletes it**, leaving the status code
+  unpinned again with a ledger claiming otherwise. Mitigated by OS-assigned
+  ports rather than fixed ones, by waiting on a real health response rather
+  than a timer, and by killing both children in an `after` hook that runs even
+  when a test fails.
+- (b) **The test passes for the wrong reason** — asserting on a redirect that
+  is not the one under test, or on a server that never booted. Mitigated by
+  step 3: three deliberate mutations (308, 302, 301), each recorded with which
+  assertions fail. A test that does not fail on all three is not pinning
+  anything.
+- (c) **The step-3 mutations are left in the tree.** Mitigated by restoring
+  from git and proving byte-identity against the recorded sha256, not by eye.
+- (d) **The gate needs a database it does not have elsewhere.** Recorded above,
+  not defended against: it is the same assumption `lib/db`'s suite already
+  makes in this repo.
+
+Rollback path: git branch `cutover-l1b-pin-status`; `main` untouched until the
+ritual closes clean. Nothing deployed, restarted or published — and unlike
+L1a, nothing here needs a publish at all, since no shipped byte changes. The
+running workflow is never touched: every boot is a child process on an
+OS-assigned free port, killed by its own PID.
+
+**WHAT SHIPPED — 3 files predicted, 3 files touched. The blast radius held
+exactly.** One new file (`artifacts/api-server/src/app.test.ts`), one line of
+test wiring (`artifacts/api-server/package.json`), and this ledger. **No
+dependency added** (`pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`
+all diff empty) — the test is `node:test`, `node:assert`, `node:child_process`,
+`node:net` and `fetch`. **`app.ts` is byte-identical to `HEAD`** after being
+mutated four times: sha256
+`1d684ae2d5901774dbb3286c52b00ed28a70b188160269be0ffec804b5e874da`, the value
+recorded before any edit, and `git diff` on it is empty. Both `basePath.ts`
+copies and both `basePath.test.ts` copies are still byte-identical. The
+shipped bundle does not contain the test: zero occurrences of the probe path
+in `dist/index.mjs`, because `build.mjs` bundles from `src/index.ts` and
+nothing imports a test.
+
+**THE TEST.** `src/app.test.ts` builds the artifact with the artifact's own
+`build.mjs` — not a second copy of the esbuild config — then boots
+`dist/index.mjs` twice on OS-assigned free ports, lit and dark, and kills both
+children in `after`. It rebuilds every run **on purpose**: a test that booted a
+stale `dist` could pass while the source said 308, which is the exact failure
+it exists to prevent. `NODE_ENV=production` is set for the children for one
+reason — it switches pino from the pretty transport to one JSON object per
+line, which is what makes property 3 a parse of the access log rather than a
+guess. Four tests, one per property of open item 13:
+
+1. a POST to a legacy `/api/...` path answers **307**;
+2. `Location` is that path under `/chat/api` with the query byte-intact,
+   checked both as a string and by resolving it with the WHATWG `URL` parser
+   (v3 ritual step 4: a parser as the oracle, never string shape) — origin,
+   pathname and search each asserted;
+3. following the hop, **the access log shows `POST` arriving at the prefixed
+   mount**, not GET;
+4. with `BASE_PATH` unset the legacy mount does not exist: the request is
+   answered, no `Location`, nothing in the log with a 3xx.
+
+**PROOF THAT THE TEST BITES — four mutations of `app.ts`, each run in full,
+each restored from `HEAD`'s blob rather than by eye.**
+
+| mutation | test 1 (307) | test 2 (Location) | test 3 (method) | test 4 (dark) | suite |
+|---|---|---|---|---|---|
+| `res.redirect(308` | FAIL `308 !== 307` | FAIL `308 !== 307` | FAIL `308 !== 307` | pass | exit 1, 19/3 |
+| `res.redirect(302` | FAIL `302 !== 307` | FAIL `302 !== 307` | **FAIL `'GET' !== 'POST'`** | pass | exit 1, 19/3 |
+| `res.redirect(301` | FAIL `301 !== 307` | FAIL `301 !== 307` | **FAIL `'GET' !== 'POST'`** | pass | exit 1, 19/3 |
+| `IS_PREFIXED` gate removed | pass | pass | pass | **FAIL "it answered 307"** | exit 1, 21/1 |
+
+Two things that table says and a bare "the test fails" would not. First, under
+**302 and 301 the failure is the method itself** — `'GET' !== 'POST'`, read
+out of the server's own access log, which is the harm those codes do rather
+than a proxy for it; under **308 the method survives** (308 preserves it too)
+and what fails is the recorded status. The suite distinguishes the two failure
+modes instead of lumping them. Second, the fourth mutation exists because
+tests 1–3 all pass when the redirect is ungated, so without it there would be
+no evidence that test 4 asserts anything at all; ungating the mount makes dark
+answer 307 to a path it must answer itself, and test 4 — alone — catches it.
+
+*A note on the first mutation pass, which was discarded.* Its 302 run was
+invalid: a concurrent git process held `.git/index.lock`, the `git checkout`
+restore silently failed, and the perl replacement then found no `307` to
+rewrite, so that run re-tested 308 while claiming to test 302. Caught by the
+mutation count printed for each run. The harness was rewritten to restore from
+a byte copy of `HEAD`'s blob with no git involved, and all four mutations were
+re-run from scratch; the table above is that pass. Recorded because a harness
+that can silently test the wrong thing is exactly what this order is about.
+
+**GATES — all pass.**
+
+- **Typecheck:** `pnpm run typecheck` clean across all four projects. The test
+  file is inside `tsconfig`'s `include`, so it is typechecked like production
+  code.
+- **Tests:** 50/50 — `api-server` **22/22** (18 unit + 4 new HTTP),
+  `dashboard` 18/18, `api-client-react` 7/7, `db` 3/3. The api-server suite
+  was run **three times consecutively**, 22/22 every time, as a flake check;
+  it takes ~3.4s, up from ~0.2s, because it builds and boots the artifact.
+- **Build:** `PORT=23183 pnpm run build` clean; `dist` carries one
+  `res.redirect(307` and zero `308`, and the dashboard build stayed dark.
+
+**GODLIKE AUDIT — 6 rounds, closed clean, with one in-scope finding fixed in
+round 1 and re-proved afterwards.**
+
+- Round 1 (technical): **one finding, fixed.** The first draft asserted `401`
+  from `POST /api/campaigns`, which couples this gate to that endpoint's auth
+  behavior — a future refactor there would fail this test for a reason with
+  nothing to do with the status code, and a gate that cries wolf gets deleted.
+  The property belongs to the *mount*, which answers before routing, so the
+  three mount-level tests now use a path no router claims,
+  `/api/__l1b_status_probe__`, and assert the API's own 404 at the far end.
+  The mutation table above was re-run in full against the fixed file.
+  A second, smaller finding from the same round: test 3 originally asserted the
+  recorded status before the method, so a 302 failed on the status line and
+  masked the downgrade. The assertions were reordered so each test fails on the
+  property it owns — which is what produced the `'GET' !== 'POST'` evidence.
+- Round 2 (security): clean. The test authenticates nothing and sends no
+  credentials; pino's existing redaction covers `authorization` and `cookie`
+  either way. The children inherit the environment exactly as the app does,
+  including `DATABASE_URL`, and no probe reaches a query. Each child binds an
+  OS-assigned ephemeral port for a few seconds and is killed by its own PID —
+  no fixed port, no pattern kill, nothing that could reach the workflow.
+- Round 3 (end-user, meaning the next maintainer): clean. Every assertion
+  carries a message that says *why* — the 307 message names the cache-survives-
+  rollback failure and the POST-to-GET downgrade, so a failure explains itself
+  without archaeology through this ledger.
+- Round 4 (sweep): clean. Exactly three files touched, no dependency, no
+  generated file, no `lib/`, no migration, no secret, no `artifact.toml`, no
+  `.replit`. The two `tests/*.mjs` integration scripts are untouched and remain
+  unwired. `mockup-sandbox` untouched.
+- Round 5 (tree and process state): clean. `app.ts` byte-identical to `HEAD`,
+  no stray child processes (`dist/index.mjs` shows the workflow's own `sh`
+  wrapper and its node process, nothing else), and `:8080` answering 200
+  throughout. The workflow processes have been at their **17:51:43–47** start
+  times since before this order began — they were restarted by the platform
+  when ROADMAP v3 landed, not by L1b's builds or test runs, which touched no
+  fixed port.
+- Round 6 (final read-through): clean, no finding. Ritual closed.
+
+**No smoke run, deliberately.** ROADMAP v3's ritual step 5 asks for a smoke
+"where a switch is involved". Nothing shipping changed here — `app.ts` is
+byte-identical and the dashboard is untouched — so there is no new behavior to
+smoke and nothing to publish. The four HTTP tests *are* the lit and dark runs,
+now permanent and automatic.
+
+**OUT-OF-SCOPE FINDINGS — none.**
+
+**Not deployed, not published, not restarted.** Nothing about the running app
+changed, so no publish is needed at all.
 
 ### 2026-08-02 — Cutover L1a: legacy `/api` redirect 308 → 307 (CLOSED, ritual clean)
 
