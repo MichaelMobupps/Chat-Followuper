@@ -304,8 +304,24 @@
     and it should land **before** the cutover if it lands at all, so the
     change is observed at the old address rather than blamed on the new one.
 
-11. **The "Git safety rule 1" that L1a was asked to reword does not exist in
-    this repo.** (Found by L1a, before any edit.) The order asked to correct
+11. **RESOLVED 2026-08-02 17:51 by ROADMAP v3, which arrived on its own.** The
+    canonical roadmap ("Version 3, last updated 2026-08-02. This file is
+    canonical. Copy it into every repo in the project") replaced this repo's
+    2026-07-30 copy in the working tree twelve minutes after L1a closed, and
+    was committed by the owner's publish `5c72224`. It carries a **Git safety
+    rules** section whose rule 1 is *already* the directional form this order
+    asked for — "does another branch hold content main lacks? Answer it with
+    `git diff <branch> main`. Do not use tree equality between branches as the
+    test; it goes stale the moment main takes a commit that branch lacks" —
+    plus five further rules L1a could not have known to write, including rule 6
+    on the transient push failure L1a hit and recorded independently. **Nothing
+    needed rewording, and the decision not to author the section from the order
+    alone was the right one**: an invented version would have carried one rule
+    where the canonical text carries six, and would have had to be reverted.
+    The finding below is kept as the record of what was true until 17:51.
+
+    **The original finding (accurate as of 2026-08-02 17:20, superseded):** The
+    order asked to correct
     `ROADMAP.md`'s Git safety rule 1 — worded as a tree-equality check between
     branches, which goes stale as soon as `main` takes a commit another branch
     lacks and produces false STOPs — into the directional form: *does another
@@ -331,8 +347,21 @@
     matters, *does `<branch>` hold content `main` lacks*, and stays true after
     `main` moves ahead.
 
-12. **`ROADMAP.md` prescribes "permanent redirects" for old addresses, which is
-    what produced the 308 that L1a had to undo.** (Found by L1a, audit round 1.)
+12. **RESOLVED 2026-08-02 17:51 by ROADMAP v3.** Both "permanent redirect"
+    lines are gone, replaced by a mandatory **Redirect convention** that says
+    what this finding asked for and more: use 307 for every legacy-to-prefixed
+    redirect; never 308 or 301 ("a cached entry survives an env-unset rollback
+    and bounces clients to a path that no longer exists"); never 302 (POST
+    downgrade); preserve the query string and **prove the method arrives intact
+    from the server's own access log rather than asserting it**; prefer a
+    first-class mount over a redirect for webhook senders; and pin the status
+    code with a boot-level test (see open item 13). The three sibling apps are
+    therefore no longer at risk of shipping the same 308.
+    The original finding is kept below as the record.
+
+    **The original finding (superseded):** `ROADMAP.md` prescribes "permanent
+    redirects" for old addresses, which is what produced the 308 that L1a had
+    to undo. (Found by L1a, audit round 1.)
     Architecture bullet 3 ("Old addresses become permanent redirects") and the
     migration cycle's step 7 ("Convert the old address into a permanent
     redirect") both predate the discovery that permanence and the one-minute
@@ -347,6 +376,26 @@
     owner's call, and L1a's scope was one status code. It should be reworded
     before the Prospector, Email Followupper and Leadfinder cutovers, or each
     will ship the same 308.
+
+13. **OPEN: the 307 is not pinned by a test, which ROADMAP v3 now requires.**
+    (Raised by v3's arrival, 2026-08-02 17:51, immediately after L1a closed.)
+    v3's redirect convention rule 6: "Pin the status code with a test that
+    boots the app, so a future edit fails a gate rather than passing silently."
+    L1a shipped without one and said so at close — the status code is proved by
+    the lit smoke, which is a manual run, not a gate. Nothing in `pnpm test`
+    would fail if someone put the 308 back; the only defenses are the comment
+    and this ledger. v3's status board shows the sibling Email Followupper
+    already carrying an **L1b (test only)** for exactly this, so the shape of
+    the work exists next door.
+    What it needs: a test that boots the app with `BASE_PATH` set on a free
+    port and asserts (a) a POST to a legacy `/api/...` path answers **307**,
+    (b) the `Location` is the same path under `API_BASE_PATH` with the query
+    intact, (c) the request that arrives at the prefixed mount is still a
+    **POST**, and (d) with `BASE_PATH` unset the legacy mount does not exist at
+    all, so the rollback state stays dark. Not done inside L1a: v3 landed after
+    that order closed, and adding a test file was outside its "change nothing
+    else" scope. **This is the natural L1b for this repo** and wants its own
+    order.
 
 ## External registrations discovered
 
@@ -721,6 +770,56 @@ that was still local, `4376b2e`, went up with this push.
 Confirmed on the remote: `refs/heads/main` = `096eb1f`,
 `refs/heads/cutover-l1a-307` = `3f822e2`. Nothing was force-pushed; nothing
 was mirrored to `gitsafe-backup`.
+
+**AFTER THE CLOSE — ROADMAP v3, the publish, and production verified
+(2026-08-02, 17:51–17:58).** Recorded here because it lands on top of this
+order and changes what is true about it.
+
+- **17:51:20 — ROADMAP v3 appeared in the working tree**, replacing the
+  2026-07-30 copy this order audited. It is the canonical cross-app roadmap
+  ("This file is canonical. Copy it into every repo in the project"). Not
+  written by this order; found by a background search that was still running
+  from L1a's pre-edit lineage check and finished after the merge. See open
+  items 11 and 12, both resolved by it.
+- **17:56:38 — the owner published.** Replit Agent commit `5c72224`
+  ("Published your App") committed ROADMAP v3 and deployed. **L1a did not
+  deploy or publish anything**; it stopped at ready-to-publish as ordered, and
+  the publish came 17 minutes later from the Replit UI. The published tree
+  carries `res.redirect(307` — verified in the commit itself, not inferred.
+- **17:57 — production verified, read-only.**
+  `GET https://chat-followuper.replit.app/api/auth/me` (unauthenticated, not
+  followed) answers **`HTTP/2 307`** with `location: /chat/api/auth/me` and
+  **no `cache-control`**. `/chat/api/healthz` answers 200 on the origin and
+  200 through `tools.mobupps.net`. **The 308 is off production**, and the
+  cached-308 window recorded above is now closed at both ends: it ran from the
+  cutover publish to `5c72224`.
+- **v3 confirms, independently, three conclusions this order reached on its
+  own**: 307 is now the mandatory redirect status project-wide with 308/301
+  and 302 both banned; Git safety rule 1 is exactly the directional form the
+  order asked to be written; and Git safety rule 6 records the transient
+  "Invalid username or token" push failure L1a hit and documented an hour
+  earlier.
+- **One new gap, from v3's redirect rule 6** (pin the status code with a
+  boot-level test): L1a has no such test and said so. Recorded as open item 13
+  — the L1b for this repo.
+
+**AUDIT ADDENDUM — round 2 re-verified under v3's oracle rule.** v3's ritual
+step 4 now says "Use a URL parser as the oracle, never string-shape checks."
+L1a's round 2 predates that line and used string-shape checks on the `Location`
+header, so it was re-run with the WHATWG `URL` parser as the oracle against a
+lit server on `:8127`: **12 hostile spellings, every one resolving to the
+request origin under the API mount** — including a raw `https://evil.example`
+suffix, the backslash form (folded to `/` by the parser, still under
+`/chat/api/`), and the percent-encoded double slash. No `x-injected` header
+appears on any of them, and no response carries `cache-control`, `expires` or
+`surrogate-control`. The three dot-segment forms are the one nuance worth
+writing down: `/chat/api/..//evil.example` and its deeper variants resolve to
+`/chat//evil.example` and `//evil.example` **on the request origin** — the
+resolved path can leave the API mount and land on the SPA catch-all, but it
+cannot leave the origin, so it is not an open redirect. Browsers normalize dot
+segments before sending, so these only arise from a hand-crafted request line.
+Pre-existing and unchanged by the status code; the same-origin-by-construction
+claim in `app.ts` holds under a real parser.
 
 ### 2026-08-02 — Post-cutover repair: black screen at the old addresses (CLOSED)
 
