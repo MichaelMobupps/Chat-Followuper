@@ -94,12 +94,20 @@ app.use(PLATFORM_API_BASE_PATH, healthRouter);
 // the unprefixed API — the "/api/followups/open/<id>?t=…" links already
 // sitting in reps' inboxes, the OAuth callback address registered at Google
 // and pinned in GOOGLE_OAUTH_REDIRECT_URI, any stale client — is answered
-// with a permanent, method- and query-preserving redirect onto the prefixed
-// mount. 308 rather than 301 because the callback and the email links must
-// keep their query strings and a permanent status lets browsers cache the
-// hop. This is the option that keeps working if this origin is ever retired
-// behind the gateway, and the only one that repairs mail that cannot be
-// recalled.
+// with a method- and query-preserving redirect onto the prefixed mount. This
+// is the option that keeps working if this origin is ever retired behind the
+// gateway, and the only one that repairs mail that cannot be recalled.
+//
+// 307, not 301 or 302 — those permit a client to downgrade the POST of a
+// webhook or a form to a GET, and the callback and the email links must keep
+// their query strings. Not 308 either (L1a): 308 promises the same method
+// preservation, but it is permanent and heuristically cacheable, and
+// unsetting BASE_PATH is this migration's one-minute rollback. A client
+// holding a cached permanent hop would keep rewriting /api/... onto a
+// prefixed path that 404s the moment the prefix is withdrawn, and no
+// server-side change can clear a cache entry a client already holds. The
+// permanence was never load-bearing here; the method preservation is. Do not
+// "upgrade" this back to 308.
 //
 // Ordering: after the platform health router, so /api/healthz and /api/health
 // keep answering 200 directly — the startup probe must never depend on a
@@ -114,7 +122,7 @@ app.use(PLATFORM_API_BASE_PATH, healthRouter);
 if (IS_PREFIXED) {
   app.use(PLATFORM_API_BASE_PATH, (req: Request, res: Response) => {
     const suffix = req.originalUrl.slice(PLATFORM_API_BASE_PATH.length);
-    res.redirect(308, `${API_BASE_PATH}${suffix}`);
+    res.redirect(307, `${API_BASE_PATH}${suffix}`);
   });
 }
 
