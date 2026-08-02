@@ -432,8 +432,9 @@ exists to prevent.
 
 - **Git.** Working tree clean at branch point. `HEAD` = `cutover-l1a-307`, cut
   from `main` = `4376b2e` ("Published your App"). `origin/main` is one commit
-  behind at `82bd434`; the three later Replit deployment commits are local
-  only, and this branch's push will carry them.
+  behind at `3a33203`; the newest Replit deployment commit `4376b2e` is local
+  only, and this branch's push would carry it (see the push note at the end of
+  this entry — it could not be pushed).
 - **The change under repair is deployed.** Unlike the sibling apps, where the
   same finding was caught before publish, this 308 is *live*: `main` carries
   it, and the four "Published your App" commits dated 2026-08-01/02 sit on top
@@ -692,6 +693,29 @@ prescribes *permanent* redirects for old addresses, which is what produced the
 
 **Not deployed, not published, not restarted.** Production still serves the
 308 until someone republishes; publishing is Michael's call.
+
+**MERGE DONE, PUSH TO `origin` BLOCKED — the same condition CP1 recorded on
+2026-07-31, unchanged since.** `cutover-l1a-307` is committed at `7689f50` and
+merged into `main` at `123c1fa` with `--no-ff`; the directional check
+`git diff cutover-l1a-307 main` is **empty**, so `main` holds everything the
+branch holds. Both pushes then failed identically:
+
+```
+remote: Invalid username or token. Password authentication is not supported
+        for Git operations.
+fatal: Authentication failed for
+       'https://github.com/MichaelMobupps/Chat-Followuper/'
+```
+
+GitHub credentials are not available to this session (`GIT_ASKPASS=replit` is
+set, but the credential it supplies is rejected; no credential helper is
+configured). `origin/main` is still at `3a33203`, **three commits behind**
+`main`: the deployment commit `4376b2e`, L1a's `7689f50`, and the merge
+`123c1fa`. Nothing was force-pushed and nothing was mirrored to
+`gitsafe-backup` — the order said `origin`, and pushing to a different remote
+is a different action, exactly as CP1 concluded. Once the GitHub connection is
+re-authenticated the two commands are
+`git push origin cutover-l1a-307` and `git push origin main`.
 
 ### 2026-08-02 — Post-cutover repair: black screen at the old addresses (CLOSED)
 
