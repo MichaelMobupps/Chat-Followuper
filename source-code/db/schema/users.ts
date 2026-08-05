@@ -43,11 +43,16 @@ export interface StageTiming {
   minDays: number;
   maxDays: number;
   /**
-   * Doctrine variant for this stage. Optional in the type to tolerate
-   * pre-migration rows that don't carry the field yet — the 0006
-   * migration backfills existing rows so production data always has
-   * the field, but defensive reads should still treat it as optional
-   * and fall back to the per-stage default below.
+   * Doctrine variant for this stage. Optional in the type because it is a
+   * nested field inside the `stage_timing` jsonb column, and migration 0006
+   * only changed the column DEFAULT (applied to newly-created rows) — it did
+   * NOT run an UPDATE to backfill existing rows. So users created before 0006
+   * carry `stage_timing` entries WITHOUT this field. Reads MUST treat it as
+   * optional and fall back to `defaultVariantForStage` below.
+   *
+   * (Audit DB6: the previous comment here claimed 0006 "backfills existing
+   * rows so production data always has the field" — it does not. The optional
+   * type + per-stage default is what actually keeps this safe.)
    */
   doctrineVariant?: DoctrineVariant;
 }
@@ -93,8 +98,51 @@ export const usersTable = pgTable("users", {
   requireApproval: boolean("require_approval").notNull().default(false),
   digestHourLocal: integer("digest_hour_local").notNull().default(9),
   digestTimezone: text("digest_timezone").notNull().default("Asia/Jerusalem"),
-  microsoftRefreshToken: text("microsoft_refresh_token"),
-  slackBotToken: text("slack_bot_token"),
+  /**
+   * Pushover user key for mobile follow-up reminders (optional).
+   * Each rep installs the Pushover app and pastes their key from
+   * pushover.net/dashboard. Null means Pushover reminders are off.
+   */
+  pushoverUserKey: text("pushover_user_key"),
+  /**
+   * Default follow-up channel for new prospects and digest links.
+   * One of: whatsapp, telegram. (Teams/Slack were removed.)
+   */
+  preferredChannel: text("preferred_channel").notNull().default("whatsapp"),
+  /**
+   * Local-hour window (in digestTimezone) when Pushover may be sent.
+   * Outside [start, end) is treated as quiet hours.
+   */
+  pushoverQuietHourStart: integer("pushover_quiet_hour_start")
+    .notNull()
+    .default(8),
+  pushoverQuietHourEnd: integer("pushover_quiet_hour_end")
+    .notNull()
+    .default(20),
+  /**
+   * Reminders & schedule (2026-07-09): per-user control of WHEN reminders
+   * fire — previously env-global (PUSHOVER_HOUR_LOCAL=12, weekdays-only
+   * hardcoded, email digest every day).
+   *
+   * pushoverHourLocal — local hour (in digestTimezone) the Pushover reminder
+   *   batch fires for this user. digestTimezone is the single per-user zone
+   *   for all reminder scheduling (the old global Etc/GMT-2 is retired).
+   * pushoverDays — weekdays (0=Sun..6=Sat) Pushover reminders may fire.
+   * digestDays — weekdays the email digest may send.
+   */
+  pushoverHourLocal: integer("pushover_hour_local").notNull().default(12),
+  pushoverDays: jsonb("pushover_days")
+    .$type<number[]>()
+    .notNull()
+    .default([1, 2, 3, 4, 5]),
+  digestDays: jsonb("digest_days")
+    .$type<number[]>()
+    .notNull()
+    .default([0, 1, 2, 3, 4, 5, 6]),
+  /**
+   * Optional personal sign-off appended to every generated message.
+   */
+  messageTemplate: text("message_template"),
   /**
    * Channels with manual prospect ingest enabled (Ticket 2.7-BE-A).
    *

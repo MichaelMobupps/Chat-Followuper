@@ -1,28 +1,33 @@
 /**
  * Generic channel follow-up page — Ticket 2.5-FE.
  *
- * One implementation; pages/followup/whatsapp.tsx and the future
- * telegram/teams/slack pages each render <ChannelFollowupPage
+ * One implementation; pages/followup/whatsapp.tsx and
+ * pages/followup/telegram.tsx each render <ChannelFollowupPage
  * channel="..." />. Mirrors the BE's channel-parameterized router.
  *
- * Sends the deep link via window.open for the WhatsApp path; for other
- * channels the BE returns 501 channel_send_not_implemented today, and
- * the toast surfaces that code directly. The user-visible action is
- * always the same shape: click → either a tab opens or an error explains
- * why it can't.
+ * Sends the deep link via window.open. The user-visible action is always
+ * the same shape: click → either a tab opens or an error explains why it
+ * can't.
  */
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
   ArrowRight,
   MessageCircle,
   Send,
   Check,
+  Copy,
   Pencil,
   Trash2,
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  // F-A: LinkedIn channel icon.
+  Linkedin,
+  // F-B: per-stage schedule expand toggle.
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,14 +60,18 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useArchiveProspect,
   useBulkPauseProspects,
+  useFollowupProgress,
   useListFollowups,
   useMarkProspectReplied,
   useSendNextFollowup,
 } from "@/hooks/use-followups";
+import { useFreshProgress } from "@/hooks/use-live-progress";
 import {
   LIST_STATUSES,
   type Followup,
   type FollowupListItem,
+  type FollowupListProspect,
+  type FollowupProgress,
   type ListStatus,
   type SupportedChannel,
 } from "@/lib/api/followups";
@@ -70,22 +79,23 @@ import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { EditFollowupDialog } from "./EditFollowupDialog";
+import { EditFirstMessageDialog } from "./EditFirstMessageDialog";
+import { PrepareProgressBar } from "./PrepareProgressBar";
 import { BulkToolbar } from "./BulkToolbar";
 import { SequenceConfigPanel } from "./SequenceConfigPanel";
-import { ManualContactsSection } from "./ManualContactsSection";
 
 const CHANNEL_LABEL: Record<SupportedChannel, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
-  teams: "Teams",
-  slack: "Slack",
+  // F-A: LinkedIn label.
+  linkedin: "LinkedIn",
 };
 
 const CHANNEL_ICON: Record<SupportedChannel, typeof MessageCircle> = {
   whatsapp: MessageCircle,
   telegram: Send,
-  teams: Send,
-  slack: Send,
+  // F-A: LinkedIn icon.
+  linkedin: Linkedin,
 };
 
 const STATUS_TAB_LABEL: Record<ListStatus, string> = {
@@ -109,14 +119,42 @@ interface Props {
 
 export function ChannelFollowupPage({ channel }: Props) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<ListStatus>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Followup | null>(null);
   const [editingOpen, setEditingOpen] = useState(false);
+  // Edit-before-send: a not-yet-sent prospect has no follow-up row to edit, so
+  // the pencil edits the generated FIRST message (prospects.firstMessageBody).
+  const [editingFirstMsg, setEditingFirstMsg] =
+    useState<FollowupListProspect | null>(null);
+  const [editingFirstMsgOpen, setEditingFirstMsgOpen] = useState(false);
   const [rowConfirm, setRowConfirm] = useState<RowConfirm | null>(null);
+  // Phase I: the followup row whose message is being generated right now —
+  // drives the staged progress bar. send-next is single-flight (the whole
+  // table's actions share `busy`), so one slot is enough.
+  const [generatingFollowup, setGeneratingFollowup] = useState<{
+    prospectId: string;
+    followupId: number;
+  } | null>(null);
 
   const query = useListFollowups({ channel, status, perPage: 50 });
   const sendNext = useSendNextFollowup();
+  // `generatingFollowup` is set only when generation will really run and is
+  // cleared in onSettled, so it IS the "run in flight" signal. Passing it as
+  // `running` keeps the poll alive through the previous run's parked terminal
+  // entry, and useFreshProgress hides that stale frame until this run reports
+  // in — otherwise a retry showed the last failure's red bar over a live run.
+  const generatingNow = generatingFollowup !== null;
+  const followupProgressQuery = useFollowupProgress(
+    generatingFollowup?.followupId ?? null,
+    { running: generatingNow },
+  );
+  const followupProgress = useFreshProgress(
+    followupProgressQuery.data,
+    generatingNow,
+    generatingFollowup?.followupId ?? null,
+  );
   const markReplied = useMarkProspectReplied();
   const archive = useArchiveProspect();
   const pauseOne = useBulkPauseProspects();
@@ -157,19 +195,65 @@ export function ChannelFollowupPage({ channel }: Props) {
     setEditingOpen(true);
   }
 
-  function handleSendNext(prospectId: string, prospectName: string) {
+  function openEditFirstMessage(p: FollowupListProspect) {
+    setEditingFirstMsg(p);
+    setEditingFirstMsgOpen(true);
+  }
+
+  function handleSendNext(item: FollowupListItem) {
+    const prospectId = item.prospect.id;
+    const prospectName = item.prospect.prospectName ?? "(no name)";
+    // Phase I: the BE resolves "next" as the lowest scheduled unsent stage —
+    // the list response already carries that row (derived.nextScheduled), so
+    // we know which followupId to poll BEFORE the request returns. Only poll
+    // when generation will actually run (no message stored yet); a cached
+    // message returns in one round-trip with nothing to watch.
+    const next = item.derived.nextScheduled;
+    if (next && !next.generatedMessage?.trim()) {
+      // Belt-and-braces cache clear. Unlike the Contacts call site, this one is
+      // a no-op in practice: useFollowupProgress sets gcTime:0 and the previous
+      // run set generatingFollowup back to null, which unsubscribed the observer
+      // and evicted the query entirely — so there's nothing here to reset and no
+      // active observer to refetch. What actually keeps a previous run's parked
+      // terminal entry (server-side, 15-min TTL) from freezing the bar is the
+      // `running` flag below, plus useFreshProgress hiding the stale frame.
+      void queryClient.resetQueries({
+        queryKey: ["followup-progress", next.id],
+      });
+      setGeneratingFollowup({ prospectId, followupId: next.id });
+    }
     sendNext.mutate(
       { prospectId, channel },
       {
+        onSettled: () => {
+          // Request finished (chat opened or toast shown) — stop polling.
+          // The disabled query drops its interval; state clears the bar.
+          setGeneratingFollowup(null);
+        },
         onSuccess: (data) => {
           // Open the deep link in a new tab. The BE doesn't mark sentAt
           // here; the send-intent endpoint (or a future click-observer
           // worker) does. Same model as the stage-0 wa.me flow.
           window.open(data.deepLinkUrl, "_blank", "noopener,noreferrer");
-          toast({
-            title: `Opened in ${CHANNEL_LABEL[channel]}`,
-            description: `${prospectName} · stage ${data.stage}`,
-          });
+          // CH5: Telegram t.me/<handle>?text= often doesn't prefill the composer
+          // for plain user handles — copy the message so the SDR can paste it.
+          // F-A: LinkedIn is clipboard-only (no message prefill deep link), so it
+          // takes the same copy-to-clipboard branch as Telegram.
+          if (
+            (channel === "telegram" || channel === "linkedin") &&
+            data.generatedMessage
+          ) {
+            void navigator.clipboard.writeText(data.generatedMessage).catch(() => {});
+            toast({
+              title: `Opened ${CHANNEL_LABEL[channel]} — message copied`,
+              description: `${prospectName}: paste it into ${CHANNEL_LABEL[channel]} if the composer is empty.`,
+            });
+          } else {
+            toast({
+              title: `Opened in ${CHANNEL_LABEL[channel]}`,
+              description: `${prospectName} · stage ${data.stage}`,
+            });
+          }
         },
         onError: (err) => {
           const apiCode = err instanceof ApiError ? err.code : undefined;
@@ -185,6 +269,8 @@ export function ChannelFollowupPage({ channel }: Props) {
                     ? "Apollo phone reveal has not arrived yet."
                     : apiCode === "no_telegram_identifier" || apiCode === "no_telegram_handle"
                       ? "No Telegram handle or phone number for this prospect."
+                    : apiCode === "no_linkedin_identifier"
+                      ? "No LinkedIn profile URL for this prospect."
                       : apiCode === "no_phone"
                         ? "No phone number for this prospect."
                         : apiCode === "prospect_paused"
@@ -282,6 +368,28 @@ export function ChannelFollowupPage({ channel }: Props) {
     );
   }
 
+  // F-A: copy the ready message to the clipboard WITHOUT opening a tab or
+  // recording a send. For LinkedIn/Telegram the SDR pastes it into the app by
+  // hand; decoupling copy from "Send next" lets them grab the text, paste it,
+  // and only then advance the row.
+  function copyMessage(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    void navigator.clipboard.writeText(t).then(
+      () =>
+        toast({
+          title: "Message copied",
+          description: `Paste it into ${CHANNEL_LABEL[channel]}.`,
+        }),
+      () =>
+        toast({
+          title: "Couldn't copy",
+          description: "Select the message text and copy it manually.",
+          variant: "destructive",
+        }),
+    );
+  }
+
   const Icon = CHANNEL_ICON[channel];
 
   return (
@@ -325,17 +433,10 @@ export function ChannelFollowupPage({ channel }: Props) {
       </header>
 
       {/*
-        Manual Contacts is channel-parameterized as of ticket-2-9.
-        The section's own toggle state (per-user, per-channel) governs
-        whether the Add button shows; rendering here is unconditional.
+        F-E: manual per-channel seeding was removed from the Follow-ups page.
+        Bulk contact seeding now lives in the Contacts page (Add many → phone
+        bulk). The per-channel manual-ingest toggle endpoint is left dormant.
       */}
-      {/**
-       * Manual Contacts supports whatsapp + telegram as of ticket-2-9.
-       * Other channels do not have manual ingest yet.
-       */}
-      {(channel === "whatsapp" || channel === "telegram") && (
-        <ManualContactsSection channel={channel} />
-      )}
 
       <Tabs
         value={status}
@@ -419,18 +520,33 @@ export function ChannelFollowupPage({ channel }: Props) {
                 <FollowupRow
                   key={item.prospect.id}
                   item={item}
+                  channel={channel}
+                  onCopy={copyMessage}
                   checked={selected.has(item.prospect.id)}
                   onToggle={() => toggleOne(item.prospect.id)}
-                  onSendNext={() =>
-                    handleSendNext(
-                      item.prospect.id,
-                      item.prospect.prospectName ?? "(no name)",
-                    )
+                  onSendNext={() => handleSendNext(item)}
+                  progress={
+                    generatingFollowup?.prospectId === item.prospect.id
+                      ? followupProgress
+                      : undefined
                   }
                   onEdit={() => {
+                    // Prefer an editable follow-up row (scheduled or sent).
+                    // NOT followups[0] — that can be a CANCELLED row (e.g. a
+                    // replied prospect whose stages were cancelled), which
+                    // must not be reopened for editing.
                     const target =
-                      item.derived.nextScheduled ?? item.followups[0];
-                    if (target) openEdit(target);
+                      item.derived.nextScheduled ?? item.derived.lastSent;
+                    if (target) {
+                      openEdit(target);
+                    } else if (
+                      item.followups.length === 0 &&
+                      item.prospect.firstMessageBody
+                    ) {
+                      // Truly not-yet-sent (no follow-up rows at all) — edit
+                      // the generated first message before it goes out.
+                      openEditFirstMessage(item.prospect);
+                    }
                   }}
                   onMarkReplied={() =>
                     setRowConfirm({
@@ -474,6 +590,15 @@ export function ChannelFollowupPage({ channel }: Props) {
           if (!o) setEditing(null);
         }}
         followup={editing}
+      />
+
+      <EditFirstMessageDialog
+        open={editingFirstMsgOpen}
+        onOpenChange={(o) => {
+          setEditingFirstMsgOpen(o);
+          if (!o) setEditingFirstMsg(null);
+        }}
+        prospect={editingFirstMsg}
       />
 
       <AlertDialog
@@ -524,6 +649,8 @@ export function ChannelFollowupPage({ channel }: Props) {
 
 interface RowProps {
   item: FollowupListItem;
+  channel: SupportedChannel;
+  onCopy: (text: string) => void;
   checked: boolean;
   onToggle: () => void;
   onSendNext: () => void;
@@ -532,10 +659,14 @@ interface RowProps {
   onTogglePause: () => void;
   onArchive: () => void;
   busy: boolean;
+  /** Phase I: staged progress of this row's in-flight generation (if any). */
+  progress?: FollowupProgress;
 }
 
 function FollowupRow({
   item,
+  channel,
+  onCopy,
   checked,
   onToggle,
   onSendNext,
@@ -544,19 +675,49 @@ function FollowupRow({
   onTogglePause,
   onArchive,
   busy,
+  progress,
 }: RowProps) {
   const { prospect, derived } = item;
+  // F-B: the list response already carries every stage row per prospect, so we
+  // can show a compact per-stage schedule without an extra request.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const stageRows = [...item.followups].sort((a, b) => a.stage - b.stage);
   const next = derived.nextScheduled;
   const last = derived.lastSent;
   const showStage = next?.stage ?? last?.stage ?? null;
   const scheduledAt = next?.scheduledAt ?? null;
   const messagePreview =
     next?.generatedMessage ?? last?.generatedMessage ?? prospect.firstMessageBody ?? "";
+  // F-A: clipboard channels (LinkedIn, Telegram) can't prefill the composer, so
+  // surface a visible Copy button on the row. WhatsApp prefills, so it's omitted
+  // there.
+  const isClipboardChannel = channel === "linkedin" || channel === "telegram";
   const canSendNext =
     derived.uiStatus !== "replied" &&
     derived.uiStatus !== "paused" &&
     derived.uiStatus !== "no_reply" &&
     next !== null;
+  // Edit-before-send: only when there are NO follow-up rows yet (true
+  // not-yet-sent) AND a generated first message exists. Gating on
+  // `followups.length === 0` (not just firstMessageBody) keeps the pencil
+  // disabled for a replied/cancelled prospect — whose stages are cancelled
+  // (next/last null) but whose followups[] is non-empty — so it can't reopen
+  // a cancelled row and re-arm follow-ups.
+  const canEditFirstMessage =
+    item.followups.length === 0 && !!prospect.firstMessageBody;
+  // The message the SDR should actually paste NEXT: the next scheduled
+  // follow-up's generated text if it exists, else — only for a truly
+  // not-yet-sent prospect — the first message. Deliberately NOT messagePreview:
+  // that falls back to the previously-SENT stage (`last`) when the next stage
+  // isn't generated yet (follow-ups generate lazily on Send next), which would
+  // copy stale, wrong-stage text. Empty ⇒ nothing ready yet → Copy disabled;
+  // the SDR uses "Send next" to generate it (background pre-gen usually fills it
+  // in first, so Copy is normally live).
+  const copyTarget = next?.generatedMessage?.trim()
+    ? next.generatedMessage
+    : canEditFirstMessage
+      ? (prospect.firstMessageBody ?? "")
+      : "";
 
   return (
     <TableRow data-testid={`row-${prospect.id}`}>
@@ -576,6 +737,48 @@ function FollowupRow({
           {[prospect.title, prospect.company].filter(Boolean).join(" · ") ||
             "—"}
         </div>
+        {/* Phase I: staged progress while this row's follow-up generates.
+            skipResearch: follow-ups reuse the persisted research brief, so this
+            run never researches — don't green-check a step that didn't run. */}
+        {progress ? (
+          <PrepareProgressBar
+            progress={progress}
+            className="mt-2 max-w-md"
+            skipResearch
+          />
+        ) : null}
+        {/* F-B: compact expandable per-stage schedule. */}
+        {stageRows.length > 0 ? (
+          <div className="mt-1">
+            <button
+              type="button"
+              onClick={() => setScheduleOpen((o) => !o)}
+              className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              data-testid={`row-schedule-toggle-${prospect.id}`}
+              aria-expanded={scheduleOpen}
+            >
+              {scheduleOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              Schedule ({stageRows.length})
+            </button>
+            {scheduleOpen ? (
+              <ul
+                className="mt-1 space-y-0.5 text-[11px] text-muted-foreground"
+                data-testid={`row-schedule-${prospect.id}`}
+              >
+                {stageRows.map((f) => (
+                  <li key={f.id}>
+                    Stage {f.stage} · {format(new Date(f.scheduledAt), "MMM d")} ·{" "}
+                    {f.status}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </TableCell>
       <TableCell>
         <StatusBadge status={derived.uiStatus} />
@@ -614,13 +817,34 @@ function FollowupRow({
             <Send className="h-3.5 w-3.5 mr-1.5" />
             Send next
           </Button>
+          {isClipboardChannel ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onCopy(copyTarget)}
+              disabled={!copyTarget.trim()}
+              data-testid={`row-copy-${prospect.id}`}
+              aria-label="Copy message"
+              title="Copy the ready message to paste into the chat"
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Copy
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
             onClick={onEdit}
-            disabled={busy || (next === null && last === null)}
+            disabled={
+              busy ||
+              // Enabled when there's an editable follow-up (scheduled/sent) OR
+              // it's the not-yet-sent-with-first-message case. A replied/
+              // cancelled prospect (next/last null but followups[] non-empty,
+              // canEditFirstMessage false) stays disabled — as before the fix.
+              !(next !== null || last !== null || canEditFirstMessage)
+            }
             data-testid={`row-edit-${prospect.id}`}
-            aria-label="Edit follow-up"
+            aria-label="Edit message"
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>

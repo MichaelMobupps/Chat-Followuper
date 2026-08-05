@@ -14,8 +14,9 @@
  * The orchestrator iterates them, calling findOrg with each in turn.
  *
  * Web search:
- *   - When `useWebSearch: true`, the call uses Anthropic's `web_search_20250305`
- *     server-side tool. Opus can search the web to ground its reasoning in
+ *   - When `useWebSearch: true`, the call uses Anthropic's `web_search_20260209`
+ *     server-side tool (dynamic filtering; supported on Opus 4.8). Opus can
+ *     search the web to ground its reasoning in
  *     fresh data — critical for tiny/regional companies absent from training.
  *   - When false, Opus answers from world knowledge only (cheaper, faster,
  *     occasionally less accurate).
@@ -30,13 +31,18 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  modelRejectsSamplingParams,
   type ResolveCompanyUsage,
 } from "./companyResolver";
 import { sanitizeStr } from "./apolloProspector";
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-const OPUS_MODEL = "claude-opus-4-1-20250805";
+// Migrated from `claude-opus-4-1-20250805` (deprecated, retires 2026-08-05) to
+// the current Opus. Opus 4.8 rejects `temperature` (dropped below) and defaults
+// to thinking-off when the param is omitted, matching the prior no-thinking call.
+/** Exported (2026-07-15) so the cost ledger prices this stage correctly. */
+export const OPUS_MODEL = "claude-opus-4-8";
 const OPUS_MAX_TOKENS_NO_SEARCH = 800;
 const OPUS_MAX_TOKENS_WEB_SEARCH = 2000;
 const OPUS_TEMPERATURE = 0.1;
@@ -108,6 +114,13 @@ export interface OpusRescueResult {
   usage?: ResolveCompanyUsage;
   /** True when Opus invoked web_search at least once during reasoning. */
   webSearchUsed: boolean;
+  /**
+   * How MANY server-side web searches ran. Distinct from webSearchUsed because
+   * web_search bills per request: the boolean cannot be priced, the count can.
+   * See the cost ledger (2026-07-15) — omitting this under-reported opus_rescue
+   * by ~45%, unflagged.
+   */
+  webSearchRequests: number;
 }
 
 // ─── System prompt (verbatim port from Python) ────────────────────────────
@@ -325,7 +338,7 @@ export type OpusRescueLLMCaller = (params: {
   maxTokens: number;
   temperature: number;
   enableWebSearch: boolean;
-}) => Promise<{ text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean }>;
+}) => Promise<{ text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean; webSearchRequests: number }>;
 
 export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
   system,
@@ -341,14 +354,16 @@ export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
   // the partner-tool variant in older typings. The wire format is the
   // documented Anthropic tools API shape.
   const webSearchTool = {
-    type: "web_search_20250305",
+    type: "web_search_20260209",
     name: "web_search",
   };
 
   const resp = await client.messages.create({
     model,
     max_tokens: maxTokens,
-    temperature,
+    // Opus 4.7/4.8 (and Sonnet 5 / Fable 5) reject non-default sampling params
+    // with a 400 — omit `temperature` for them and steer via prompting instead.
+    ...(modelRejectsSamplingParams(model) ? {} : { temperature }),
     system,
     messages: [{ role: "user", content: userContent }],
     ...(enableWebSearch
@@ -381,7 +396,17 @@ export const defaultOpusRescueLLMCaller: OpusRescueLLMCaller = async ({
       }
     : undefined;
 
-  return { text, usage, webSearchUsed };
+  // The COUNT, not just "did it search" (2026-07-15 audit). web_search bills a
+  // per-request fee that never appears in token counts, so `webSearchUsed:
+  // boolean` was unpriceable — the cost ledger booked opus_rescue at tokens
+  // only, ~45% under actual, with cost_unpriced=false so nothing flagged it.
+  // Cast: SDK usage typings may omit the partner-tool server_tool_use field.
+  // Same extraction prospectResearch.ts already does.
+  const webSearchRequests = Number(
+    (resp.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+  );
+
+  return { text, usage, webSearchUsed, webSearchRequests };
 };
 
 // ─── Public: opusRescue ───────────────────────────────────────────────────
@@ -417,7 +442,7 @@ export async function opusRescue(
 
   const userContent = buildUserContent(input);
 
-  let llmResult: { text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean };
+  let llmResult: { text: string; usage?: ResolveCompanyUsage; webSearchUsed: boolean; webSearchRequests: number };
   try {
     llmResult = await llm({
       system: SYSTEM_PROMPT,
@@ -437,6 +462,7 @@ export async function opusRescue(
       parentDomain: "",
       usage: undefined,
       webSearchUsed: false,
+      webSearchRequests: 0,
     };
   }
 
@@ -450,6 +476,7 @@ export async function opusRescue(
       parentDomain: "",
       usage: llmResult.usage,
       webSearchUsed: llmResult.webSearchUsed,
+      webSearchRequests: llmResult.webSearchRequests,
     };
   }
 
@@ -487,6 +514,7 @@ export async function opusRescue(
     parentDomain,
     usage: llmResult.usage,
     webSearchUsed: llmResult.webSearchUsed,
+    webSearchRequests: llmResult.webSearchRequests,
   };
 }
 
@@ -547,7 +575,13 @@ export function isOrgNamePlausible(
     (orgLower.includes(stratLower) || stratLower.includes(orgLower));
   const origMatches =
     Boolean(origLower) &&
-    (orgLower.includes(origLower) || origLower.includes(orgLower));
+    (orgLower.includes(origLower) || origLower.includes(orgLower))
+    // Fixed copy-paste bug: the second clause previously read
+    // `origLower.includes(origLower)` (orig ∈ orig, always true), which made
+    // origMatches always true whenever origLower was non-empty and defeated
+    // the entire plausibility gate. The intended check is substring in either
+    // direction between the resolved org and the original company name.
+    ;
 
   return hasOverlap || stratMatches || origMatches;
 }

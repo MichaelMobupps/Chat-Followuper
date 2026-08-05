@@ -45,7 +45,13 @@ import {
   type Prospect,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { uniqueViolationCode } from "../lib/dbErrors";
 import { detectCountry } from "../lib/geoGate";
+import { senderNameFromUser } from "../lib/senderName";
+import { canonicalizeLinkedinUrl } from "../services/channels/linkedin";
+import { peekDraft, deleteDraft } from "../services/firstMessageDrafts";
+import { queueContactPrepare } from "../services/backgroundPrepare";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -79,13 +85,15 @@ const PROSPECT_STATUSES = [
 ] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
-const LIST_CHANNELS = ["whatsapp", "telegram", "teams"] as const;
+const LIST_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 const LIST_SORT_COLS = ["createdAt", "updatedAt", "prospectName"] as const;
+const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 
 const listProspectsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(25),
   status: z.enum(PROSPECT_STATUSES).optional(),
+  sourceMode: z.enum(SOURCE_MODES).optional(),
   channel: z.enum(LIST_CHANNELS).optional(),
   country: z.string().regex(/^[A-Z]{2}$/, "ISO 2-letter country code").optional(),
   search: z.string().trim().min(1).max(200).optional(),
@@ -113,9 +121,14 @@ function statusSqlFilter(status: ProspectStatus) {
         eq(prospectsTable.phoneRevealStatus, "expired"),
       );
     case "phone-pending":
+      // API8 + F-A: a phone, telegram handle, OR linkedin URL is a valid contact
+      // identity — a prospect with any of them is NOT phone-pending. (Keyed on
+      // phone alone would badge linkedin-only prospects as pending forever.)
       return and(
         isNull(prospectsTable.firstMessageSentAt),
         isNull(prospectsTable.phone),
+        isNull(prospectsTable.telegramHandle),
+        isNull(prospectsTable.linkedinUrl),
         ne(prospectsTable.phoneRevealStatus, "blocked"),
         ne(prospectsTable.phoneRevealStatus, "no_match"),
         ne(prospectsTable.phoneRevealStatus, "expired"),
@@ -123,13 +136,21 @@ function statusSqlFilter(status: ProspectStatus) {
     case "ready":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
-        isNotNull(prospectsTable.phone),
+        or(
+          isNotNull(prospectsTable.phone),
+          isNotNull(prospectsTable.telegramHandle),
+          isNotNull(prospectsTable.linkedinUrl),
+        ),
         isNotNull(prospectsTable.firstMessageBody),
       );
     case "draft":
       return and(
         isNull(prospectsTable.firstMessageSentAt),
-        isNotNull(prospectsTable.phone),
+        or(
+          isNotNull(prospectsTable.phone),
+          isNotNull(prospectsTable.telegramHandle),
+          isNotNull(prospectsTable.linkedinUrl),
+        ),
         isNull(prospectsTable.firstMessageBody),
       );
   }
@@ -137,6 +158,8 @@ function statusSqlFilter(status: ProspectStatus) {
 
 function computeProspectStatus(p: {
   phone: string | null;
+  telegramHandle: string | null;
+  linkedinUrl: string | null;
   phoneRevealStatus: string;
   firstMessageBody: string | null;
   firstMessageSentAt: Date | string | null;
@@ -145,7 +168,8 @@ function computeProspectStatus(p: {
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
   if (p.phoneRevealStatus === "expired") return "phone-expired";
-  if (!p.phone) return "phone-pending";
+  // F-A: linkedinUrl is a valid identity too (LinkedIn is clipboard-only).
+  if (!p.phone && !p.telegramHandle && !p.linkedinUrl) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
 }
@@ -171,6 +195,9 @@ router.get(
     if (query.status) {
       const sf = statusSqlFilter(query.status);
       if (sf) filters.push(sf);
+    }
+    if (query.sourceMode) {
+      filters.push(eq(prospectsTable.sourceMode, query.sourceMode));
     }
     if (query.channel) {
       filters.push(eq(prospectsTable.firstMessageChannel, query.channel));
@@ -208,11 +235,14 @@ router.get(
           country: prospectsTable.country,
           language: prospectsTable.language,
           phone: prospectsTable.phone,
+          telegramHandle: prospectsTable.telegramHandle,
+          linkedinUrl: prospectsTable.linkedinUrl,
           phoneRevealStatus: prospectsTable.phoneRevealStatus,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
           firstMessageSentAt: prospectsTable.firstMessageSentAt,
           apolloPersonId: prospectsTable.apolloPersonId,
+          sourceMode: prospectsTable.sourceMode,
           createdAt: prospectsTable.createdAt,
           updatedAt: prospectsTable.updatedAt,
         })
@@ -237,6 +267,8 @@ router.get(
       country: r.country,
       language: r.language,
       phone: r.phone,
+      telegramHandle: r.telegramHandle,
+      linkedinUrl: r.linkedinUrl,
       phoneRevealStatus: r.phoneRevealStatus,
       firstMessageBody: r.firstMessageBody,
       firstMessageChannel: r.firstMessageChannel,
@@ -245,6 +277,7 @@ router.get(
           ? r.firstMessageSentAt.toISOString()
           : r.firstMessageSentAt,
       apolloPersonId: r.apolloPersonId,
+      sourceMode: r.sourceMode,
       createdAt:
         r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
       updatedAt:
@@ -273,8 +306,6 @@ router.get(
  * geo gate downstream.
  */
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
-
-const SOURCE_MODES = ["manual", "apollo", "csv"] as const;
 
 const ISO_LANG_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
 const ISO_COUNTRY_RE = /^[A-Z]{2}$/;
@@ -315,8 +346,25 @@ const baseProspectFields = {
     .nullable()
     .optional(),
   telegramHandle: z.string().trim().min(1).max(100).nullable().optional(),
-  teamsEmail: z.string().trim().email().nullable().optional(),
-  linkedinUrl: z.string().trim().url().nullable().optional(),
+  // Host-restricted: a bare .url() accepted any origin, and this value is later
+  // fed to a server-side res.redirect(302) (followupOpen.ts) + window.open() —
+  // an arbitrary host is an open-redirect gadget on the trusted origin (audit
+  // S1). Require linkedin.com. canonicalizeLinkedinUrl enforces this again at
+  // read time as defense-in-depth.
+  linkedinUrl: z
+    .string()
+    .trim()
+    .url()
+    .refine((u) => {
+      try {
+        const h = new URL(u).hostname.toLowerCase();
+        return h === "linkedin.com" || h.endsWith(".linkedin.com");
+      } catch {
+        return false;
+      }
+    }, "linkedinUrl must be a linkedin.com URL")
+    .nullable()
+    .optional(),
   apolloPersonId: z.string().trim().min(1).max(200).nullable().optional(),
   apolloOrgId: z.string().trim().min(1).max(200).nullable().optional(),
   contextNotes: z.string().trim().max(5000).nullable().optional(),
@@ -485,9 +533,11 @@ router.post(
     // have phone = NULL and PostgreSQL allows infinite NULLs in unique
     // indexes. Without this pre-check, re-running a bulk batch on the
     // same company creates a new row per attempt (the Arushi 3-row
-    // case). Race condition: two concurrent inserts could both pass
-    // this check; future ticket adds a partial unique index on
-    // (userId, apolloPersonId) WHERE apolloPersonId IS NOT NULL.
+    // case). Race condition: two concurrent inserts could both pass this
+    // check — but migration 0013 added the partial unique index
+    // prospects_user_apollo_person_unique (userId, apolloPersonId) WHERE
+    // apolloPersonId IS NOT NULL, so the loser now 23505s → mapped to 409
+    // duplicate_apollo_person by the terminal handler (audit-2 D1).
     if (body.apolloPersonId) {
       const existing = await db
         .select({ id: prospectsTable.id })
@@ -531,7 +581,6 @@ router.post(
         country: body.country ?? null,
         language: body.language ?? null,
         telegramHandle: body.telegramHandle ?? null,
-        teamsEmail: body.teamsEmail ?? null,
         linkedinUrl: body.linkedinUrl ?? null,
         apolloPersonId: body.apolloPersonId ?? null,
         apolloOrgId: body.apolloOrgId ?? null,
@@ -574,6 +623,55 @@ router.post(
     }
 
     res.status(201).json(prospect);
+  },
+);
+
+/**
+ * GET /api/prospects/:id/timeline — activity log for one prospect.
+ *
+ * Returns action_logs rows for this prospect, newest first.
+ */
+router.get(
+  "/prospects/:id/timeline",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+
+    if (!isUuidLike(prospectId)) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const prospect = await fetchOwnedProspect(prospectId, user.id);
+    if (!prospect) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const events = await db
+      .select({
+        id: actionLogsTable.id,
+        actionType: actionLogsTable.actionType,
+        actionStatus: actionLogsTable.actionStatus,
+        followupId: actionLogsTable.followupId,
+        metadata: actionLogsTable.metadata,
+        executedAt: actionLogsTable.executedAt,
+      })
+      .from(actionLogsTable)
+      .where(eq(actionLogsTable.prospectId, prospectId))
+      .orderBy(desc(actionLogsTable.executedAt));
+
+    res.status(200).json({
+      prospectId,
+      events: events.map((e) => ({
+        ...e,
+        executedAt:
+          e.executedAt instanceof Date
+            ? e.executedAt.toISOString()
+            : e.executedAt,
+      })),
+    });
   },
 );
 
@@ -676,7 +774,6 @@ router.patch(
     if (body.country !== undefined) updates.country = body.country;
     if (body.language !== undefined) updates.language = body.language;
     if (body.telegramHandle !== undefined) updates.telegramHandle = body.telegramHandle;
-    if (body.teamsEmail !== undefined) updates.teamsEmail = body.teamsEmail;
     if (body.linkedinUrl !== undefined) updates.linkedinUrl = body.linkedinUrl;
     if (body.apolloPersonId !== undefined) updates.apolloPersonId = body.apolloPersonId;
     if (body.apolloOrgId !== undefined) updates.apolloOrgId = body.apolloOrgId;
@@ -1033,7 +1130,7 @@ router.post(
 // 5-10s LLM wait on the form) and avoids new wiring against
 // classification code paths that have drifted since the 2.2 work.
 
-const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram"] as const;
+const MANUAL_INGEST_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 
 const TICKERS = ["web", "mobile"] as const;
 type Ticker = (typeof TICKERS)[number];
@@ -1046,20 +1143,64 @@ type Ticker = (typeof TICKERS)[number];
 // Telegram handle: 5-32 chars, alphanumeric + underscore, optional
 // leading "@" which the handler strips before storage. Per Telegram's
 // public username rules.
-const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z0-9_]{5,32}$/;
+// C1: Telegram usernames must START WITH A LETTER (then 4–31 of
+// letter/digit/underscore, total 5–32). The old /^@?[a-zA-Z0-9_]{5,32}$/
+// matched all-digit strings, so a phone-only paste of bare numbers WITHOUT a
+// leading "+" (PHONE_RE fails) was silently stored in telegram_handle with
+// phone=NULL → dead t.me/<digits> links + bypassed phone dedupe. Requiring a
+// leading letter rejects those as invalid_identifier.
+const TELEGRAM_HANDLE_RE = /^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+
+// F-A: LinkedIn manual-ingest identifier. Accepts a full profile URL, an
+// "/in/<slug>" path, or a bare slug/handle — the same shapes the
+// test-channel-link route accepts. Unlike WhatsApp/Telegram, LinkedIn keys
+// off `prospects.linkedin_url` (clipboard-only: no prefilled deep link), so we
+// normalize every accepted shape to a canonical profile URL for storage AND
+// for the partial-unique dedupe index (prospects_user_linkedin_unique). Returns
+// null when the identifier matches none of the accepted shapes.
+function normalizeLinkedinIdentifier(raw: string): string | null {
+  const id = raw.trim();
+  const looksValid =
+    // Full or scheme-less linkedin.com URL, "/in/<slug>" path, or bare slug/
+    // @handle. Kept in sync with the FE hint validators (linkedinLooksValid in
+    // AddManualContactDialog.tsx / BulkPreviewGrid.tsx) so the client never
+    // greenlights a shape the server rejects.
+    /^(https?:\/\/)?([\w-]+\.)*linkedin\.com\//i.test(id) ||
+    /^\/?in\/[\w%-]+\/?$/i.test(id) ||
+    /^@?[a-zA-Z0-9][\w-]{2,99}$/.test(id);
+  if (!looksValid) return null;
+  // canonicalizeLinkedinUrl trims, wraps bare slugs/paths, enforces the
+  // linkedin.com host, and collapses cosmetic variants (case, trailing slash,
+  // query params) to ONE string so the dedupe index actually dedupes. Returns
+  // null for anything that isn't a resolvable linkedin.com URL.
+  return canonicalizeLinkedinUrl(id);
+}
 
 const manualIngestBodySchema = z
   .object({
     channel: z.enum(MANUAL_INGEST_CHANNELS),
     firstName: z.string().trim().min(1).max(100),
     // The "phone" field carries the identifier. For WhatsApp it must be
-    // E.164. For Telegram it can be either E.164 or a @handle. Format
-    // validation happens per-channel in the handler so we can route to
-    // the right storage column and return channel-appropriate errors.
-    phone: z.string().trim().min(1).max(64),
+    // E.164. For Telegram it can be either E.164 or a @handle. For LinkedIn
+    // it's a profile URL. Format validation happens per-channel in the
+    // handler so we can route to the right storage column and return
+    // channel-appropriate errors. Cap is generous (300) to fit LinkedIn
+    // profile URLs; the per-channel regexes bound phones/handles far tighter.
+    phone: z.string().trim().min(1).max(300),
     company: z.string().trim().min(1).max(200),
     ticker: z.enum(TICKERS),
     prePlatformContext: z.string().trim().max(5000).nullable().optional(),
+    // Claim a message written by POST /prospects/preview-first-message before
+    // this contact existed ("Generate message" in the Add dialog). Optional:
+    // every existing caller omits it and gets today's behaviour exactly.
+    draftId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
+    // The first message. Two provenances (Speed pass, 2026-07-16):
+    //   - WITH draftId: the SDR's (possibly edited) version of the generated
+    //     preview — the matching server-side draft contributes its brief.
+    //   - WITHOUT draftId: a message the SDR wrote/pasted themselves. Stored
+    //     as-is; the research brief is produced in the background after the
+    //     201 (queueContactPrepare) or lazily at follow-up generation time.
+    firstMessageBody: z.string().trim().min(1).max(20000).optional(),
   })
   .strict();
 
@@ -1117,6 +1258,7 @@ router.post(
     // Telegram + @handle input: telegram_handle column.
     let phoneToStore: string | null = null;
     let handleToStore: string | null = null;
+    let linkedinUrlToStore: string | null = null;
     let country: string | null = null;
     const identifier = body.phone;
 
@@ -1131,15 +1273,33 @@ router.post(
       }
       phoneToStore = identifier;
       country = detectCountry(identifier) ?? null;
+    } else if (body.channel === "linkedin") {
+      // F-A: LinkedIn keys off linkedin_url, not phone. No country is derived
+      // (a profile URL carries no dialing code).
+      const normalized = normalizeLinkedinIdentifier(identifier);
+      if (normalized === null) {
+        res.status(400).json({
+          error: "invalid_body",
+          detail:
+            "Use a LinkedIn profile URL or handle, e.g. 'https://www.linkedin.com/in/yourname'.",
+          path: ["phone"],
+        });
+        return;
+      }
+      linkedinUrlToStore = normalized;
     } else {
       // channel === "telegram"
       if (PHONE_RE.test(identifier)) {
         phoneToStore = identifier;
         country = detectCountry(identifier) ?? null;
       } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
-        handleToStore = identifier.startsWith("@")
-          ? identifier.slice(1)
-          : identifier;
+        // A6: Telegram usernames are case-insensitive — normalize to lowercase
+        // before storing AND before the dedup pre-check, so @YaronK and @yaronk
+        // resolve to the same prospect (and the partial-unique index dedups
+        // them) instead of creating a duplicate + double outreach.
+        handleToStore = (
+          identifier.startsWith("@") ? identifier.slice(1) : identifier
+        ).toLowerCase();
       } else {
         res.status(400).json({
           error: "invalid_body",
@@ -1177,18 +1337,106 @@ router.post(
       }
     }
 
+    // LinkedIn-path dedupe. Unlike the phone path (covered by the
+    // onConflictDoNothing target below), a linkedin_url conflict raises 23505 on
+    // prospects_user_linkedin_unique, which onConflictDoNothing (targeting phone)
+    // would NOT swallow — it would escape as an unhandled 500. Pre-check here so
+    // duplicates return a clean 409, matching the telegram-handle path.
+    if (linkedinUrlToStore !== null) {
+      const existingByLinkedin = await db
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, user.id),
+            eq(prospectsTable.linkedinUrl, linkedinUrlToStore),
+          ),
+        )
+        .limit(1);
+      if (existingByLinkedin.length > 0) {
+        res.status(409).json({
+          error: "duplicate_linkedin_url",
+          detail:
+            "A prospect with this LinkedIn profile already exists for this user.",
+        });
+        return;
+      }
+    }
+
+    // Claim a pre-written message, if the dialog generated one.
+    //
+    // A draftId pairs the (editable) message with the research brief the
+    // server kept from the preview run, so the row lands complete: body +
+    // brief in one insert. A message WITHOUT a draftId (the SDR pasted their
+    // own, or the draft expired) is now persisted too — the brief it lacks is
+    // researched in the background right after the 201 (queueContactPrepare
+    // below), and followupMessageService researches lazily as the final
+    // backstop, so follow-ups no longer die on research_not_complete. That is
+    // what made the old all-or-nothing gate (drop the body when the draft is
+    // gone) unnecessary.
+    //
+    // The brief comes from the SERVER-side draft, never the wire. The message
+    // does come from the client (the SDR edits it in a textarea) — that grants
+    // nothing new, since PATCH /prospects/:id already admits firstMessageBody.
+    // PEEK, don't consume: the insert below can still 409 on duplicate_phone —
+    // a routine mistake, not an edge case. Consuming here meant that 409
+    // destroyed the message the SDR had just reviewed and edited, so fixing the
+    // phone and resubmitting silently paid for a second generation. The draft is
+    // deleted only once the row is really in the DB.
+    const draft = body.draftId ? peekDraft(user.id, body.draftId) : null;
+    // Guard against a draft being spent on a different company than the one it
+    // researched — the form is editable after Generate, so the two can diverge.
+    const draftMatches =
+      draft !== null &&
+      draft.company.trim().toLowerCase() === body.company.trim().toLowerCase();
+    if (draft && !draftMatches) {
+      logger.warn(
+        { userId: user.id, draftId: body.draftId },
+        "manual-ingest: draft company mismatch; ignoring pre-written message",
+      );
+    }
+    const useDraft = draft !== null && draftMatches;
+    // On a KNOWN mismatch the accompanying message is the generated text for
+    // the draft's (old) company — the server can prove it's about someone
+    // else, so it must not ride the paste fallback below. An EXPIRED draft is
+    // different: the text is indistinguishable from a paste, and PATCH
+    // /prospects/:id already trusts client text, so it persists.
+    const draftMismatched = draft !== null && !draftMatches;
+
     const inserted = await db
       .insert(prospectsTable)
       .values({
         userId: user.id,
         phone: phoneToStore,
         telegramHandle: handleToStore,
+        linkedinUrl: linkedinUrlToStore,
         sourceMode: "manual",
         prospectName: body.firstName,
         company: body.company,
-        vertical: tickerToCoarseVertical(body.ticker),
-        country,
+        vertical: useDraft
+          ? draft!.classified.vertical
+          : tickerToCoarseVertical(body.ticker),
+        country: useDraft ? draft!.classified.country || country : country,
         prePlatformContext: body.prePlatformContext ?? null,
+        firstMessageChannel: body.channel,
+        ...(useDraft
+          ? {
+              // The SDR's edit wins over the generated text; the brief and the
+              // classification are the run's, not the client's.
+              firstMessageBody: body.firstMessageBody?.trim() || draft!.message,
+              researchBrief: draft!.brief,
+              subVertical: draft!.classified.subVertical,
+              language: draft!.classified.language,
+              product: draft!.classified.product,
+            }
+          : body.firstMessageBody && !draftMismatched
+            ? {
+                // The SDR's own message, no draft (Speed pass, 2026-07-16).
+                // Zod already trimmed + bounded it. The missing brief is
+                // handled after the insert — see queueContactPrepare below.
+                firstMessageBody: body.firstMessageBody,
+              }
+            : {}),
       })
       .onConflictDoNothing({
         target: [prospectsTable.userId, prospectsTable.phone],
@@ -1196,9 +1444,10 @@ router.post(
       .returning();
 
     if (inserted.length === 0) {
-      // Only reachable on the phone-path conflict (telegram_handle has
-      // no unique index, and the handle-path dedupe above already
-      // returned 409 if a match existed).
+      // Only reachable on the phone-path conflict. The handle path is deduped
+      // above (and, since migration 0013, also protected by
+      // prospects_user_telegram_unique — a concurrent handle dup now 23505s →
+      // 409 duplicate_telegram_handle via the terminal handler, audit-2 D1).
       res.status(409).json({
         error: "duplicate_phone",
         detail: "A prospect with this phone already exists for this user.",
@@ -1207,6 +1456,33 @@ router.post(
     }
 
     const prospect = inserted[0]!;
+
+    // The row exists now, so the draft is genuinely spent — release it. Only
+    // when it was actually USED: a mismatched draft (different company) wasn't
+    // persisted, so leave it for a corrected resubmit to claim.
+    if (useDraft && body.draftId) deleteDraft(user.id, body.draftId);
+
+    // Speed pass (2026-07-16): finish the contact in the BACKGROUND so the
+    // dialog never blocks on the LLM pipeline. Whatever is still missing gets
+    // produced fire-and-forget:
+    //   - no message → full prepare (classify + research + writer);
+    //   - message but no brief (the SDR pasted their own) → research only.
+    // A draft-claimed contact has both and queues nothing. Spend goes through
+    // the same daily-cap checks as the interactive path; on failure the row
+    // simply stays "draft" and the Generate button retries.
+    {
+      const hasBody = !!prospect.firstMessageBody?.trim();
+      const hasBrief =
+        !!prospect.researchBrief && typeof prospect.researchBrief === "object";
+      if (!hasBody || !hasBrief) {
+        queueContactPrepare({
+          prospectId: prospect.id,
+          userId: user.id,
+          senderName: senderNameFromUser(user.name, user.email),
+          researchOnly: hasBody,
+        });
+      }
+    }
 
     try {
       await db.insert(actionLogsTable).values({
@@ -1218,7 +1494,12 @@ router.post(
         metadata: {
           channel: body.channel,
           ticker: body.ticker,
-          identifierKind: handleToStore !== null ? "telegram_handle" : "phone",
+          identifierKind:
+            linkedinUrlToStore !== null
+              ? "linkedin_url"
+              : handleToStore !== null
+                ? "telegram_handle"
+                : "phone",
           hasPrePlatformContext: !!body.prePlatformContext,
           country: country ?? null,
         },
@@ -1391,17 +1672,26 @@ const MANUAL_INGEST_BULK_MAX_ROWS = 200;
 const manualIngestBulkBodySchema = z
   .object({
     channel: z.enum(MANUAL_INGEST_CHANNELS),
+    // F-E: batch-level Company + Product, captured ONCE for a phone-only
+    // paste and applied to every row that doesn't set its own. Both are
+    // optional so the pre-existing full-grid CSV flow (company/ticker per
+    // row) still validates unchanged.
+    defaultCompany: z.string().trim().min(1).max(200).optional(),
+    defaultTicker: z.enum(TICKERS).optional(),
     contacts: z
       .array(
         z
           .object({
-            firstName: z.string().trim().min(1).max(100),
+            // F-E: name is now optional — a phone-only seed leaves it blank.
+            firstName: z.string().trim().min(1).max(100).optional(),
             // Identifier — per-row format validation runs in the handler,
             // same as the single-ingest endpoint. Outer Zod just enforces
-            // presence and a generous length cap.
-            phone: z.string().trim().min(1).max(64),
-            company: z.string().trim().min(1).max(200),
-            ticker: z.enum(TICKERS),
+            // presence and a generous length cap (300, to fit LinkedIn URLs).
+            phone: z.string().trim().min(1).max(300),
+            // F-E: company/ticker optional per row — resolved from the
+            // batch-level defaults above when a row omits them.
+            company: z.string().trim().min(1).max(200).optional(),
+            ticker: z.enum(TICKERS).optional(),
             prePlatformContext: z
               .string()
               .trim()
@@ -1419,11 +1709,12 @@ const manualIngestBulkBodySchema = z
 type BulkRejectedRow = {
   index: number;
   identifier: string;
-  error:
-    | "invalid_identifier"
-    | "duplicate_phone"
-    | "duplicate_telegram_handle"
-    | "insert_failed";
+  // Stable machine-readable code. Enumerated here for the common cases; DB
+  // unique violations map through uniqueViolationCode() (duplicate_*), so the
+  // field is a plain string rather than a closed union that would drift from
+  // dbErrors.ts. C3/A5: missing_company_product is distinct from
+  // invalid_identifier (the identifier may be perfectly valid).
+  error: string;
   detail?: string;
 };
 
@@ -1459,8 +1750,30 @@ router.post(
       const row = body.contacts[i]!;
       const identifier = row.phone;
 
+      // F-E: resolve company + product from the row, falling back to the
+      // batch-level defaults. Company/product drive the first-message
+      // writer (company + vertical), so both must resolve to something.
+      // The FE gates submit on this, so a miss here is a defensive backstop.
+      const companyToStore = (row.company ?? body.defaultCompany ?? "").trim();
+      const tickerToStore = row.ticker ?? body.defaultTicker;
+      if (companyToStore.length === 0 || !tickerToStore) {
+        // C3/A5: the identifier may be perfectly valid — the problem is the
+        // missing company/product, so use a distinct code (not
+        // invalid_identifier, whose FE fallback copy is "Invalid phone or
+        // handle.").
+        rejected.push({
+          index: i,
+          identifier,
+          error: "missing_company_product",
+          detail:
+            "Company and product are required — set them per row or as a batch default.",
+        });
+        continue;
+      }
+
       let phoneToStore: string | null = null;
       let handleToStore: string | null = null;
+      let linkedinUrlToStore: string | null = null;
       let country: string | null = null;
 
       if (body.channel === "whatsapp") {
@@ -1475,15 +1788,31 @@ router.post(
         }
         phoneToStore = identifier;
         country = detectCountry(identifier) ?? null;
+      } else if (body.channel === "linkedin") {
+        // F-A: LinkedIn keys off linkedin_url (clipboard-only, no dialing code).
+        const normalized = normalizeLinkedinIdentifier(identifier);
+        if (normalized === null) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "invalid_identifier",
+            detail:
+              "Use a LinkedIn profile URL or handle, e.g. 'https://www.linkedin.com/in/yourname'.",
+          });
+          continue;
+        }
+        linkedinUrlToStore = normalized;
       } else {
         // channel === "telegram"
         if (PHONE_RE.test(identifier)) {
           phoneToStore = identifier;
           country = detectCountry(identifier) ?? null;
         } else if (TELEGRAM_HANDLE_RE.test(identifier)) {
-          handleToStore = identifier.startsWith("@")
-            ? identifier.slice(1)
-            : identifier;
+          // A6: lowercase-normalize (Telegram handles are case-insensitive) so
+          // dedup + the partial-unique index treat @YaronK == @yaronk.
+          handleToStore = (
+            identifier.startsWith("@") ? identifier.slice(1) : identifier
+          ).toLowerCase();
         } else {
           rejected.push({
             index: i,
@@ -1524,6 +1853,33 @@ router.post(
         }
       }
 
+      // LinkedIn-path dedupe pre-check. Mirrors the telegram-handle path:
+      // sequential processing makes this also catch within-batch duplicates,
+      // and it gives a clean duplicate_linkedin_url instead of leaning on the
+      // 23505 catch below (which is the backstop for concurrent-request races).
+      if (linkedinUrlToStore !== null) {
+        const existingByLinkedin = await db
+          .select({ id: prospectsTable.id })
+          .from(prospectsTable)
+          .where(
+            and(
+              eq(prospectsTable.userId, user.id),
+              eq(prospectsTable.linkedinUrl, linkedinUrlToStore),
+            ),
+          )
+          .limit(1);
+        if (existingByLinkedin.length > 0) {
+          rejected.push({
+            index: i,
+            identifier,
+            error: "duplicate_linkedin_url",
+            detail:
+              "A prospect with this LinkedIn profile already exists for this user.",
+          });
+          continue;
+        }
+      }
+
       try {
         const insertedRows = await db
           .insert(prospectsTable)
@@ -1531,12 +1887,14 @@ router.post(
             userId: user.id,
             phone: phoneToStore,
             telegramHandle: handleToStore,
+            linkedinUrl: linkedinUrlToStore,
             sourceMode: "manual",
-            prospectName: row.firstName,
-            company: row.company,
-            vertical: tickerToCoarseVertical(row.ticker),
+            prospectName: row.firstName ?? null,
+            company: companyToStore,
+            vertical: tickerToCoarseVertical(tickerToStore),
             country,
             prePlatformContext: row.prePlatformContext ?? null,
+            firstMessageChannel: body.channel,
           })
           .onConflictDoNothing({
             target: [prospectsTable.userId, prospectsTable.phone],
@@ -1572,9 +1930,13 @@ router.post(
             actionStatus: "success",
             metadata: {
               channel: body.channel,
-              ticker: row.ticker,
+              ticker: tickerToStore,
               identifierKind:
-                handleToStore !== null ? "telegram_handle" : "phone",
+                linkedinUrlToStore !== null
+                  ? "linkedin_url"
+                  : handleToStore !== null
+                    ? "telegram_handle"
+                    : "phone",
               hasPrePlatformContext: !!row.prePlatformContext,
               country: country ?? null,
               viaBulk: true,
@@ -1584,14 +1946,19 @@ router.post(
           // ignore audit failure
         }
       } catch (err) {
-        // DB-level unexpected failure (constraint violation outside the
-        // (user_id, phone) unique index, transient error). Log to row
-        // and continue; do not halt the batch.
+        // A3/D3: a DB failure here is most reachably a concurrent duplicate on
+        // an identity index NOT covered by the (user_id, phone) onConflict
+        // target — e.g. prospects_user_telegram_unique. Map 23505 to a stable
+        // duplicate_* code; NEVER ship the raw driver message (constraint name /
+        // SQL text) to the client. Log the real error server-side.
+        const dupCode = uniqueViolationCode(err);
+        if (!dupCode) {
+          console.error(`[manual-ingest-bulk] row ${i} insert failed`, err);
+        }
         rejected.push({
           index: i,
           identifier,
-          error: "insert_failed",
-          detail: err instanceof Error ? err.message : "unknown insert error",
+          error: dupCode ?? "insert_failed",
         });
         continue;
       }

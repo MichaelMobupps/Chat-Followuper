@@ -1,0 +1,23 @@
+-- Index leading on llm_calls.created_at (2026-07-15 audit).
+--
+-- The composite (user_id, created_at) from 0020 CANNOT serve these: an index is
+-- only usable from its leading column, and every rollup on /admin/llm-spend
+-- filters on created_at ALONE.
+--
+-- Two distinct problems, one index:
+--   1. the five windowed rollups (`created_at >= since`) seq-scanned an
+--      append-only, unbounded table — the ?days clamp bounds the ROWS RETURNED,
+--      not the plan;
+--   2. `min(created_at)` (the coverage-start marker) has no WHERE at all, and
+--      PG's MIN/MAX index shortcut needs an index LEADING on the aggregated
+--      column — so it seq-scanned on EVERY admin page load, even ?days=1,
+--      forever, growing with the table.
+--
+-- CONCURRENTLY is deliberately NOT used: it cannot run inside a transaction, and
+-- the drizzle migrator wraps each file in one. llm_calls is new and near-empty,
+-- so a plain CREATE INDEX takes a brief lock on ~nothing. If this is ever
+-- applied by hand to a large llm_calls, prefer CREATE INDEX CONCURRENTLY
+-- outside the migrator instead.
+--
+-- Guarded (IF NOT EXISTS) so it is safe to re-run and to apply on prod by hand.
+CREATE INDEX IF NOT EXISTS "llm_calls_created_idx" ON "llm_calls" USING btree ("created_at");

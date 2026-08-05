@@ -1,29 +1,34 @@
-import { useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { Loader2, Mail } from "lucide-react";
+import { TestChannelMessage } from "@/components/TestChannelMessage";
+import { PushoverSettings } from "@/components/PushoverSettings";
+import { UserPreferencesPanel } from "@/components/accounts/UserPreferencesPanel";
+import { HealthCheckPanel } from "@/components/accounts/HealthCheckPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-
-const DEFAULT_MESSAGE = "Test message from Chat Followuper.";
+import { useToast } from "@/hooks/use-toast";
+import { ApiError } from "@/lib/api";
+import { postTestDigest } from "@/lib/api/user-extras";
 
 export default function AccountsPage() {
-  const [phone, setPhone] = useState("");
-  const [message, setMessage] = useState(DEFAULT_MESSAGE);
-  const digits = phone.replace(/[^0-9]/g, "");
-  const link =
-    digits.length >= 6
-      ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}`
-      : null;
-  const looksLocal = digits.startsWith("0");
+  const { toast } = useToast();
 
-  function openWhatsapp() {
-    if (!link) return;
-    // Opened inside the click itself so the browser treats it as a direct
-    // action and does not suppress it as a blocked pop-up.
-    window.open(link, "_blank", "noopener,noreferrer");
-  }
+  const testDigest = useMutation({
+    mutationFn: postTestDigest,
+    onSuccess: (data) => {
+      toast({
+        title: "Test digest sent",
+        description: data.message ?? "Check your inbox.",
+      });
+    },
+    onError: (err: ApiError) => {
+      toast({
+        title: "Could not send test digest",
+        description: err.code ?? err.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <section className="space-y-6">
@@ -35,88 +40,42 @@ export default function AccountsPage() {
           Accounts
         </h1>
         <p className="text-sm text-muted-foreground">
-          Test the WhatsApp send, and account settings.
+          Mobile reminders, preferences, health checks, and account settings.
         </p>
       </header>
 
+      <UserPreferencesPanel />
+      <HealthCheckPanel />
+
       <Card>
-        <CardContent className="space-y-5 p-6">
+        <CardContent className="space-y-4 p-6">
           <div className="space-y-1">
             <h2 className="flex items-center gap-2 text-base font-medium">
-              <MessageCircle className="h-4 w-4" />
-              Send a test to yourself
+              <Mail className="h-4 w-4" />
+              Email digest
             </h2>
-            <p className="text-sm text-muted-foreground">
-              Enter a WhatsApp number you can check, with the country code, then
-              open WhatsApp with the message ready and press send. This confirms
-              the send works from end to end.
+            <p className="text-xs text-muted-foreground max-w-xl">
+              Send yourself a one-off copy of the daily follow-up digest email.
             </p>
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="test-phone">WhatsApp number</Label>
-            <Input
-              id="test-phone"
-              placeholder="+972 5X XXX XXXX"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              data-testid="test-phone"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="test-message">Message</Label>
-            <Textarea
-              id="test-message"
-              rows={3}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              data-testid="test-message"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={openWhatsapp}
-              disabled={!link}
-              data-testid="test-open"
-            >
-              <MessageCircle className="mr-1 h-4 w-4" />
-              Open in WhatsApp
-            </Button>
-            {link ? (
-              <a
-                href={link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground underline underline-offset-4"
-                data-testid="test-link"
-              >
-                or open this link directly
-              </a>
+          <Button
+            variant="outline"
+            onClick={() => testDigest.mutate()}
+            disabled={testDigest.isPending}
+            data-testid="test-digest"
+          >
+            {testDigest.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : (
-              <span className="text-sm text-muted-foreground">
-                Enter a valid number to enable the button.
-              </span>
+              <Mail className="h-4 w-4 mr-1" />
             )}
-          </div>
-
-          {link ? (
-            <p
-              className="text-sm text-muted-foreground"
-              data-testid="test-target"
-            >
-              Opens a chat with +{digits}.
-            </p>
-          ) : null}
-          {looksLocal ? (
-            <p className="text-sm text-amber-700" data-testid="test-hint">
-              This number starts with a zero. International numbers use the
-              country code instead, for example 972 for Israel.
-            </p>
-          ) : null}
+            Send test digest email
+          </Button>
         </CardContent>
       </Card>
+
+      <PushoverSettings />
+      <TestChannelMessage />
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import {
   db,
   prospectsTable,
@@ -7,6 +7,8 @@ import {
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
+import { scheduleFollowupsAfterFirstSend } from "../followupScheduler";
+import { isChannelCode, type ChannelCode } from "../../lib/channelRegister";
 
 /**
  * Telegram channel adapter (Ticket 2.6-BE).
@@ -36,7 +38,7 @@ import {
  * action_type differs (telegramSendIntent vs whatsappSendIntent). It
  * is duplicated rather than extracted because each channel file is
  * self-contained in this codebase; a cross-channel refactor is its own
- * ticket once Teams/Slack land and the shared shape is established.
+ * ticket if more channels are ever added.
  */
 
 /**
@@ -57,13 +59,22 @@ import {
 export function generateLink(identifier: string, body: string): string {
   const encoded = encodeURIComponent(body);
   if (identifier.startsWith("+")) {
-    // Phone-based deep link. Keep the "+" verbatim.
-    return `https://t.me/${identifier}?text=${encoded}`;
+    // Phone-based deep link. Keep a leading "+" then digits only, so a stored
+    // value like "+1 (555) 123-4567" becomes "+15551234567" instead of a
+    // space-broken, malformed URL.
+    const phone = `+${identifier.replace(/[^0-9]/g, "")}`;
+    return `https://t.me/${phone}?text=${encoded}`;
   }
   const normalized = identifier.startsWith("@")
     ? identifier.slice(1)
     : identifier;
-  return `https://t.me/${normalized}?text=${encoded}`;
+  // Encode the handle path segment. telegramHandle is stored with only a
+  // length constraint (routes/prospects.ts), so a value containing "?", "#",
+  // "/", or whitespace would otherwise inject query params, push the ?text=
+  // body into the URL fragment (silently dropping it), or redirect to a
+  // different t.me path. A valid Telegram username (A-Za-z0-9_) round-trips
+  // unchanged through encodeURIComponent.
+  return `https://t.me/${encodeURIComponent(normalized)}?text=${encoded}`;
 }
 
 export interface RecordSendIntentInput {
@@ -82,8 +93,8 @@ export interface RecordSendIntentInput {
  *   2. Upsert daily_usage for (userId, today) with messages_sent + 1.
  *   3. Insert action_logs row with action_type telegram.send_intent.
  *
- * Does NOT touch followups.sent_at; sentAt is reserved for the worker
- * dispatch path. The click event lives in clickedAt.
+ * For a followup, stamps sentAt + status='sent' (Mode-A: the click is the
+ * send) alongside clickedAt, so the row leaves the due/escalation queues.
  */
 export async function recordSendIntent(
   input: RecordSendIntentInput,
@@ -91,22 +102,52 @@ export async function recordSendIntent(
   const { prospectId, userId, followupId } = input;
   const today = new Date().toISOString().slice(0, 10);
 
+  let firstSendRecorded = false;
+
   await db.transaction(async (tx) => {
     if (followupId === null) {
-      await tx
+      const updated = await tx
         .update(prospectsTable)
         .set({ firstMessageSentAt: new Date() })
         .where(
           and(
             eq(prospectsTable.id, prospectId),
             eq(prospectsTable.userId, userId),
+            isNull(prospectsTable.firstMessageSentAt),
           ),
-        );
+        )
+        .returning({ id: prospectsTable.id });
+      if (updated.length === 0) return;
+      firstSendRecorded = true;
     } else {
-      await tx
+      // Ownership scoping via the owning prospect — see whatsapp.ts for the
+      // full rationale. Prevents a body-supplied followupId from stamping
+      // another tenant's follow-up (IDOR).
+      // F1: stamp sentAt + status='sent' too (the click is the send) — see
+      // whatsapp.ts for why clickedAt alone leaves the row eternally "due".
+      const now = new Date();
+      const updated = await tx
         .update(followupsTable)
-        .set({ clickedAt: new Date() })
-        .where(eq(followupsTable.id, followupId));
+        .set({ clickedAt: now, sentAt: now, status: "sent" })
+        .where(
+          and(
+            eq(followupsTable.id, followupId),
+            isNull(followupsTable.clickedAt),
+            exists(
+              tx
+                .select({ ok: sql`1` })
+                .from(prospectsTable)
+                .where(
+                  and(
+                    eq(prospectsTable.id, followupsTable.prospectId),
+                    eq(prospectsTable.userId, userId),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .returning({ id: followupsTable.id });
+      if (updated.length === 0) return;
     }
 
     await tx
@@ -131,4 +172,22 @@ export async function recordSendIntent(
       actionStatus: "success",
     });
   });
+
+  if (followupId === null && firstSendRecorded) {
+    const prospectRows = await db
+      .select({ firstMessageChannel: prospectsTable.firstMessageChannel })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, userId),
+        ),
+      )
+      .limit(1);
+    const rawChannel = prospectRows[0]?.firstMessageChannel ?? "telegram";
+    const channel: ChannelCode = isChannelCode(rawChannel)
+      ? rawChannel
+      : "telegram";
+    await scheduleFollowupsAfterFirstSend({ prospectId, userId, channel });
+  }
 }

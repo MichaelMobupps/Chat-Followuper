@@ -9,6 +9,7 @@ import {
   index,
   jsonb,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -46,8 +47,6 @@ export const prospectsTable = pgTable(
      */
     phone: text("phone"),
     telegramHandle: text("telegram_handle"),
-    teamsEmail: text("teams_email"),
-    slackUserId: text("slack_user_id"),
     linkedinUrl: text("linkedin_url"),
     apolloPersonId: text("apollo_person_id"),
     apolloOrgId: text("apollo_org_id"),
@@ -96,6 +95,9 @@ export const prospectsTable = pgTable(
      *   - "blocked"  webhook delivered a phone, geo gate rejected; no
      *                phone is persisted in this case
      *   - "no_match" Apollo returned no phone for this person (terminal)
+     *   - "expired"  pending reveal aged past REVEAL_PENDING_MAX_AGE_HOURS
+     *                with no webhook; soft terminal (Ticket 1.5c). A late
+     *                webhook can still promote it to "arrived".
      *
      * phoneNumber is populated ONLY on the "arrived" path, after the geo
      * gate passes. On "blocked" the phone is intentionally discarded.
@@ -124,6 +126,25 @@ export const prospectsTable = pgTable(
     index("prospects_phone_reveal_correlation_idx").on(
       table.phoneRevealCorrelationId,
     ),
+    // DB4: covering index for the campaign_id FK so deleting a campaign doesn't
+    // sequential-scan + lock the whole prospects table.
+    index("prospects_campaign_id_idx").on(table.campaignId),
+    // DB5: the (user_id, phone) unique index doesn't dedup non-phone identities
+    // (NULLs are distinct), so Telegram + reveal-pending prospects (phone=null)
+    // could be created — and messaged — repeatedly. Partial unique indexes per
+    // identity dedup them per user without constraining null rows. (The teams/
+    // slack identity indexes were dropped in 0016 with those channels.)
+    uniqueIndex("prospects_user_telegram_unique")
+      .on(table.userId, table.telegramHandle)
+      .where(sql`${table.telegramHandle} IS NOT NULL`),
+    uniqueIndex("prospects_user_apollo_person_unique")
+      .on(table.userId, table.apolloPersonId)
+      .where(sql`${table.apolloPersonId} IS NOT NULL`),
+    // F-A: dedup LinkedIn prospects per user (linkedin_url is nullable, so a
+    // partial unique index — like the telegram/apollo ones above).
+    uniqueIndex("prospects_user_linkedin_unique")
+      .on(table.userId, table.linkedinUrl)
+      .where(sql`${table.linkedinUrl} IS NOT NULL`),
   ],
 );
 

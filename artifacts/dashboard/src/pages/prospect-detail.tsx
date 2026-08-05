@@ -33,7 +33,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useWhatsappLink } from "@/hooks/use-whatsapp";
+import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import { ApiError } from "@/lib/api";
 import {
   getProspect,
@@ -50,6 +51,10 @@ import { generateMessage } from "@/lib/api/seeder";
 // to carry the base or those paths 404 under a prefix. appPath() is the
 // identity at the default base, so today's markup is unchanged.
 import { appPath } from "@/lib/config";
+import {
+  ProspectTimeline,
+  useLastGenerationScore,
+} from "@/components/prospects/ProspectTimeline";
 
 export default function ProspectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -118,7 +123,45 @@ export default function ProspectDetailPage() {
     },
   });
 
-  const whatsappLink = useWhatsappLink();
+  const outcomeMutation = useMutation<
+    Prospect,
+    ApiError,
+    "worked" | "no_response"
+  >({
+    mutationFn: async (outcome) => {
+      const current = queryClient.getQueryData<Prospect>(["prospect", id]);
+      if (!current) throw new Error("Prospect not loaded");
+      const label =
+        outcome === "worked" ? "[Outcome: worked]" : "[Outcome: no response]";
+      const existing = current.contextNotes ?? "";
+      // FE6: strip any prior leading outcome marker(s) before prepending the new
+      // one, so re-clicking or switching outcomes REPLACES rather than
+      // accumulates. The old code prepended unconditionally, producing
+      // contradictory "[Outcome: no response] [Outcome: worked] ..." chains that
+      // also polluted the message-generation context.
+      const withoutPriorOutcome = existing
+        .replace(/^(?:\s*\[Outcome:[^\]]*\]\s*)+/, "")
+        .trim();
+      const next = withoutPriorOutcome
+        ? `${label} ${withoutPriorOutcome}`
+        : label;
+      return updateProspect(id!, { contextNotes: next });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", id] });
+      toast({ title: "Outcome saved" });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not save outcome",
+        description: err.code ?? err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const channelLink = useChannelLink();
+  const lastGenScore = useLastGenerationScore(id ?? "");
 
   if (query.isLoading) {
     return (
@@ -159,26 +202,79 @@ export default function ProspectDetailPage() {
   const status = computeStatus(p);
   const displayName = p.prospectName ?? "(no name)";
 
-  function openWhatsappLink() {
-    whatsappLink.mutate(p.id, {
-      onSuccess: (data) => {
-        const w = window.open(data.url, "_blank", "noopener,noreferrer");
-        if (!w) {
+  const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+    whatsapp: "WhatsApp",
+    telegram: "Telegram",
+    linkedin: "LinkedIn",
+  };
+  const openChannel: SendIntentChannel =
+    p.firstMessageChannel === "telegram"
+      ? "telegram"
+      : p.firstMessageChannel === "linkedin"
+        ? "linkedin"
+        : "whatsapp";
+  // telegram + linkedin are clipboard-copy channels (the deep link doesn't
+  // reliably prefill the composer, or — for linkedin — can't at all).
+  const openChannelIsClipboard =
+    openChannel === "telegram" || openChannel === "linkedin";
+  const canOpenChat =
+    p.firstMessageChannel === "whatsapp" ||
+    p.firstMessageChannel === "telegram" ||
+    p.firstMessageChannel === "linkedin";
+
+  function copySummary() {
+    const summary = [
+      `Name: ${p.prospectName ?? "—"}`,
+      `Company: ${p.company ?? "—"}`,
+      `Contact: ${p.phone ?? p.telegramHandle ?? p.linkedinUrl ?? "—"}`,
+      `Status: ${status}`,
+      `Channel: ${p.firstMessageChannel ?? "—"}`,
+    ].join("\n");
+    navigator.clipboard.writeText(summary).then(
+      () => toast({ title: "Summary copied" }),
+      () =>
+        toast({ title: "Could not copy", variant: "destructive" }),
+    );
+  }
+
+  function openChatLink() {
+    channelLink.mutate(
+      { prospectId: p.id, channel: openChannel },
+      {
+        onSuccess: (data) => {
+          const w = window.open(data.url, "_blank", "noopener,noreferrer");
+          if (!w) {
+            toast({
+              title: "Browser blocked the popup",
+              description:
+                "Allow popups for this site, or copy the link manually.",
+              variant: "destructive",
+            });
+            return;
+          }
+          // C5: t.me/<handle>?text= often doesn't prefill the composer for plain
+          // user handles, and LinkedIn can't prefill at all — copy the message
+          // so the SDR can paste it. Best-effort.
+          if (openChannelIsClipboard && data.body) {
+            void navigator.clipboard.writeText(data.body).catch(() => {});
+            toast({
+              title: `Opening ${CHANNEL_LABEL[openChannel]} — message copied`,
+              description:
+                openChannel === "linkedin"
+                  ? "LinkedIn can't prefill text — paste the copied message into the profile."
+                  : "Telegram may not prefill the text — paste it if the composer is empty.",
+            });
+          }
+        },
+        onError: (err) => {
           toast({
-            title: "Browser blocked the popup",
-            description: "Allow popups for this site, or copy the link manually.",
+            title: `Could not open ${CHANNEL_LABEL[openChannel]} link`,
+            description: err.code ?? err.message,
             variant: "destructive",
           });
-        }
+        },
       },
-      onError: (err) => {
-        toast({
-          title: "Could not open WhatsApp link",
-          description: err.code ?? err.message,
-          variant: "destructive",
-        });
-      },
-    });
+    );
   }
 
   return (
@@ -214,14 +310,14 @@ export default function ProspectDetailPage() {
 
       {/* Top action row */}
       <div className="flex flex-wrap gap-2">
-        {status === "ready" && p.firstMessageChannel === "whatsapp" && (
+        {status === "ready" && canOpenChat && (
           <Button
-            onClick={openWhatsappLink}
-            disabled={whatsappLink.isPending}
-            data-testid="button-open-whatsapp"
+            onClick={openChatLink}
+            disabled={channelLink.isPending}
+            data-testid="button-open-chat"
           >
             <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-            Open WhatsApp
+            Open {CHANNEL_LABEL[openChannel]}
           </Button>
         )}
         <Button
@@ -239,6 +335,14 @@ export default function ProspectDetailPage() {
             className={`h-3.5 w-3.5 mr-1.5 ${regenerate.isPending ? "animate-spin" : ""}`}
           />
           Regenerate message
+        </Button>
+        <Button
+          variant="outline"
+          onClick={copySummary}
+          data-testid="button-copy-summary"
+        >
+          <Copy className="h-3.5 w-3.5 mr-1.5" />
+          Copy summary
         </Button>
         <Button
           variant="outline"
@@ -313,6 +417,35 @@ export default function ProspectDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {lastGenScore != null ? (
+        <p className="text-xs text-muted-foreground" data-testid="gen-quality">
+          Last generation quality:{" "}
+          <span className="font-medium text-foreground">
+            {lastGenScore.toFixed(2)}
+          </span>
+        </p>
+      ) : null}
+
+      {/* Variant outcome */}
+      <div className="flex flex-wrap gap-2" data-testid="variant-outcome">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => outcomeMutation.mutate("worked")}
+          disabled={outcomeMutation.isPending}
+        >
+          Mark as worked
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => outcomeMutation.mutate("no_response")}
+          disabled={outcomeMutation.isPending}
+        >
+          No response
+        </Button>
+      </div>
 
       {/* Message card */}
       <Card data-testid="message-card">
@@ -414,6 +547,8 @@ export default function ProspectDetailPage() {
         </CardContent>
       </Card>
 
+      <ProspectTimeline prospectId={p.id} />
+
       {/* Delete confirmation */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent data-testid="delete-confirm-dialog">
@@ -453,7 +588,11 @@ function computeStatus(p: Prospect): ProspectStatus {
   if (p.phoneRevealStatus === "blocked") return "phone-blocked";
   if (p.phoneRevealStatus === "no_match") return "phone-no-match";
   if (p.phoneRevealStatus === "expired") return "phone-expired";
-  if (!p.phone) return "phone-pending";
+  // linkedinUrl is a valid identity too (LinkedIn is clipboard-only). Mirrors
+  // the BE computeProspectStatus (routes/prospects.ts) — without the linkedinUrl
+  // check a linkedin prospect was stuck "phone-pending", so status never became
+  // "ready" and the "Open LinkedIn" button never rendered on this page.
+  if (!p.phone && !p.telegramHandle && !p.linkedinUrl) return "phone-pending";
   if (p.firstMessageBody) return "ready";
   return "draft";
 }

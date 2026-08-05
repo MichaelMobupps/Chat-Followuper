@@ -30,7 +30,12 @@ export const oauthNoncesTable = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("oauth_nonces_nonce_idx").on(table.nonce)],
+  (table) => [
+    index("oauth_nonces_nonce_idx").on(table.nonce),
+    // DB4: covering index for the user_id FK so deleting a user doesn't
+    // seq-scan + lock oauth_nonces.
+    index("oauth_nonces_user_id_idx").on(table.userId),
+  ],
 );
 
 export const insertOauthNonceSchema = createInsertSchema(oauthNoncesTable).omit(

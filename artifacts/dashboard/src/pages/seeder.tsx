@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { CheckCircle2, Sparkles } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -41,6 +41,14 @@ import {
 import { useResearchStream } from "@/lib/sse";
 import type { Prospect, ProspectBrief } from "@/lib/api/prospects";
 import type { GenerateMessageResult, ResearchInput } from "@/lib/api/seeder";
+import { usePrepareFirstMessage } from "@/hooks/use-manual-ingest";
+import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
+import {
+  SendConfirmDialog,
+  type PendingSendConfirm,
+} from "@/components/SendConfirmDialog";
+import { appPath } from "@/lib/config";
 
 type Stage =
   | { name: "form" }
@@ -64,6 +72,10 @@ export default function SeederPage() {
   const [stage, setStage] = useState<Stage>({ name: "form" });
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [apolloOpen, setApolloOpen] = useState(false);
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
+  const [pendingSend, setPendingSend] = useState<PendingSendConfirm | null>(
+    null,
+  );
 
   // Form pre-fill from Apollo discovery. When set, the form re-mounts
   // (via formKey) and uses these as defaults. Cleared on "Start over".
@@ -80,6 +92,14 @@ export default function SeederPage() {
   const deleteMutation = useDeleteProspect();
   const generateMutation = useGenerateMessage();
   const research = useResearchStream();
+  const prepareFirst = usePrepareFirstMessage();
+  const channelLink = useChannelLink();
+
+  // FE1: latch so the brief-save fires exactly ONCE per research completion.
+  // Without it, updateMutation's identity flips when .mutate() sets isPending,
+  // re-running this effect while the guard is still true (stage only flips to
+  // "brief" in the async onSuccess) → a storm of concurrent PATCH writes.
+  const briefSavedForRef = useRef<string | null>(null);
 
   // Wire research-stream completion → transition to brief stage
   useEffect(() => {
@@ -89,6 +109,8 @@ export default function SeederPage() {
     ) {
       const brief = research.state.brief;
       const prospect = stage.prospect;
+      if (briefSavedForRef.current === prospect.id) return; // already firing/fired
+      briefSavedForRef.current = prospect.id;
       updateMutation.mutate(
         { id: prospect.id, input: { researchBrief: brief } },
         {
@@ -96,6 +118,7 @@ export default function SeederPage() {
             setStage({ name: "brief", prospect: updated, brief });
           },
           onError: (err) => {
+            briefSavedForRef.current = null; // allow a retry on failure
             toast({
               title: "Could not save research brief",
               description: err.message,
@@ -201,7 +224,12 @@ export default function SeederPage() {
   }
 
   function handleResearchCancel() {
-    research.cancel();
+    // FE14: only ASK here — don't tear down the stream. Previously this called
+    // research.cancel() and then opened the dialog, so choosing "Keep working"
+    // left stage="research" with a dead (idle) stream and nothing to resume
+    // into — a blank dead-end. Leaving the stream running means "Keep working"
+    // resumes seamlessly (no re-incurred cost); "Delete draft" (handleAbandon)
+    // is the single path that resets/stops the stream.
     setAbandonOpen(true);
   }
 
@@ -254,8 +282,28 @@ export default function SeederPage() {
     }
   }
 
-  function handleMessageDone() {
+  async function handleMessageDone(editedBody: string) {
     if (stage.name !== "message") return;
+    const trimmed = editedBody.trim();
+    // FE13: persist manual edits so the send flow uses what the SDR sees. The
+    // prospects PATCH route accepts firstMessageBody (edit-message-capability);
+    // only write when it actually changed from the generated body.
+    if (trimmed && trimmed !== stage.result.message.trim()) {
+      try {
+        await updateMutation.mutateAsync({
+          id: stage.prospect.id,
+          input: { firstMessageBody: trimmed },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        toast({
+          title: "Could not save your edits",
+          description: message,
+          variant: "destructive",
+        });
+        return; // stay on review so the SDR can retry or copy
+      }
+    }
     setStage({ name: "done", prospect: stage.prospect });
   }
 
@@ -291,6 +339,81 @@ export default function SeederPage() {
     setFormKey((k) => k + 1);
   }
 
+  async function handleOpenInChannel(prospect: Prospect) {
+    const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+      whatsapp: "WhatsApp",
+      telegram: "Telegram",
+      linkedin: "LinkedIn",
+    };
+    const channel: SendIntentChannel =
+      prospect.firstMessageChannel === "telegram"
+        ? "telegram"
+        : prospect.firstMessageChannel === "linkedin"
+          ? "linkedin"
+          : "whatsapp";
+    // LinkedIn is clipboard-only (its deep link can't prefill the composer), so
+    // the message MUST be copied or the SDR opens an empty profile. Telegram's
+    // t.me?text= is also unreliable for plain handles.
+    const isClipboard = channel === "telegram" || channel === "linkedin";
+
+    try {
+      const result = await prepareFirst.mutateAsync({
+        prospectId: prospect.id,
+        input: { channel },
+      });
+
+      if (result.deepLinkUrl) {
+        if (isClipboard && result.message) {
+          void navigator.clipboard.writeText(result.message).catch(() => {});
+        }
+        window.open(result.deepLinkUrl, "_blank", "noopener,noreferrer");
+        setPendingSend({
+          prospectId: prospect.id,
+          followupId: null,
+          channel,
+        });
+        setSendConfirmOpen(true);
+        toast({
+          title: `Opening ${CHANNEL_LABEL[channel]}${isClipboard ? " — message copied" : ""}`,
+          description:
+            channel === "linkedin"
+              ? "LinkedIn can't prefill text — paste the copied message into the profile."
+              : "Review the message and press Send in the app.",
+        });
+        return;
+      }
+
+      channelLink.mutate(
+        { prospectId: prospect.id, channel },
+        {
+          onSuccess: (data) => {
+            if (isClipboard && data.body) {
+              void navigator.clipboard.writeText(data.body).catch(() => {});
+            }
+            window.open(data.url, "_blank", "noopener,noreferrer");
+            toast({
+              title: `Opening ${CHANNEL_LABEL[channel]}${isClipboard ? " — message copied" : ""}`,
+            });
+          },
+          onError: (err) => {
+            toast({
+              title: "Could not open chat",
+              description: err.message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({
+        title: "Could not prepare message",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   const isLanguageNonEnglish =
@@ -302,13 +425,20 @@ export default function SeederPage() {
     <section className="space-y-6">
       <header className="space-y-1">
         <h1
-          className="text-2xl font-semibold tracking-tight"
+          className="text-2xl font-semibold tracking-tight flex items-center gap-2"
           data-testid="page-title"
         >
-          Seeder
+          <Sparkles className="h-6 w-6 text-[#4FFFE3]" />
+          Apollo seeder
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Source new prospects and seed your outreach pipeline.
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Discover prospects via Apollo, run full LLM research, generate the
+          first message from doctrine, then send from Contacts or All prospects.
+          For people you already know, use{" "}
+          <a href={appPath("/contacts")} className="text-[#4FFFE3] hover:underline">
+            Contacts
+          </a>{" "}
+          instead.
         </p>
       </header>
 
@@ -414,7 +544,29 @@ export default function SeederPage() {
                 prospect detail page when ready.
               </p>
             </div>
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 flex-wrap">
+              {(stage.prospect.firstMessageChannel === "whatsapp" ||
+                stage.prospect.firstMessageChannel === "telegram" ||
+                stage.prospect.phone ||
+                stage.prospect.telegramHandle) && (
+                <Button
+                  onClick={() => void handleOpenInChannel(stage.prospect)}
+                  disabled={
+                    prepareFirst.isPending || channelLink.isPending
+                  }
+                  data-testid="button-open-channel"
+                >
+                  {prepareFirst.isPending || channelLink.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                  )}
+                  Open in{" "}
+                  {stage.prospect.firstMessageChannel === "telegram"
+                    ? "Telegram"
+                    : "WhatsApp"}
+                </Button>
+              )}
               {stage.prospect.campaignId && (
                 <Link href={`/campaigns/${stage.prospect.campaignId}`}>
                   <Button variant="outline" data-testid="button-view-campaign">
@@ -444,6 +596,22 @@ export default function SeederPage() {
           />
         </DialogContent>
       </Dialog>
+
+      <SendConfirmDialog
+        open={sendConfirmOpen}
+        onOpenChange={(open) => {
+          setSendConfirmOpen(open);
+          if (!open) setPendingSend(null);
+        }}
+        pending={pendingSend}
+        onError={(message) =>
+          toast({
+            title: "Could not record send",
+            description: message,
+            variant: "destructive",
+          })
+        }
+      />
 
       <AlertDialog open={abandonOpen} onOpenChange={setAbandonOpen}>
         <AlertDialogContent>

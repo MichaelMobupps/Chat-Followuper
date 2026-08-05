@@ -1,0 +1,1 @@
+ALTER TABLE "daily_usage" ADD COLUMN IF NOT EXISTS "pushover_sent" boolean DEFAULT false NOT NULL;

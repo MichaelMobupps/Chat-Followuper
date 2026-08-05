@@ -1,0 +1,13 @@
+-- Admin kill switch (2026-07-15): per-USER follow-up pause, set by an admin.
+-- Distinct from the existing per-PROSPECT "prospects"."followup_paused" — both
+-- are checked, and either one being true stops the send.
+--
+-- Guarded (IF NOT EXISTS) so it is safe to re-run and to apply on prod BY HAND,
+-- which is how migrations actually reach prod here — see 0016's own note and the
+-- ~20 godlike-audit/prod-*.sql scripts. drizzle-kit generated this unguarded;
+-- the guard is deliberate and does not affect the snapshot (drizzle diffs
+-- snapshots, not SQL text), so a future `generate` stays clean.
+--
+-- Every existing row backfills to false = "not paused" = today's behaviour, so
+-- applying this changes nothing until an admin flips a specific user.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "followups_paused" boolean DEFAULT false NOT NULL;

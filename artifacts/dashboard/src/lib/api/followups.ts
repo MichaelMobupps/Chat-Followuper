@@ -18,16 +18,21 @@
  */
 import { apiFetch } from "@/lib/api";
 import { apiPath } from "@/lib/config";
+import type { PrepareProgress } from "@/lib/api/manual-ingest";
 
 // ─────────────────────────────────────────────────────────────────
 // Shared types — mirror the BE wire format
 // ─────────────────────────────────────────────────────────────────
 
+// Phase I: the followup progress endpoint speaks the exact same wire shape
+// as prepare-progress, so the FE reuses the type (and PrepareProgressBar).
+export type FollowupProgress = PrepareProgress;
+
 export const SUPPORTED_CHANNELS = [
   "whatsapp",
   "telegram",
-  "teams",
-  "slack",
+  // F-A: LinkedIn is a real channel now (clipboard-only send).
+  "linkedin",
 ] as const;
 export type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
@@ -41,11 +46,12 @@ export const LIST_STATUSES = [
 ] as const;
 export type ListStatus = (typeof LIST_STATUSES)[number];
 
+// P3-3: mirrors the BE — "sent" is NOT client-editable (the sent transition
+// belongs to recordSendIntent; a PATCH to status:"sent" now 400s server-side).
 export const FOLLOWUP_EDITABLE_STATUSES = [
   "scheduled",
   "queued",
   "cancelled",
-  "sent",
 ] as const;
 export type FollowupEditableStatus = (typeof FOLLOWUP_EDITABLE_STATUSES)[number];
 
@@ -75,8 +81,8 @@ export interface FollowupListProspect {
   language: string | null;
   phone: string | null;
   telegramHandle: string | null;
-  teamsEmail: string | null;
-  slackUserId: string | null;
+  // F-A: LinkedIn is clipboard-only; the profile deep link needs this URL.
+  linkedinUrl: string | null;
   firstMessageBody: string | null;
   firstMessageChannel: string | null;
   firstMessageSentAt: string | null;
@@ -213,6 +219,26 @@ export function patchFollowup(
   input: PatchFollowupInput,
 ): Promise<{ followup: Followup }> {
   return req("PATCH", apiPath(`/followups/${followupId}`), input);
+}
+
+// Phase I: staged progress of an in-flight on-demand follow-up generation.
+// Same shape as the Contacts prepare-progress endpoint (stage/pct/error);
+// unknown, foreign, or expired ids return {stage:"idle"} — never an error.
+export function getFollowupProgress(
+  followupId: number,
+): Promise<FollowupProgress> {
+  return req("GET", apiPath(`/followups/${followupId}/progress`));
+}
+
+export type SnoozePreset = "1d" | "3d" | "next_monday";
+
+// The api-server returns only `{ followup }`; the new schedule is on the
+// returned row (followup.scheduledAt) — there is no top-level `scheduledAt`.
+export function snoozeFollowup(
+  followupId: number,
+  preset: SnoozePreset,
+): Promise<{ followup: Followup }> {
+  return req("POST", apiPath(`/followups/${followupId}/snooze`), { preset });
 }
 
 export function bulkArchiveFollowups(

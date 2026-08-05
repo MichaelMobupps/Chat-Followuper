@@ -52,3 +52,26 @@ attached_assets/
 
 # Database backups taken before migrations (never commit these)
 db-backup-*
+
+# Secrets — do NOT rely on the host-global excludes file; keep protection in-repo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+credentials.json
+
+# Editor/tooling backups (were being committed as *.bak.<timestamp>)
+*.bak
+*.bak.*
+*.bak-*
+
+# Snapshot archives
+*.zip
+
+# Playwright (browser E2E) — run artifacts + traces. The chromium binary itself
+# comes from the nix store (see artifacts/dashboard/playwright.config.ts), so
+# nothing browser-sized should ever land in the repo.
+test-results/
+playwright-report/

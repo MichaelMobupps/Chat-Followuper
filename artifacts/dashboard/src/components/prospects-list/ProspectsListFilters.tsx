@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +24,8 @@ const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
 const CHANNEL_OPTIONS: { value: ListChannel; label: string }[] = [
   { value: "whatsapp", label: "WhatsApp" },
   { value: "telegram", label: "Telegram" },
-  { value: "teams", label: "Teams" },
+  // F-A: LinkedIn channel filter.
+  { value: "linkedin", label: "LinkedIn" },
 ];
 
 const SORT_OPTIONS: { value: ListSortCol; label: string }[] = [
@@ -38,6 +40,32 @@ interface Props {
 }
 
 export function ProspectsListFilters({ params, onChange }: Props) {
+  // FE12: debounce the free-text search so we don't fire a backend query on
+  // every keystroke. Local state keeps typing responsive; the committed
+  // `search` param (which triggers the fetch) updates 300ms after the last
+  // keystroke. Kept in sync when `params.search` changes externally (clearAll).
+  const [searchInput, setSearchInput] = useState(params.search ?? "");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSearchInput(params.search ?? "");
+  }, [params.search]);
+
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+
+  function onSearchChange(value: string) {
+    setSearchInput(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      patch("search", value || undefined);
+    }, 300);
+  }
+
   function patch<K extends keyof ListProspectsParams>(
     key: K,
     value: ListProspectsParams[K] | undefined,
@@ -81,8 +109,8 @@ export function ProspectsListFilters({ params, onChange }: Props) {
               <Input
                 id="filter-search"
                 placeholder="name, company"
-                value={params.search ?? ""}
-                onChange={(e) => patch("search", e.target.value || undefined)}
+                value={searchInput}
+                onChange={(e) => onSearchChange(e.target.value)}
                 className="pl-7"
                 data-testid="input-search"
               />

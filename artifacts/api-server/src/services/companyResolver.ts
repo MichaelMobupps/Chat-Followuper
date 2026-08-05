@@ -48,6 +48,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { modelDefaultsAdaptiveThinking as modelDefaultsAdaptiveThinkingShared } from "../lib/llm/thinking";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -147,7 +148,14 @@ export const FREE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "yeah.net",
 ]);
 
-const DEFAULT_SONNET_MODEL =
+/**
+ * EXPORTED (2026-07-15 audit) so the cost ledger prices resolveCompany with the
+ * model actually used. routes/prospector.ts previously re-declared this value by
+ * hand, with a comment saying it did so *because* the constant was not exported
+ * — two copies of an env-dependent model id, which drift the moment either side
+ * changes, and the symptom would be silently mispriced spend rather than an error.
+ */
+export const DEFAULT_SONNET_MODEL =
   process.env.PROSPECTOR_SONNET_MODEL ?? "claude-sonnet-4-6";
 
 const ANTHROPIC_TIMEOUT_MS = 90_000;
@@ -416,6 +424,35 @@ function getDefaultClient(): Anthropic {
   return _defaultClient;
 }
 
+/**
+ * Opus 4.7/4.8, Sonnet 5, and Fable 5 reject non-default sampling params
+ * (`temperature`/`top_p`/`top_k`) with an HTTP 400. Callers targeting those
+ * models must omit `temperature` entirely and steer via prompting instead.
+ * Older families (Sonnet 4.6/4.5, Opus 4.6/earlier, Haiku 4.5) still accept it.
+ */
+export function modelRejectsSamplingParams(model: string): boolean {
+  return /claude-(opus-4-[78]|sonnet-5|fable-5)/.test(model);
+}
+
+/**
+ * Sonnet 5 enables adaptive thinking when the `thinking` param is omitted. Our
+ * short, deterministic JSON-extraction calls run on tiny token budgets that a
+ * thinking pass would exhaust (truncating the JSON), so disable thinking
+ * explicitly for that model. Opus 4.7/4.8 default to thinking-off on omission,
+ * so they don't need this.
+ *
+ * L9 (audit-2, verified against the Claude API reference): Fable 5 is
+ * deliberately EXCLUDED — thinking is always on there and an explicit
+ * `thinking: {type: "disabled"}` returns a 400 (the param must be omitted).
+ * Sonnet 5 accepts `disabled`. So if PROSPECTOR_SONNET_MODEL is ever set to
+ * claude-fable-5, we omit the thinking param entirely (adaptive thinking will
+ * consume budget — prefer a Sonnet-tier model for this extraction path).
+ */
+// Moved to lib/llm/thinking.ts so prospectResearch can share the same policy —
+// it hit the identical Sonnet-5 adaptive-thinking trap. Re-exported here as a
+// local alias so the call site below reads unchanged.
+const modelDefaultsAdaptiveThinking = modelDefaultsAdaptiveThinkingShared;
+
 /** Default LLM caller: real Anthropic SDK. */
 export const defaultLLMCaller: LLMCaller = async ({
   system,
@@ -428,7 +465,12 @@ export const defaultLLMCaller: LLMCaller = async ({
   const resp = await client.messages.create({
     model,
     max_tokens: maxTokens,
-    temperature,
+    // New-model families 400 on non-default sampling params — omit for them.
+    ...(modelRejectsSamplingParams(model) ? {} : { temperature }),
+    // Keep these extraction calls non-thinking (small budget, deterministic output).
+    ...(modelDefaultsAdaptiveThinking(model)
+      ? { thinking: { type: "disabled" as const } }
+      : {}),
     system,
     messages: [{ role: "user", content: userContent }],
   });

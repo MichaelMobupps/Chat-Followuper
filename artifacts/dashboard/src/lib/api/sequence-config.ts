@@ -4,10 +4,7 @@
  * GET   /api/users/me/sequence-config
  * PATCH /api/users/me/sequence-config
  *
- * doctrineVariant per stage is stored but the LLM critic prompt does
- * not yet consume it; see handoff §5.6. The UI exposes the dropdown so
- * the SDR can pre-set their preference; behavior changes when the
- * variant-aware critic ticket lands.
+ * doctrineVariant per stage is passed into follow-up message generation.
  */
 import { apiFetch } from "@/lib/api";
 import { apiPath } from "@/lib/config";

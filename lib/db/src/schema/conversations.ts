@@ -40,6 +40,9 @@ export const conversationsTable = pgTable(
       table.prospectId,
       sql`${table.ts} DESC`,
     ),
+    // DB4: covering index for the source_followup_id FK (ON DELETE SET NULL) so
+    // deleting a followup doesn't seq-scan + lock conversations.
+    index("conversations_source_followup_id_idx").on(table.sourceFollowupId),
   ],
 );
 

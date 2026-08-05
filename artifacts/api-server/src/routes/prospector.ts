@@ -23,11 +23,29 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import {
+  assertUnderDailyLlmCap,
+  recordDailyLlmSpend,
+} from "../lib/llmSpendCap";
+import { computeCost } from "../lib/pricing";
+import { recordLlmCall } from "../lib/llmLedger";
+// Model ids for pricing the discovery rollup. Imported from the services that
+// own them (2026-07-15) rather than re-declared here — this file used to carry
+// its own copy of the sonnet id precisely because it wasn't exported, and two
+// copies of an env-dependent model id drift into silently mispriced spend.
+import { VALIDATOR_MODEL } from "../services/llmValidator";
+import { OPUS_MODEL } from "../services/opusRescue";
 import { resolveUrl, type ResolvedUrl } from "../services/urlResolver";
 import {
   resolveCompany,
   redactSecrets,
   sanitizeForStorage,
+  // L1 (2026-07-15): imported, not re-declared. This file used to carry its own
+  // `PROSPECTOR_SONNET_MODEL = process.env.PROSPECTOR_SONNET_MODEL ?? "..."`
+  // copy, with a comment explaining it did so because the constant wasn't
+  // exported. Two copies of one env-dependent model id drift silently, and the
+  // symptom is mispriced spend, not an error. It is exported now.
+  DEFAULT_SONNET_MODEL as PROSPECTOR_SONNET_MODEL,
   type ResolveCompanyInput,
   type ResolveCompanyResult,
 } from "../services/companyResolver";
@@ -52,6 +70,7 @@ import {
   type DiscoveryInput,
   type DiscoveryResult,
 } from "../services/discoveryOrchestrator";
+import { classifySeed } from "../services/seedClassifier";
 
 const router: IRouter = Router();
 
@@ -351,6 +370,10 @@ router.post(
       return;
     }
 
+    // L1: this route bills a Sonnet call (resolveCompany) but never checked the
+    // daily cap. Uncaught → terminal 429. No-op when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
+
     let body: ResolveCompanyBody;
     try {
       body = resolveCompanyBodySchema.parse(req.body);
@@ -453,6 +476,24 @@ router.post(
     } catch {
       // Audit log failure must not break the user response.
     }
+
+    // L1: record the Sonnet spend so it counts toward the daily cap + rollups
+    // (previously only token counts hit action_logs, never USD in daily_usage).
+    const resolveCost = computeCost(
+      PROSPECTOR_SONNET_MODEL,
+      result.usage?.inputTokens ?? 0,
+      result.usage?.outputTokens ?? 0,
+    );
+    await recordDailyLlmSpend(user.id, resolveCost.usd).catch(() => {});
+
+    // Ledger row (2026-07-15) — companyResolver bypasses callLLMRole.
+    await recordLlmCall({
+      ledger: { userId: user.id },
+      task: "resolve_company",
+      model: PROSPECTOR_SONNET_MODEL,
+      provider: "anthropic",
+      cost: resolveCost,
+    });
 
     // Audit fix F9: surface usage to the caller for cost reporting.
     res.status(200).json({
@@ -940,6 +981,13 @@ router.post(
       return;
     }
 
+    // P3-5: no LLM spend-cap check here. /discover-simple is Apollo-ONLY — the
+    // resolved company arrives in the request body, so this path runs findOrg +
+    // collectContacts (Apollo) with no resolveCompany/validator/opusRescue call.
+    // Gating an Apollo-only endpoint on the LLM cap over-restricts (it's already
+    // bounded by the per-call Apollo budget + the stage-B rate limit above). The
+    // LLM cap belongs on /discover and /resolve-company, which do bill Anthropic.
+
     let body: z.infer<typeof discoverSimpleBodySchema>;
     try {
       body = discoverSimpleBodySchema.parse(req.body);
@@ -1128,6 +1176,11 @@ router.post(
       return;
     }
 
+    // L1: bound runaway LLM spend before the discovery cascade (Sonnet resolve +
+    // Sonnet-5 validator + Opus-4.8 rescue w/ web_search). Uncaught → terminal
+    // 429. No-op when the cap env is unset.
+    await assertUnderDailyLlmCap(user.id);
+
     let body: z.infer<typeof discoverBodySchema>;
     try {
       body = discoverBodySchema.parse(req.body);
@@ -1144,6 +1197,8 @@ router.post(
     // the outer timeout fires. discoveryOrchestrator threads this signal
     // through every Apollo call.
     const ctrl = new AbortController();
+    // APO2: client disconnect also aborts in-flight Apollo calls
+    req.on("close", () => ctrl.abort());
 
     const discoveryInput: DiscoveryInput = {
       brand: body.brand ?? undefined,
@@ -1162,6 +1217,11 @@ router.post(
       disableWebSearchInRescue: body.disableWebSearchInRescue,
       apolloCallBudget: body.apolloCallBudget,
       signal: ctrl.signal,
+      // From the session — every other field here comes from `body`, and "who
+      // pays for this" must not. discover() writes the per-call ledger rows
+      // itself, next to each LLM call, so they survive a timeout in the Apollo
+      // step that runs after them.
+      ledger: { userId: user.id },
     };
 
     let result: DiscoveryResult;
@@ -1298,6 +1358,44 @@ router.post(
       });
     } catch {}
 
+    // L1: record the full discovery LLM spend (Sonnet resolve + Sonnet-5
+    // validator + Opus-4.8 rescue) into daily_usage so it counts toward the cap
+    // and admin/weekly rollups. Priced per the model each sub-step actually
+    // used. Best-effort — accounting, not the primary flow.
+    const u = result.llmUsage;
+    // Per-model, because these are THREE different models at three different
+    // prices (sonnet-4-6 / sonnet-5 / opus-4-8). action_logs sums their tokens
+    // into one number and records no USD at all, which is precisely the blend
+    // the ledger exists to undo.
+    //
+    // NB: the per-call LEDGER rows for these stages are written inside
+    // discover() itself, next to each call (see DiscoveryInput.ledger). Writing
+    // them here instead lost every one of them whenever discover() threw —
+    // llmUsage is a local that dies with the exception, and the LLM steps all
+    // run BEFORE the Apollo step that actually times out. Do NOT add
+    // recordLlmCall here; it would double-count the success path.
+    //
+    // recordDailyLlmSpend stays route-level: it is a per-request rollup for the
+    // daily cap, not a per-call record, and the cap only meaningfully applies to
+    // requests that completed.
+    const discoverSpendUsd =
+      computeCost(
+        PROSPECTOR_SONNET_MODEL,
+        u.resolveCompany?.inputTokens ?? 0,
+        u.resolveCompany?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        VALIDATOR_MODEL,
+        u.smartValidator?.inputTokens ?? 0,
+        u.smartValidator?.outputTokens ?? 0,
+      ).usd +
+      computeCost(
+        OPUS_MODEL,
+        u.opusRescue?.inputTokens ?? 0,
+        u.opusRescue?.outputTokens ?? 0,
+      ).usd;
+    await recordDailyLlmSpend(user.id, discoverSpendUsd).catch(() => {});
+
     res.status(200).json({
       status: result.status,
       resolved: result.resolved,
@@ -1308,6 +1406,109 @@ router.post(
       audit: result.audit,
       llmUsage: result.llmUsage,
     });
+  },
+);
+
+// ── POST /prospector/classify-seed ─────────────────────────────────────────
+// Turns a MINIMAL seed (company name OR Play/App Store/website URL) into a
+// fully-classified prospect {company, vertical, subVertical, country, language,
+// product} via seedClassifier (resolveUrl + Opus web_search). Operator-supplied
+// overrides always win. The service is best-effort and does not throw.
+const classifySeedBodySchema = z
+  .object({
+    seed: z.string().trim().min(1, "seed required").max(URL_MAX_LEN),
+    company: z.string().trim().max(300).optional(),
+    vertical: z.enum(["web_cps", "mobile"]).optional(),
+    subVertical: z.string().trim().max(120).optional(),
+    country: z.string().trim().max(120).optional(),
+    language: z.string().trim().max(12).optional(),
+    product: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
+router.post(
+  "/prospector/classify-seed",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const start = Date.now();
+
+    // Cost-DoS guard: classify-seed bills an Opus + web_search call (~$0.12).
+    // Rate-limit per user like the sibling expensive endpoints (resolve-company),
+    // since the daily cap is off by default and best-effort under concurrency.
+    const rl = checkResolveCompanyRateLimit(user.id);
+    if (!rl.ok) {
+      const retryAfterSec = Math.ceil(rl.resetMs / 1000);
+      res.setHeader("Retry-After", String(retryAfterSec));
+      res.status(429).json({
+        error: "rate_limit_exceeded",
+        message: `Too many classify-seed calls. Limit is ${RESOLVE_RATE_MAX_CALLS} per minute. Retry in ${retryAfterSec}s.`,
+        retryAfterSeconds: retryAfterSec,
+      });
+      return;
+    }
+
+    // Bills an Opus (web-search) call — pre-check the daily cap. No-op if unset.
+    await assertUnderDailyLlmCap(user.id);
+
+    let body: z.infer<typeof classifySeedBodySchema>;
+    try {
+      body = classifySeedBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const mapped = zodErrorToHttp(err);
+        res.status(mapped.status).json(mapped.body);
+        return;
+      }
+      throw err;
+    }
+
+    let classified;
+    try {
+      classified = await classifySeed({
+        seed: body.seed,
+        company: body.company,
+        vertical: body.vertical,
+        subVertical: body.subVertical,
+        country: body.country,
+        language: body.language,
+        product: body.product,
+        // From the session, never from `body` — every other field here is
+        // caller-supplied, and "who pays for this" must not be.
+        ledger: { userId: user.id },
+      });
+    } catch (err) {
+      const safe = redactSecrets(
+        err instanceof Error ? err.message : String(err),
+      ).slice(0, 500);
+      res.status(502).json({ error: "classify_failure", message: safe });
+      return;
+    }
+
+    if (classified.costUsd > 0) {
+      await recordDailyLlmSpend(user.id, classified.costUsd).catch(() => {});
+    }
+
+    try {
+      await db.insert(actionLogsTable).values({
+        userId: user.id,
+        actionType: ACTION_TYPES.prospectorCompanyResolved,
+        actionStatus: "success",
+        durationMs: Date.now() - start,
+        metadata: {
+          via: "classify_seed",
+          seed_type: classified.seedType,
+          vertical: classified.vertical,
+          sub_vertical: classified.subVertical,
+          web_search_used: classified.webSearchUsed,
+          cost_usd: classified.costUsd,
+        },
+      });
+    } catch {
+      // Audit log failure must not break the response.
+    }
+
+    res.status(200).json({ classified });
   },
 );
 

@@ -26,8 +26,11 @@
  * with `status: "budget_exhausted"`.
  */
 
+import { computeCost, webSearchFeeUsd } from "../lib/pricing";
+import { recordLlmCall, type LedgerContext } from "../lib/llmLedger";
 import {
   resolveCompany,
+  DEFAULT_SONNET_MODEL,
   type ResolveCompanyInput,
   type ResolveCompanyResult,
   type ResolvedCompany,
@@ -49,14 +52,17 @@ import {
 } from "./contactCollector";
 import {
   apolloPost,
+  apolloBudgetStore,
   sanitizeStr,
 } from "./apolloProspector";
 import {
   validateOrgCandidates,
+  VALIDATOR_MODEL,
   type ApolloOrgCandidate,
 } from "./llmValidator";
 import {
   opusRescue,
+  OPUS_MODEL,
   isOrgNamePlausible,
   type OpusRescueInput,
   type OpusRescueResult,
@@ -69,9 +75,26 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-/** Default Apollo-call budget per /discover request. Hard cap; cascade halts
- *  cleanly when reached. Generous enough for normal cascades + Phase 3. */
-const DEFAULT_APOLLO_CALL_BUDGET = 80;
+/** Default Apollo-call budget per /discover request. Hard, exact per-call cap
+ *  (APO5); the cascade halts cleanly when reached. A typical successful
+ *  discovery (org found + 6 contacts) measures ~14 real calls, so 80 leaves
+ *  generous headroom for the rescue/enrichment/subsidiary tail while still
+ *  capping the pathological per-person-enrichment runaway.
+ *
+ *  Env-overridable via APOLLO_CALL_BUDGET so operators can re-tune from
+ *  production `apolloCallsConsumed` telemetry without a deploy. Clamped to the
+ *  same [10, 200] range as the per-request `apolloCallBudget` override. */
+const FALLBACK_APOLLO_CALL_BUDGET = 80;
+const MIN_APOLLO_CALL_BUDGET = 10;
+const MAX_APOLLO_CALL_BUDGET = 200;
+
+function defaultApolloCallBudget(): number {
+  const raw = process.env.APOLLO_CALL_BUDGET;
+  if (raw === undefined || raw.trim() === "") return FALLBACK_APOLLO_CALL_BUDGET;
+  const n = Number(raw);
+  if (!Number.isInteger(n)) return FALLBACK_APOLLO_CALL_BUDGET;
+  return Math.min(MAX_APOLLO_CALL_BUDGET, Math.max(MIN_APOLLO_CALL_BUDGET, n));
+}
 
 /** Cap on smart-search names tried (port: Python uses [:8]). */
 const SMART_SEARCH_NAMES_CAP = 8;
@@ -115,6 +138,19 @@ export interface DiscoveryInput {
   apolloCallBudget?: number;
   /** External AbortSignal — fires when route timeout or client disconnect. */
   signal?: AbortSignal;
+  /**
+   * Cost-ledger attribution (2026-07-15 audit). Rows are written HERE, next to
+   * each LLM call, rather than by the route from `result.llmUsage`.
+   *
+   * The route-level version lost every row whenever discover() threw: llmUsage
+   * is a local that dies with the exception, and the LLM steps (1/3/4) all run
+   * BEFORE the long Apollo contact-collection step that actually times out. So a
+   * 504 silently discarded ~$0.18 of Sonnet + Sonnet-5 + Opus — and the
+   * discoveries that need Opus rescue are both the most expensive AND the most
+   * likely to time out, so the ledger under-reported hardest exactly where the
+   * money was.
+   */
+  ledger?: LedgerContext | undefined;
 }
 
 export interface DiscoveryAudit {
@@ -193,15 +229,15 @@ export interface DiscoveryOptions {
 // ─── Apollo call counter (per-request) ────────────────────────────────────
 
 /**
- * Wraps apolloPost with a budget counter. The counter is per-request
+ * Per-request Apollo call counter. The counter is per-request
  * (instance-scoped) so concurrent /discover requests don't share state.
  *
- * The bump granularity is APPROXIMATE — services like findOrg and
- * collectContacts make 1-25 Apollo calls internally without exposing a
- * counter to us. We bump by a conservative estimate (FIND_ORG_ESTIMATE,
- * COLLECT_CONTACTS_ESTIMATE, etc.) at the orchestrator boundary so the
- * budget is a coarse stop-loss, not a precise meter. Real per-call counts
- * are bounded by zod limits + cascade structure inside each service.
+ * APO5: this is now an EXACT per-call meter, not an estimate. Every apolloPost
+ * in the run — orchestrator-inline calls plus all findOrg/collectContacts
+ * internals — self-counts via the ALS-scoped `apolloBudgetStore` and stops the
+ * instant the limit is hit, so the budget is a real hard ceiling. (Previously
+ * the orchestrator bumped by flat per-service estimates, which under-counted
+ * the per-person-enrichment path and let a "capped" run blow past the limit.)
  */
 class CallBudget {
   private consumed = 0;
@@ -223,12 +259,10 @@ class CallBudget {
   }
 }
 
-/** Conservative estimates of Apollo calls per service invocation (the
- *  orchestrator can't introspect inside findOrg / collectContacts; these
- *  feed budget approximation). */
-const FIND_ORG_CALL_ESTIMATE = 5;
-const COLLECT_CONTACTS_CALL_ESTIMATE = 20;
-const SUBSIDIARY_COLLECT_CALL_ESTIMATE = 10;
+// APO5: the per-service call estimates that used to feed a coarse post-hoc
+// budget bump are gone — findOrg / collectContacts now self-count every real
+// apolloPost via the ALS-scoped budget (apolloBudgetStore), so the cap is an
+// exact, hard per-call ceiling instead of an approximation that could overshoot.
 
 // ─── Smart cascade (LLM-validated relaxed name search) ────────────────────
 
@@ -299,7 +333,6 @@ async function findOrgSmart(
     const cleanName = stripLegalSuffix(searchName);
     if (!cleanName || cleanName.startsWith("http")) continue;
 
-    budget.bump();
     const data = await apolloPost({
       path: "/mixed_companies/search",
       body: {
@@ -429,15 +462,9 @@ async function applyOpusStrategies(
       reasoning: strat.reasoning,
     };
 
-    // We don't have a per-strategy budget counter inside findOrg, but each
-    // strategy makes ~5-10 Apollo calls. Quick budget bump approximation:
-    // record one before the call; findOrg's internal calls will not register
-    // here. The caller-level budget is best-effort, not fine-grained.
-    const before = budget.count();
-    const result = await findOrg(stratResolved);
-    // Conservative budget bump (findOrg makes 1-10 Apollo calls internally).
-    budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
-    void before;
+    // APO5: findOrg's internal apolloPost calls now self-count via the ALS
+    // budget, so no post-hoc estimate is needed — the budget reflects real calls.
+    const result = await findOrg(stratResolved, signal);
 
     if (!result.org) continue;
 
@@ -492,7 +519,13 @@ export async function discover(
   input: DiscoveryInput,
   opts: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
-  const budget = new CallBudget(input.apolloCallBudget ?? DEFAULT_APOLLO_CALL_BUDGET);
+  const budget = new CallBudget(input.apolloCallBudget ?? defaultApolloCallBudget());
+  // APO5: scope the budget to this discovery run so EVERY apolloPost — in
+  // findOrg/collectContacts and all their internals — self-counts and stops the
+  // instant the true limit is hit (a real ceiling, not a post-hoc estimate).
+  // enterWith (vs run) avoids re-indenting the whole body; the only reader of
+  // this store is the discovery apolloPost, so there's nothing to leak into.
+  apolloBudgetStore.enterWith(budget);
   const audit: DiscoveryAudit = {
     resolution: "no_org",
     strictAttempts: [],
@@ -503,6 +536,37 @@ export async function discover(
     aborted: false,
   };
   const llmUsage: DiscoveryResult["llmUsage"] = {};
+
+  /**
+   * Write one ledger row for a discovery stage, at the point of spend.
+   *
+   * Called immediately after each LLM step so the row survives a later throw —
+   * the Apollo contact-collection step below is what times out, and it runs
+   * AFTER all three of these. Fire-and-forget: an accounting row must never add
+   * latency to, or fail, a discovery (recordLlmCall swallows internally).
+   *
+   * Skips when a stage did not run — a $0 row for a call that never happened is
+   * a lie in the opposite direction from the one this table exists to fix.
+   */
+  const ledgerStage = (
+    task: string,
+    model: string,
+    usage: ResolveCompanyUsage | undefined,
+    webSearchRequests = 0,
+  ): void => {
+    if (!usage) return;
+    const base = computeCost(model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
+    void recordLlmCall({
+      ledger: input.ledger,
+      task,
+      model,
+      provider: "anthropic",
+      // The per-request web-search fee is NOT in the token counts and is most of
+      // the cost when a stage searches hard — omitting it under-reported
+      // opus_rescue by ~45% with cost_unpriced=false, i.e. wrong and unflagged.
+      cost: { ...base, usd: base.usd + webSearchFeeUsd(webSearchRequests) },
+    }).catch(() => {});
+  };
 
   // ── Step 1: resolveCompany ────────────────────────────────────────────
   const resolveInput: ResolveCompanyInput = {
@@ -521,12 +585,12 @@ export async function discover(
     llmCaller: opts.sonnetLLMCaller,
   });
   llmUsage.resolveCompany = resolveResult.usage;
+  ledgerStage("resolve_company", DEFAULT_SONNET_MODEL, resolveResult.usage);
   let resolved = resolveResult.resolved;
 
   // ── Step 2: strict findOrg (2.2-BE-B) ─────────────────────────────────
-  let findResult: FindOrgResult = await findOrg(resolved);
-  // Conservative budget bump (findOrg makes 1-25 Apollo calls).
-  budget.bumpBy(FIND_ORG_CALL_ESTIMATE);
+  let findResult: FindOrgResult = await findOrg(resolved, input.signal);
+  // APO5: findOrg's Apollo calls self-count via the ALS budget (no estimate).
   audit.strictAttempts = findResult.attempts;
   audit.strictStrategy = findResult.strategy;
   audit.upgradedToParent = findResult.upgradedToParent;
@@ -556,6 +620,7 @@ export async function discover(
       reasoning: smart.reasoning,
     };
     if (smart.usage) llmUsage.smartValidator = smart.usage;
+    ledgerStage("validate_orgs", VALIDATOR_MODEL, smart.usage);
     if (smart.org) {
       org = smart.org;
       audit.resolution = "smart_llm_validated";
@@ -598,6 +663,9 @@ export async function discover(
     };
     const rescue = await opusRescue(rescueInput, { llmCaller: opts.opusLLMCaller });
     if (rescue.usage) llmUsage.opusRescue = rescue.usage;
+    // webSearchRequests: opusRescue runs web_search by default, and its
+    // per-request fee is real money the token cost cannot see. See ledgerStage.
+    ledgerStage("opus_rescue", OPUS_MODEL, rescue.usage, rescue.webSearchRequests);
 
     audit.opusRescue = {
       ran: true,
@@ -660,9 +728,8 @@ export async function discover(
   }
 
   const targetContacts = Math.max(input.targetContacts ?? 6, 6);
-  const contactsResult = await collectContacts(org, resolved, { targetContacts });
-  // Conservative budget bump (collectContacts makes 5-100+ Apollo calls).
-  budget.bumpBy(COLLECT_CONTACTS_CALL_ESTIMATE);
+  const contactsResult = await collectContacts(org, resolved, { targetContacts }, input.signal);
+  // APO5: collectContacts's Apollo calls self-count via the ALS budget (no estimate).
 
   // ── Step 6: Phase 3 subsidiary expansion ───────────────────────────────
   if (
@@ -713,7 +780,6 @@ export async function discover(
 
       for (const variant of Array.from(variants).filter(Boolean).slice(0, 3)) {
         if (input.signal?.aborted || budget.exhausted()) break;
-        budget.bump();
         const data = await apolloPost({
           path: "/mixed_companies/search",
           body: { q_organization_name: variant, page: 1, per_page: 10 },
@@ -769,8 +835,8 @@ export async function discover(
         const beforeCount = contactsResult.contacts.length;
         const subResult = await collectContacts(subOrg, resolved, {
           targetContacts: perSubTarget,
-        });
-        budget.bumpBy(SUBSIDIARY_COLLECT_CALL_ESTIMATE);
+        }, input.signal);
+        // APO5: subsidiary collectContacts calls self-count via the ALS budget.
         // Merge: add new contacts, dedup by email
         const existingEmails = new Set(
           contactsResult.contacts.map((c) => c.email.toLowerCase()),

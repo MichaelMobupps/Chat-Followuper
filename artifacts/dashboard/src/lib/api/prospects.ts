@@ -52,7 +52,6 @@ export interface Prospect {
    *  this is null. */
   phone: string | null;
   telegramHandle: string | null;
-  teamsEmail: string | null;
   linkedinUrl: string | null;
   apolloPersonId: string | null;
   apolloOrgId: string | null;
@@ -88,7 +87,6 @@ export interface CreateProspectInput {
   country?: string;
   language?: string;
   telegramHandle?: string;
-  teamsEmail?: string;
   linkedinUrl?: string;
   apolloPersonId?: string;
   apolloOrgId?: string;
@@ -114,7 +112,6 @@ export type UpdateProspectInput = Partial<
   country?: string | null;
   language?: string | null;
   telegramHandle?: string | null;
-  teamsEmail?: string | null;
   linkedinUrl?: string | null;
   apolloPersonId?: string | null;
   apolloOrgId?: string | null;
@@ -170,7 +167,8 @@ export type ProspectStatus =
   | "phone-no-match"
   | "phone-expired";
 
-export type ListChannel = "whatsapp" | "telegram" | "teams";
+// F-A: LinkedIn added to the prospect-list channel filter.
+export type ListChannel = "whatsapp" | "telegram" | "linkedin";
 
 export type ListSortCol = "createdAt" | "updatedAt" | "prospectName";
 
@@ -178,6 +176,7 @@ export interface ListProspectsParams {
   page?: number;
   perPage?: number;
   status?: ProspectStatus;
+  sourceMode?: SourceMode;
   channel?: ListChannel;
   country?: string;
   search?: string;
@@ -193,6 +192,8 @@ export interface ProspectListItem {
   country: string | null;
   language: string | null;
   phone: string | null;
+  telegramHandle: string | null;
+  linkedinUrl: string | null;
   phoneRevealStatus: string;
   /** Full message body. Null if generation hasn't run yet (e.g., for
    *  phone-pending prospects) or it failed. Used by the prospects-list
@@ -202,6 +203,7 @@ export interface ProspectListItem {
   firstMessageChannel: string | null;
   firstMessageSentAt: string | null;
   apolloPersonId: string | null;
+  sourceMode: SourceMode;
   createdAt: string;
   updatedAt: string;
   hasFirstMessage: boolean;
@@ -215,6 +217,29 @@ export interface ListProspectsResponse {
   perPage: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Timeline (prospect detail)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ProspectTimelineEvent {
+  id: string;
+  actionType: string;
+  actionStatus: string;
+  executedAt: string;
+  followupId: number | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ProspectTimelineResponse {
+  events: ProspectTimelineEvent[];
+}
+
+export function getProspectTimeline(
+  id: string,
+): Promise<ProspectTimelineResponse> {
+  return apiFetch<ProspectTimelineResponse>(apiPath(`/prospects/${id}/timeline`));
+}
+
 export function listProspects(
   params: ListProspectsParams = {},
 ): Promise<ListProspectsResponse> {
@@ -222,6 +247,7 @@ export function listProspects(
   if (params.page !== undefined) search.set("page", String(params.page));
   if (params.perPage !== undefined) search.set("perPage", String(params.perPage));
   if (params.status) search.set("status", params.status);
+  if (params.sourceMode) search.set("sourceMode", params.sourceMode);
   if (params.channel) search.set("channel", params.channel);
   if (params.country) search.set("country", params.country);
   if (params.search) search.set("search", params.search);

@@ -23,4 +23,97 @@ export const GetCurrentUserResponse = zod.object({
   id: zod.string().uuid(),
   email: zod.string().email(),
   name: zod.string().nullable(),
+  followupsPaused: zod
+    .boolean()
+    .describe(
+      "Admin kill switch (2026-07-15). True when an admin has paused this user's follow-ups. Read-only here — only an admin can change it. Surfaced on \/auth\/me because the pause is enforced server-side on every send path, so without it the UI would let a rep press Send and then show an unexplained 409. The rep did not do this and cannot undo it, so the UI must be able to say who did. Does NOT affect first messages (stage 0) or the weekly stats digest — see users.followups_paused in the DB schema for the exact scope.",
+    ),
+});
+
+/**
+ * Runs prospect research (if needed), generates the stage-0 message via
+the doctrine pipeline, and returns a send-ready deep link.
+
+ * @summary Research and generate first message for a manual contact
+ */
+export const PrepareFirstMessageParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const prepareFirstMessageBodyForceDefault = false;
+
+export const PrepareFirstMessageBody = zod.object({
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]).optional(),
+  force: zod
+    .boolean()
+    .default(prepareFirstMessageBodyForceDefault)
+    .describe(
+      "Regenerate. By default a prospect that already has a firstMessageBody short-circuits and the stored message is returned (status already_ready, no LLM spend). Set true to re-run the writer and overwrite it — real spend, rate-limited to 10\/min per user, and rejected with 409 already_sent once the first message has gone out.",
+    ),
+});
+
+export const PrepareFirstMessageResponse = zod.object({
+  status: zod.enum(["ready", "research_complete", "already_ready"]),
+  prospectId: zod.string().uuid(),
+  message: zod.string().nullable(),
+  deepLinkUrl: zod.string().nullable(),
+  researchCostUsd: zod.number().optional(),
+  generationCostUsd: zod.number().optional(),
+});
+
+/**
+ * @summary Telegram deep link for a ready prospect
+ */
+export const GetTelegramLinkParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const GetTelegramLinkResponse = zod.object({
+  url: zod.string(),
+  body: zod.string(),
+});
+
+/**
+ * @summary Build a test WhatsApp or Telegram deep link
+ */
+export const PostTestChannelLinkBody = zod.object({
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]),
+  identifier: zod.string(),
+  message: zod.string().optional(),
+});
+
+export const PostTestChannelLinkResponse = zod.object({
+  channel: zod.enum(["whatsapp", "telegram", "linkedin"]),
+  deepLinkUrl: zod.string(),
+  message: zod.string(),
+  target: zod.string(),
+});
+
+/**
+ * @summary Read Pushover notification settings
+ */
+export const GetNotificationSettingsResponse = zod.object({
+  pushoverUserKeyMasked: zod.string().nullable(),
+  pushoverEnabled: zod.boolean(),
+  pushoverAppConfigured: zod.boolean(),
+});
+
+/**
+ * @summary Update Pushover user key
+ */
+export const PatchNotificationSettingsBody = zod.object({
+  pushoverUserKey: zod.string().nullish(),
+});
+
+export const PatchNotificationSettingsResponse = zod.object({
+  pushoverUserKeyMasked: zod.string().nullable(),
+  pushoverEnabled: zod.boolean(),
+  pushoverAppConfigured: zod.boolean(),
+});
+
+/**
+ * @summary Send a test Pushover notification
+ */
+export const PostTestPushoverResponse = zod.object({
+  ok: zod.boolean(),
 });

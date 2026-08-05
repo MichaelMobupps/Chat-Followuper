@@ -1,2 +1,2 @@
-ALTER TABLE "users" ADD COLUMN "manual_ingest_channels" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
-ALTER TABLE "prospects" ADD COLUMN "pre_platform_context" text;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "manual_ingest_channels" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "prospects" ADD COLUMN IF NOT EXISTS "pre_platform_context" text;

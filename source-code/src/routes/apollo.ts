@@ -8,6 +8,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { assertUnderApolloRevealCap } from "../lib/apolloRevealCap";
 import {
   searchOrg,
   searchPeople,
@@ -154,7 +155,15 @@ async function handleApolloError(
     return true;
   }
 
-  res.status(httpStatus).json({ error: errorCode, detail });
+  // A9: the generic/unknown branch (errorCode stays "apollo_unknown") sets
+  // detail = raw err.message — an internal-fault message (e.g. a DB error from
+  // the dedup-annotation query) that must NOT reach the client. The full detail
+  // is already in the action_log above; the client gets only the code. Curated
+  // Apollo error classes keep their descriptive, safe detail.
+  res.status(httpStatus).json({
+    error: errorCode,
+    detail: errorCode === "apollo_unknown" ? undefined : detail,
+  });
   return true;
 }
 
@@ -285,6 +294,11 @@ router.post(
       res.status(400).json({ error: "invalid_body" });
       return;
     }
+
+    // Monthly reveal cap (APO1/API3): pre-check BEFORE spending an Apollo
+    // credit. Throws ApolloRevealCapExceededError → 429 via the terminal
+    // error handler.
+    await assertUnderApolloRevealCap(user.id);
 
     let revealed: ApolloRevealedContact;
     try {
@@ -421,6 +435,11 @@ router.post(
       res.status(400).json({ error: "invalid_body" });
       return;
     }
+
+    // Monthly reveal cap (APO1/API3): pre-check BEFORE the async reveal POSTs
+    // to Apollo (a phone reveal burns ~8 credits). Throws → 429 via the
+    // terminal error handler.
+    await assertUnderApolloRevealCap(user.id);
 
     try {
       const result = await requestPhoneReveal(

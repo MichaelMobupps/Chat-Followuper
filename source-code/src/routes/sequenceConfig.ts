@@ -56,7 +56,12 @@ const sequenceConfigPatchSchema = z.object({
   sendDays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
   sendHourStart: z.number().int().min(0).max(23).optional(),
   sendHourEnd: z.number().int().min(0).max(23).optional(),
-  maxFollowups: z.number().int().min(0).max(20).optional(),
+  // F-B: align the accepted range with what the scheduler actually honors —
+  // followupScheduler clamps to Math.min(Math.max(maxFollowups, 1), 10), so
+  // values of 0 or 11–20 were silently coerced (0 → 1, 15 → 10). Reject them at
+  // the API instead of persisting a number the scheduler won't obey. (stageTiming
+  // is already capped at 10 entries, matching this.)
+  maxFollowups: z.number().int().min(1).max(10).optional(),
   requireApproval: z.boolean().optional(),
   digestHourLocal: z.number().int().min(0).max(23).optional(),
   digestTimezone: z.string().min(1).max(50).optional(),
