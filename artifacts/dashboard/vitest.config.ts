@@ -1,6 +1,6 @@
 /// <reference types="vitest" />
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -24,6 +24,12 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
+    // CF-R1: basePath.test.ts is Bundle 2's suite, byte-identical with the
+    // api-server copy and written for Node's built-in runner (node:test +
+    // .ts-extension imports). It is run by the package's test script via
+    // `node --test`, not by vitest — excluding it here keeps both
+    // infrastructures as gates without rewriting the shared file.
+    exclude: [...configDefaults.exclude, "src/lib/basePath.test.ts"],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     globals: true,

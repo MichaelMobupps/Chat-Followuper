@@ -45,10 +45,10 @@ import { usePrepareFirstMessage } from "@/hooks/use-manual-ingest";
 import { useChannelLink } from "@/hooks/use-whatsapp";
 import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import {
-import { appPath } from "@/lib/config";
   SendConfirmDialog,
   type PendingSendConfirm,
 } from "@/components/SendConfirmDialog";
+import { appPath } from "@/lib/config";
 
 type Stage =
   | { name: "form" }

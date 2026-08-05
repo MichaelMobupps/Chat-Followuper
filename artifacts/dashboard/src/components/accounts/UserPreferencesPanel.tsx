@@ -20,10 +20,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import {
-import { appPath } from "@/lib/config";
   getUserPreferences,
   patchUserPreferences,
 } from "@/lib/api/user-extras";
+import { appPath } from "@/lib/config";
 
 export function UserPreferencesPanel() {
   const { toast } = useToast();
