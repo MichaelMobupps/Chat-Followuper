@@ -405,6 +405,21 @@
     else" scope. **This is the natural L1b for this repo** and wants its own
     order.
 
+14. **PA-1 (2026-08-05): main was reset to the June-22 tree on 2026-07-27;
+    140 commits of July work (2026-07-03 → 2026-07-27, ~60,133 lines, 1,344
+    paths) are absent from HEAD and from production.** The reset commit is
+    `cd89a49` ("latest") = June-22 publish tree `e9ed33c` + 4 lines. The July
+    lineage survives ONLY as local branch `audit/godlike-fixes` (tip
+    `96f8f34`, itself a "Published your App" commit — this content WAS in
+    production until 2026-07-30 23:00) and on the `gitsafe-backup` remote
+    (git://gitsafe:5418/backup.git, main = `96f8f34`). GitHub (`origin`) does
+    NOT hold it, and no bundle/zip/backup captures it. First step of any
+    restoration order: push `audit/godlike-fixes` to origin under its own
+    name before touching anything (ROADMAP git-safety rule 2). This also
+    resolves open item 5's mystery: the 14 applied-but-fileless migrations
+    are July's `lib/db/drizzle/0008–0021`, present at `96f8f34`. Full
+    evidence and the restoration prescription: PA-1 ledger entry, 2026-08-05.
+
 ## External registrations discovered
 
 Recorded per Bundle 1's mandate. **None of these were changed** — how each
@@ -458,6 +473,491 @@ carry `pushover_*` columns), and any other outbound registration of this app's
 own URL.
 
 ## Ledger
+
+### 2026-08-05 — CF-R1: restore the July lineage (IN PROGRESS)
+
+Branch: `cf-r1-restore-july`. Scope: restore the 140-commit July lineage lost
+by the 2026-07-27 reset (`cd89a49`), by merge, while preserving every piece of
+post-reset migration work. Order CF-R1, executing PA-1's step-22 prescription.
+
+**Prerequisite reading note:** the order names `PHASE3_PLAN.md` as required
+reading. That file does not exist on any of the 24 refs in this repo and was
+never added by any commit (verified by `git ls-tree` across every ref and
+`git log --all --diff-filter=A`). Recorded rather than invented, per the open
+item 11 precedent; presumably it lives with the owner or in a sibling repo.
+Proceeding on TODO.md's PA-1 entry, `PROVENANCE_AUDIT_PA1.md` and ROADMAP v3,
+which carry the full evidence base.
+
+**BLAST RADIUS (written before any edit)**
+
+Files to be touched: this is a restoration merge, not a surgical bundle — the
+touch surface is the full `git diff audit/godlike-fixes main` extent: 1,540
+files (+60,133/−12,857 from main's side: 1,345 files restored that main lacks,
+154 files modified on one or both sides, 41 files main-only). Expected
+conflict surface, from PA-1 and the both-modified list:
+`artifacts/api-server/src/app.ts`, `artifacts/api-server/src/routes/index.ts`,
+`artifacts/api-server/build.mjs`, `artifacts/dashboard/vite.config.ts`,
+`artifacts/dashboard/src/main.tsx`, `.env.example`, `replit.md`,
+`pnpm-lock.yaml`, `package.json` files, and `lib/db/drizzle/meta/_journal.json`
+(the 0008 collision). Also committed on this branch first: PA-1's TODO.md
+entry and `PROVENANCE_AUDIT_PA1.md`, both left uncommitted by that read-only
+order.
+
+Behaviors affected: application behavior returns to the July tip — the LLM
+router/ledger/spend-cap, kill switch, Speed pass, LinkedIn channel, seed
+classifier, first-message flow, pushover stack, Contacts/reminders pages, 27
+smoke scripts, vitest/Playwright infra, migrations 0008–0021. Routing, base
+paths, redirects and the health mount keep the post-reset behavior (they are
+load-bearing in production today): Bundle 1/2 config, C1 artifact routing,
+CP1 platform health + hardened build config, the post-cutover legacy-address
+repairs, L1a's 307, L1b's pinning test. Conflict rule, per the order: the
+migration work wins on routing/base-path/redirect/health; July wins on
+application behavior; every such decision recorded here.
+
+Worst realistic failure: (a) the merge silently drops July content — defended
+by the close-out check that every one of PA-1's 182 app-source paths exists on
+the branch, plus survival verification of each migration-work commit's
+content; (b) the reconciled migration journal leaves a state where a future
+startup or drizzle-kit run would re-apply already-applied SQL against the live
+database — defended by Phase C's rule that the restored journal must describe
+the database that already exists, verified read-only against
+`drizzle.__drizzle_migrations` before and after; (c) restored July code
+misbehaves against the live schema in ways the suite misses — defended by the
+restored test infrastructure, the M1 harness, and both smoke runs; (d) a red
+gate is merged anyway — forbidden by the order's hard rule 1: main is not
+touched until every gate passes, else stop and report.
+
+Rollback path: branch `cf-r1-restore-july`; `main` untouched until the ritual
+closes clean. Nothing is published or deployed by this order; the live
+database is read from, never written; the running workflow is never touched
+(smoke runs boot children on free ports). The July lineage is already durable
+on origin (`origin/audit/godlike-fixes` = `96f8f34`, tag
+`july-tip-2026-07-27`), verified by `git ls-remote` before any edit.
+
+**PHASE A — THE TRUE TARGET, confirmed from refs, not memory.**
+
+- Merge base of `main` (`e3f7480`) and `audit/godlike-fixes` (`96f8f34`):
+  `e9ed33c`, the June-22 publish. `git rev-list --count`: **140** commits on
+  the July side main lacks; **32** commits on main the July side lacks.
+- `git diff --shortstat audit/godlike-fixes main`: 1,540 files, +12,857,
+  −60,133 — matching PA-1 exactly.
+- **No third ref holds content either side lacks.** `git rev-list --objects
+  --all --not main audit/godlike-fixes` returns exactly two objects: the
+  annotated tag object `july-tip-2026-07-27` (whose target `96f8f34` is the
+  July tip itself) and one 19-byte git-notes blob (`refs/notes/commits`)
+  containing the string "Published your App". `replit-agent`'s 348 unique
+  commits contribute zero unique file content — its tip tree is byte-identical
+  to publish `5c72224`'s tree (`49e035e`), and the only files where it differs
+  from both sides are ones where main is strictly newer (L1b's three files).
+- **Migration-work commits on main whose content must survive**, verified at
+  close by content, not assumed from the merge:
+
+  | hash | subject | load-bearing content |
+  |---|---|---|
+  | `0c5c8cf` | governance files | ROADMAP/TODO structure (v1; v3 arrives in `5c72224`) |
+  | `41c7639` | Bundle 1 | `appConfig.ts` / `config.ts` URL centralization |
+  | `ba77d90` | M1 halt record | diagnosis that repo/DB lineages diverged |
+  | `e91bdc1` | M1 | `0008_additive_schema_reconciliation.sql` + db test gate |
+  | `2b6076b` | Bundle 2 | switchable base path, dark by default; `basePath.ts` ×2 |
+  | `05caad5` | C1 | api-server `artifact.toml` `paths = ["/api", "/chat"]` |
+  | `7d61732` | CP1 | platform health mount, unpinned dashboard base, hardened `vite.config.ts` |
+  | `dcfd116` | Published your App 2026-08-02 07:21 | **post-cutover repairs**: legacy `/api` redirect mount, Apollo webhook legacy first-class mount, `outOfBaseRedirectTarget()` |
+  | `7689f50` | L1a | legacy redirect 308 → 307 |
+  | `5c72224` | Published your App 2026-08-02 17:56 | ROADMAP v3 (canonical) |
+  | `679ec7d` | L1b | `app.test.ts` boot-level 307 pinning test + gate wiring |
+
+  (The other 21 of the 32 are merges, ledger-only commits, publishes carrying
+  no unique surviving content, and the reset commit `cd89a49` itself.)
+
+### 2026-08-05 — Provenance audit PA-1 (CLOSED, read-only): content HAS been lost
+
+Diagnostic order PA-1. Read-only; the only file changed by this order is this
+TODO.md (recording mandated by the order itself), left uncommitted. Nothing
+was restored, committed, deployed or published.
+
+**VERDICT (step 21): content has been lost.** On 2026-07-27 18:32:55 main was
+reset to the June-22 tree, and every commit and every publish since — Bundle
+1/2, M1, C1, CP1, L1a/L1b, and all six "Published your App" commits from
+2026-07-30 23:00 through 2026-08-02 17:56 — is built on June-22 code. 140
+commits of July work (2026-07-03 09:17 → 2026-07-27 15:21) are absent from
+HEAD and from production.
+
+**THE RESET EVENT.** Commit `cd89a49` ("latest", 2026-07-27 18:32:55, author
+MichaelMobupps) has parent `e9ed33c` ("Published your App", 2026-06-22
+18:03:45), and `git diff e9ed33c cd89a49` is **one file, 4 lines**
+(`artifacts/dashboard/test-results/.last-run.json`). So "latest" is the
+June-22 publish tree, byte-for-byte, plus one Playwright status file. Three
+hours earlier the platform had published `96f8f34` ("Published your App",
+2026-07-27 15:21:38) from the July lineage; `git diff 96f8f34 cd89a49` is
+1,516 files, +8,323/−60,086 (the +8,323 is June-era content the July work had
+changed or deleted, e.g. `.bak.20260622-*` files and the pre-rewrite
+`channelRegister.ts`). This is the same failure mode ROADMAP v3's git-safety
+section records for a sibling repo on 2026-07-31 — "a workspace sitting on a
+stale branch was snapshotted and published" — discovered here only by this
+audit.
+
+**WHERE THE JULY WORK SURVIVES.** Exactly three artifacts, all git refs to the
+same commit `96f8f34` (tree of the 2026-07-27 15:21 publish):
+- local branch `audit/godlike-fixes` (140 commits not on main; `git rev-list
+  --count main..audit/godlike-fixes` = 140; merge-base with main = `e9ed33c`),
+- local branch `replit-agent` (the platform's publish ledger; contains
+  `96f8f34` in its ancestry; its tip `fcb6fc1` tree = the deployed `5c72224`
+  tree `49e035e`),
+- remote `gitsafe-backup` (git://gitsafe:5418/backup.git), whose `main` =
+  `96f8f34` (verified reachable by `git ls-remote` on 2026-08-05).
+
+**GitHub does NOT have it**: `git ls-remote origin` (2026-08-05) lists main,
+the five bundle/cutover branches, maintenance-m1-db-drift and
+snapshot-2026-07-30 — all post-reset lineage — and no ref containing the July
+work. No bundle, patch zip, backup directory or attached_assets file captures
+any July content either (full-tree scan; newest archive anywhere is dated
+2026-06-22, and attached_assets spans only 2026-04-30 → 2026-05-13). One
+dropped-stash WIP commit pair and two dangling blobs from 2026-08-02 were
+inspected: near-duplicates of committed content, nothing unique beyond
+`96f8f34`.
+
+**WHAT PRODUCTION RAN AND RUNS (steps 9–11).** Production ran the July
+lineage until at least the 2026-07-27 15:21 publish (`96f8f34`), then the
+2026-07-30 23:00 publish (`4d28466`, post-reset lineage) shipped the June-22
+code back. The live deployment today was built from publish `5c72224`
+(2026-08-02 17:56:38, tree `49e035e`, identical to the platform ledger tip
+`fcb6fc1`); verified live on 2026-08-05 07:06 UTC: GET
+https://chat-followuper.replit.app/api/version → 307, `location:
+/chat/api/version`, no cache-control — the L1a signature that exists only in
+trees at/after 2026-08-02 17:36 — and `/api/healthz` → 200 direct (the compat
+mount, app.ts:91). `git diff 5c72224..HEAD` touches only TODO.md,
+`app.test.ts` and one package.json script line, so production ≡ HEAD in
+behavior. Per-artifact: the api-server dist on disk (2026-08-05 06:53) is a
+compile of HEAD (all 69 sourcemap-embedded sources byte-identical to the
+working tree; exactly one `redirect(307, ...)`). The dashboard dist on disk
+(2026-08-02 18:11) is built from the newest dashboard source (`dcfd116`
+fingerprints present) but with BASE_PATH unset (a dev build); the deployed
+dashboard was built in the deploy pipeline with BASE_PATH=/chat and is not
+that file. What the repo cannot show: the deployment's own build log and
+timestamp — that lives in the Replit Publishing/Deployments pane → History /
+Build logs (deploy target `gce`, .replit:5). The app exposes no
+version/build/commit info on any endpoint probed.
+
+**WHAT WAS LOST (steps 5–8).** `git diff audit/godlike-fixes HEAD`: 1,540
+files, +12,857/−60,133 — sixty thousand lines at the July tip absent at HEAD.
+Per top-level dir (files / lines HEAD lacks): artifacts 198 / 23,005; lib
+62 / 11,610; source-code 101 / 11,187; godlike-audit 45 / 7,917 (audit docs +
+writer benches); parts_followup 1,105 files; three exemplar/competitor .jsonl
+data files (3,644 lines); .grok 8 / 361; RUN-THIS-BEFORE-PUBLISH.sql;
+debug-special-cases-prompt-v2.md. Directional diffs of every other ref and
+all three dangling commits found no other ref holding content HEAD lacks
+beyond this lineage (largest: snapshot-2026-07-30 = `cd89a49` itself).
+
+Path census (step 6): 2,372 paths have ever existed on any ref; 608 exist at
+HEAD; 1,790 are missing. Of those, **1,344 are disappearances** (present in
+the `96f8f34` tree, never deleted by any commit on main — main simply never
+contained them) and 446 are earlier deliberate deletions (ticket-*/group-b5
+work dirs and .bak files removed by named cleanup commits on main in May–June,
+e.g. `7fef4a3`, `29e7a3c`, `a8b1617`). The 1,344 = 1,105 parts_followup +
+45 godlike-audit + 8 .grok + 4 root data files + **182 app-source files**
+(excluding `.bak.*`), listed in full:
+
+```
+artifacts/api-server/src/lib/apolloRevealCap.ts
+artifacts/api-server/src/lib/appPublicUrl.ts
+artifacts/api-server/src/lib/dbErrors.ts
+artifacts/api-server/src/lib/doctrine/researchPrompts/searchDirective.ts
+artifacts/api-server/src/lib/doctrineVariant.ts
+artifacts/api-server/src/lib/exemplars/competitors.ts
+artifacts/api-server/src/lib/exemplars/loader.ts
+artifacts/api-server/src/lib/exemplars/select.ts
+artifacts/api-server/src/lib/featureFlags.ts
+artifacts/api-server/src/lib/llm/gemini.ts
+artifacts/api-server/src/lib/llmLedger.ts
+artifacts/api-server/src/lib/llm/router.ts
+artifacts/api-server/src/lib/llmSpendCap.ts
+artifacts/api-server/src/lib/llm/thinking.ts
+artifacts/api-server/src/lib/messageTemplate.ts
+artifacts/api-server/src/lib/pushoverQuietHours.ts
+artifacts/api-server/src/lib/pushoverSchedule.ts
+artifacts/api-server/src/lib/senderName.ts
+artifacts/api-server/src/lib/smtpConfigured.ts
+artifacts/api-server/src/lib/usageBucket.ts
+artifacts/api-server/src/routes/followupFallback.ts
+artifacts/api-server/src/routes/notificationSettings.ts
+artifacts/api-server/src/routes/prepareFirstMessage.ts
+artifacts/api-server/src/routes/testChannelLink.ts
+artifacts/api-server/src/routes/userExtras.ts
+artifacts/api-server/src/scripts/benchWriterQuality.ts
+artifacts/api-server/src/scripts/smokeAdminRoutes.ts
+artifacts/api-server/src/scripts/smokeAudit2.ts
+artifacts/api-server/src/scripts/smokeBulk.ts
+artifacts/api-server/src/scripts/smokeChatFollowupTests.ts
+artifacts/api-server/src/scripts/smokeClassify.ts
+artifacts/api-server/src/scripts/smokeContactGenerate.ts
+artifacts/api-server/src/scripts/smokeDeliveryFlow.ts
+artifacts/api-server/src/scripts/smokeDraftIngest.ts
+artifacts/api-server/src/scripts/smokeFollowupFlow.ts
+artifacts/api-server/src/scripts/smokeFollowupProgress.ts
+artifacts/api-server/src/scripts/smokeGeneratorParity.ts
+artifacts/api-server/src/scripts/smokeKillSwitch.ts
+artifacts/api-server/src/scripts/smokeLlmChain.ts
+artifacts/api-server/src/scripts/smokeLlmLedger.ts
+artifacts/api-server/src/scripts/smokePregenerate.ts
+artifacts/api-server/src/scripts/smokePrepareProgress.ts
+artifacts/api-server/src/scripts/smokePricing.ts
+artifacts/api-server/src/scripts/smokeRegenerate.ts
+artifacts/api-server/src/scripts/smokeReminders.ts
+artifacts/api-server/src/scripts/smokeResearchDirective.ts
+artifacts/api-server/src/services/backgroundPrepare.ts
+artifacts/api-server/src/services/channels/linkedin.ts
+artifacts/api-server/src/services/digestScheduler.ts
+artifacts/api-server/src/services/firstMessageDrafts.ts
+artifacts/api-server/src/services/followupMessageService.ts
+artifacts/api-server/src/services/followupPregenerate.ts
+artifacts/api-server/src/services/followupScheduler.ts
+artifacts/api-server/src/services/manualContactPrepare.ts
+artifacts/api-server/src/services/prepareProgress.ts
+artifacts/api-server/src/services/previewFirstMessage.ts
+artifacts/api-server/src/services/pushoverDigest.ts
+artifacts/api-server/src/services/pushoverDueNotifier.ts
+artifacts/api-server/src/services/pushoverNudges.ts
+artifacts/api-server/src/services/pushover.ts
+artifacts/api-server/src/services/seedClassifier.ts
+artifacts/api-server/src/services/weeklyDigest.ts
+artifacts/dashboard/e2e/contacts-generate.spec.ts
+artifacts/dashboard/playwright.config.ts
+artifacts/dashboard/public/manifest.json
+artifacts/dashboard/src/components/accounts/HealthCheckPanel.tsx
+artifacts/dashboard/src/components/accounts/UserPreferencesPanel.tsx
+artifacts/dashboard/src/components/followup/AddManualContactDialog.test.tsx
+artifacts/dashboard/src/components/followup/EditFirstMessageDialog.tsx
+artifacts/dashboard/src/components/followup/FirstMessagePreviewDialog.test.tsx
+artifacts/dashboard/src/components/followup/FirstMessagePreviewDialog.tsx
+artifacts/dashboard/src/components/followup/PrepareProgressBar.tsx
+artifacts/dashboard/src/components/prospects/ProspectTimeline.tsx
+artifacts/dashboard/src/components/PushoverSettings.tsx
+artifacts/dashboard/src/components/SendConfirmDialog.tsx
+artifacts/dashboard/src/components/TestChannelMessage.tsx
+artifacts/dashboard/src/components/WeekdayPicker.tsx
+artifacts/dashboard/src/hooks/use-live-progress.test.ts
+artifacts/dashboard/src/hooks/use-live-progress.ts
+artifacts/dashboard/src/hooks/use-prepare-progress.test.tsx
+artifacts/dashboard/src/lib/api/notification-settings.ts
+artifacts/dashboard/src/lib/api/test-channel.ts
+artifacts/dashboard/src/lib/api/user-extras.ts
+artifacts/dashboard/src/lib/calendarLink.ts
+artifacts/dashboard/src/lib/duplicateContactToast.ts
+artifacts/dashboard/src/lib/messageLint.ts
+artifacts/dashboard/src/pages/admin-ops.tsx
+artifacts/dashboard/src/pages/contacts.tsx
+artifacts/dashboard/src/pages/followup/linkedin.tsx
+artifacts/dashboard/src/pages/reminders.tsx
+artifacts/dashboard/src/test/setup.ts
+artifacts/dashboard/vitest.config.ts
+lib/api-zod/src/generated/types/apiError.ts
+lib/api-zod/src/generated/types/channelLinkResponse.ts
+lib/api-zod/src/generated/types/notificationSettingsPatch.ts
+lib/api-zod/src/generated/types/notificationSettings.ts
+lib/api-zod/src/generated/types/postTestPushover200.ts
+lib/api-zod/src/generated/types/prepareFirstMessageRequestChannel.ts
+lib/api-zod/src/generated/types/prepareFirstMessageRequest.ts
+lib/api-zod/src/generated/types/prepareFirstMessageResponseStatus.ts
+lib/api-zod/src/generated/types/prepareFirstMessageResponse.ts
+lib/api-zod/src/generated/types/testChannelLinkRequestChannel.ts
+lib/api-zod/src/generated/types/testChannelLinkRequest.ts
+lib/api-zod/src/generated/types/testChannelLinkResponseChannel.ts
+lib/api-zod/src/generated/types/testChannelLinkResponse.ts
+lib/db/drizzle/0008_pushover_user_key.sql
+lib/db/drizzle/0009_pushover_sent.sql
+lib/db/drizzle/0010_user_preferences.sql
+lib/db/drizzle/0011_fk_covering_indexes.sql
+lib/db/drizzle/0012_followup_channel_stage_unique.sql
+lib/db/drizzle/0013_prospect_identity_unique.sql
+lib/db/drizzle/0014_weekly_digest_week_unique.sql
+lib/db/drizzle/0015_drop_magic_link_tokens.sql
+lib/db/drizzle/0016_drop_dormant_channel_columns.sql
+lib/db/drizzle/0017_add_linkedin_unique_index.sql
+lib/db/drizzle/0018_icy_the_enforcers.sql
+lib/db/drizzle/0019_late_thor_girl.sql
+lib/db/drizzle/0020_worthless_daimon_hellstrom.sql
+lib/db/drizzle/0021_fluffy_spirit.sql
+lib/db/drizzle/meta/0015_snapshot.json
+lib/db/drizzle/meta/0016_snapshot.json
+lib/db/drizzle/meta/0017_snapshot.json
+lib/db/drizzle/meta/0018_snapshot.json
+lib/db/drizzle/meta/0019_snapshot.json
+lib/db/drizzle/meta/0020_snapshot.json
+lib/db/drizzle/meta/0021_snapshot.json
+lib/db/src/schema/llm_calls.ts
+lib/db/src/test/globalSetup.ts
+source-code/src/lib/admin.ts
+source-code/src/lib/apolloRevealCap.ts
+source-code/src/lib/appPublicUrl.ts
+source-code/src/lib/dbErrors.ts
+source-code/src/lib/doctrineVariant.ts
+source-code/src/lib/exemplars/competitors.ts
+source-code/src/lib/exemplars/loader.ts
+source-code/src/lib/exemplars/select.ts
+source-code/src/lib/featureFlags.ts
+source-code/src/lib/followupLinkToken.ts
+source-code/src/lib/llm/gemini.ts
+source-code/src/lib/llm/router.ts
+source-code/src/lib/llmSpendCap.ts
+source-code/src/lib/messageTemplate.ts
+source-code/src/lib/pushoverQuietHours.ts
+source-code/src/lib/pushoverSchedule.ts
+source-code/src/lib/smtpConfigured.ts
+source-code/src/lib/usageBucket.ts
+source-code/src/routes/admin.ts
+source-code/src/routes/followupFallback.ts
+source-code/src/routes/followupOpen.ts
+source-code/src/routes/notificationSettings.ts
+source-code/src/routes/prepareFirstMessage.ts
+source-code/src/routes/testChannelLink.ts
+source-code/src/routes/userExtras.ts
+source-code/src/scripts/benchWriterQuality.ts
+source-code/src/scripts/sendFollowupDigests.ts
+source-code/src/scripts/smokeAudit2.ts
+source-code/src/scripts/smokeBulk.ts
+source-code/src/scripts/smokeChatFollowupTests.ts
+source-code/src/scripts/smokeClassify.ts
+source-code/src/scripts/smokeContactGenerate.ts
+source-code/src/scripts/smokeDeliveryFlow.ts
+source-code/src/scripts/smokeFollowupFlow.ts
+source-code/src/scripts/smokeFollowupProgress.ts
+source-code/src/scripts/smokeLlmChain.ts
+source-code/src/scripts/smokePrepareProgress.ts
+source-code/src/scripts/smokeReminders.ts
+source-code/src/scripts/sweepReveals.ts
+source-code/src/services/channels/linkedin.ts
+source-code/src/services/digestScheduler.ts
+source-code/src/services/followupDigest.ts
+source-code/src/services/followupMessageService.ts
+source-code/src/services/followupScheduler.ts
+source-code/src/services/mailer.ts
+source-code/src/services/manualContactPrepare.ts
+source-code/src/services/phoneRevealSweep.ts
+source-code/src/services/prepareProgress.ts
+source-code/src/services/pushoverDigest.ts
+source-code/src/services/pushoverDueNotifier.ts
+source-code/src/services/pushoverNudges.ts
+source-code/src/services/pushover.ts
+source-code/src/services/seedClassifier.ts
+source-code/src/services/weeklyDigest.ts
+```
+
+Features these carry, all absent at HEAD (step 8 spot-verified by grep at
+HEAD vs `96f8f34`): the LLM router/ledger/spend-cap (`lib/llm/router.ts`,
+`llmLedger.ts`, `llmSpendCap.ts`, schema `llm_calls.ts`), the per-user
+follow-up kill switch enforced at 11 send paths (`0845f3c`) + admin ops page,
+the Speed pass (`6bd382b`: `backgroundPrepare.ts`, `followupPregenerate.ts`,
+`prepareProgress.ts`), the LinkedIn channel (`beb866e`/`6780dd5`:
+`services/channels/linkedin.ts`, `pages/followup/linkedin.tsx`), the seed
+classifier, first-message draft/preview flow, the entire pushover
+notification stack, the Contacts page (`contacts.tsx`, 658 lines), reminders
+page, 27 smoke scripts, the vitest/Playwright test infrastructure, and
+**Drizzle migrations 0008–0021 with their meta snapshots**.
+
+That last item resolves open item 5's mystery: the "14 applied migrations
+with no file in this repo" (rows 9–22 of `drizzle.__drizzle_migrations`) are
+exactly `lib/db/drizzle/0008_pushover_user_key.sql` …
+`0021_fluffy_spirit.sql`, present at `96f8f34`. The live database was built
+by the lost July lineage; the repo and database were never on "two different
+lineages" — the repo lost its own. Note the collision: post-reset M1 created
+a *different* 0008 (`0008_additive_schema_reconciliation`), so the migration
+journals of the two lineages now genuinely conflict and reconciliation is
+part of any restoration.
+
+Peak line counts (step 7, HEAD vs maximum ever, all peaks at the July tip):
+`pages/today.tsx` 196 vs 799; `pages/contacts.tsx` 0 vs 658;
+`routes/prospects.ts` 1,623 vs 1,990; `routes/followups.ts` 752 vs 997;
+`services/prospectResearch.ts` 564 vs 788; `services/messageGenerator.ts`
+1,218 vs 1,312. (`channelRegister.ts` is 1,276 at HEAD vs 676 at the July
+tip — larger because the July rewrite deliberately removed the Teams/Slack
+501 stubs; larger is not newer.)
+
+**SYMPTOM ANCHORS (steps 17–20).**
+- *July channel-register work*: NOT present at HEAD.
+  `artifacts/api-server/src/lib/channelRegister.ts` at HEAD is byte-identical
+  to the June-22 tree (`git diff e9ed33c HEAD -- <file>` empty): 1,276 lines,
+  16 rule constants for WhatsApp/Telegram/Teams/Slack, header "All four
+  channels (WhatsApp, Telegram, Teams, Slack)". The newest version ever
+  (July 8: `996f1f9` removed Teams/Slack, `beb866e` added LinkedIn, `6780dd5`
+  completed threading; carried through `96f8f34`) is 676 lines with four
+  `TELEGRAM_*` and four `LINKEDIN_*` rule constants and the removed-channels
+  comment at line 20 ("Teams and Slack were removed (never built past a 501
+  stub)"). Value history: created 2026-04-30 `1852e2b`; Telegram rules
+  2026-05-11 `7f1fe56`; Slack 2026-05-11 `74bbfdb`; all-four 2026-05-11
+  `46016ea`; July-8 rewrite as above. Today's value is the pre-July-8 one;
+  the newer version was removed by the 2026-07-27 reset (`cd89a49`), not by
+  any commit that edited the file.
+- *Prospect and follow-up generation stages*: NOT the newest. The July
+  services directory holds 36 entries vs 23 at HEAD; the 13 absent ones are
+  the generation/scheduling stages named above, and the shared stages that
+  exist on both sides are the June versions at HEAD (line counts above; HEAD
+  == June-22 for each, modulo the July-30 URL-centralization edits).
+
+**BUNDLE INVENTORY (steps 13–16).** No *-backup or .backups directories
+exist. Dated inventory:
+
+| Archive | Internal dates | Added by commit |
+|---|---|---|
+| attached_assets/chat-followuper-plan_1777567460931.zip | 2026-04-30 16:40 | (untracked asset) |
+| attached_assets/* (~80 ticket zips, 14 prompt txts, 4 relay mds) | 2026-04-30 → 2026-05-13 | various/untracked |
+| url-input-prereq.zip | 2026-05-10 14:39 | 2555e35 2026-05-10 |
+| cf-reveal-expiry-v2.zip | 2026-06-22 09:13 | a8b1617 2026-06-22 |
+| cf-followup-digest-v2.zip | 2026-06-22 10:22 | a8b1617 2026-06-22 |
+| cf-today-queue-v2.zip | 2026-06-22 16:41 | 2b6f962 2026-06-22 |
+| cf-admin-foundation-v2.zip | 2026-06-22 17:06 | 1b507c7 2026-06-22 |
+| cf-whatsapp-test-v2.zip | 2026-06-22 17:18 | e9ed33c 2026-06-22 |
+
+The cf-* directories at root are byte-identical extractions of their zips.
+All five June bundles were mined: every payload file and all 18 patch markers
+are present at HEAD; the only two divergences (`followupDigest.ts`
+`appBaseUrl()` removal, `followupOpen.ts` `dashboardFallback()` rewrite) are
+places where HEAD is *newer* (Bundle 1/2, `41c7639`/`2b6076b`, 2026-07-30).
+The May toggle-race zip's atomic-UPDATE patch is present at HEAD (applied by
+`ec83e10`). So the bundles prove the June-and-earlier lineage is intact at
+HEAD — the loss is exclusively the July lineage, for which no archive exists.
+Incidental finding: the founding plan docs (`CHAT_FOLLOWUPER_BUILD_PLAN.md`,
+`PHASE_1_TICKETS.md`, `PHASE_1_AMENDMENTS.md`, `README.md`) exist ONLY inside
+the April zip — never committed on any ref.
+
+**ENV VARS THAT COULD MIMIC A ROLLBACK (step 12).** Full inventory in the
+PA-1 report; the flagged ones: `DASHBOARD_DIST_DIR` (routes/spa.ts:45 —
+points the server at an arbitrary frontend build: the exact "interface
+current, behavior old" mechanism); `BASE_PATH` (baked into the dashboard at
+build time — rollback requires republish); `PROSPECTOR_SONNET_MODEL`
+(model-name override, default claude-sonnet-4-6);
+`FOLLOWUP_<stage>_MIN/MAX_DAYS`, `SEND_HOUR_START/END` (scheduling window);
+`FOLLOWUP_LINK_TTL_HOURS` (default 336); `REVEAL_PENDING_MAX_AGE_HOURS`
+(default 72); `ADMIN_EMAILS` (empty = no admins); `ALLOWED_LOGIN_DOMAINS`;
+`DATABASE_URL`; `SESSION_SECRET`. `.env.example` lists `MAILGUN_*` and
+`PUBLIC_BASE_URL` which nothing at HEAD reads.
+
+**SMALLEST SAFE RESTORATION (step 22 — NOT executed by this order).**
+1. First, durability: push `audit/godlike-fixes` to origin under its own name
+   (ROADMAP git-safety rule 2). Until then the July work exists only on this
+   workspace's disk and the gitsafe daemon.
+2. Restore by **merge, not reset**: `git merge audit/godlike-fixes` into main
+   (merge-base is `e9ed33c`, so July changes and post-reset changes are
+   mostly disjoint; expected conflict surface: `app.ts`, `routes/index.ts`,
+   `build.mjs`, `vite.config.ts`, `.env.example`, `replit.md`,
+   `pnpm-lock.yaml`, and the Drizzle journal). Resolve in favor of July
+   content, then re-apply the post-reset invariants on top: Bundle 1/2 URL
+   centralization (`appConfig.ts` imports in the restored files), the C1/CP1
+   config, and L1a's 307 + L1b's boot test (the gate will fail until the
+   restored `app.ts` carries the 307).
+3. Reconcile migrations explicitly: keep July's 0008–0021 files (already
+   applied to the live DB as journal rows 9–22), renumber or fold M1's
+   additive `0008_additive_schema_reconciliation` (applied as id 23), and
+   verify with the schema diff harness from M1 before any drizzle-kit run.
+4. Republish only after the L1b gate and the M1 test gate pass on the merged
+   tree, per cutover rules (one app per hour, 307 verified from the access
+   log).
+
+**What would settle the one open question** (whether the 2026-08-02 17:56
+publish actually built and deployed rather than an older image serving): the
+Replit Publishing/Deployments pane → History and Build logs. Everything else
+above rests on commit hashes, diffs, live probes and command output recorded
+in this entry.
+
 
 ### 2026-08-02 — Cutover L1b: pin the legacy redirect status code (CLOSED, ritual clean)
 
