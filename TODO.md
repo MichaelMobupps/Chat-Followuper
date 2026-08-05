@@ -40,14 +40,24 @@
    schema declared and the live database lacked. Test gate now passes 3/3.
    The underlying lineage divergence is **not** resolved — see open item 5.
 
-3. **Stale `.bak` files hold pre-centralization copies of edited files.**
+3. **RESOLVED 2026-08-05 by CF-R1 (via the July lineage's own cleanup).** The
+   July branch had deleted every `.bak.*` copy and added `*.bak*` to
+   `.gitignore`; the restoration merge carries both. **The original finding:**
+
+   **Stale `.bak` files hold pre-centralization copies of edited files.**
    e.g. `artifacts/api-server/src/routes/index.ts.bak.20260622-170802`,
    `artifacts/dashboard/src/lib/api/prospects.ts.bak.20260622-091752`. Not
    compiled and not imported, so harmless, but they still contain hardcoded
    `/api` paths and will read as false positives in future URL audits. Left
    untouched (the rules forbid deleting files).
 
-4. **`pnpm run build` cannot be run bare from a shell.**
+4. **FULLY RESOLVED 2026-08-05 by CF-R1 (via July's vite config).** July had
+   independently rebuilt `vite.config.ts` as a function that requires PORT
+   only when serving; the merge synthesis keeps that alongside CP1's
+   BASE_PATH validation, so a bare `pnpm run build` now succeeds — verified
+   as part of CF-R1's build gate. **The original finding:**
+
+   **`pnpm run build` cannot be run bare from a shell.**
    `artifacts/dashboard/vite.config.ts` hard-requires `PORT` and `BASE_PATH`,
    which the artifact runner injects from `artifact.toml`. Running
    `pnpm run build` without them fails at config load. Pre-existing; the
@@ -61,7 +71,26 @@
    a mistyped port from silently binding somewhere else in dev, so the change
    deserves its own decision rather than a drive-by.
 
-5. **DEFERRED: investigate the divergent migration lineage.** (M1 option 4,
+5. **LARGELY RESOLVED 2026-08-05 by PA-1 + CF-R1.** The "divergent lineage"
+   was this repo's own July lineage, lost by the 2026-07-27 reset (PA-1);
+   CF-R1 restored the 14 missing migration files (July's 0008–0021) and
+   reconciled the journal against the live database — 23 entries ↔ 23 applied
+   rows one-to-one, 0 pending on a future migrate run. Finding (b) is fully
+   explained; most of (c) is described by July's restored schema
+   (`llm_calls.ts`, the `pushover_*` columns — the "different, more advanced
+   version" was this app's own July code). **Residue, still open:**
+   (i) hash mismatches for `0001_living_mantis` (pre-fork) and — found by
+   CF-R1 — `0020_worthless_daimon_hellstrom`: both files were edited after
+   they ran; original contents unrecoverable; harmless to the migrator (skip
+   is by timestamp) but they will read as drift in any hash audit. (ii) The
+   meta snapshot gap: snapshots 0008–0014 never existed on any ref and M1's
+   `0008_additive` has no snapshot, so `drizzle-kit generate` diffs against
+   `0021_snapshot.json` and would re-propose M1's five additive items —
+   **`drizzle-kit generate`/`push` still cannot be trusted here** until
+   snapshots are regenerated in a dedicated maintenance order. The original
+   finding follows.
+
+   **DEFERRED: investigate the divergent migration lineage.** (M1 option 4,
    deferred by decision on 2026-07-30.)
    M1 fixed the *symptom* additively. The *cause* is untouched: this database
    was not built by this repo's migration chain, and nobody knows what built
@@ -405,7 +434,14 @@
     else" scope. **This is the natural L1b for this repo** and wants its own
     order.
 
-14. **PA-1 (2026-08-05): main was reset to the June-22 tree on 2026-07-27;
+14. **RESOLVED 2026-08-05 by CF-R1.** The July lineage is restored to main by
+    merge (branch `cf-r1-restore-july`): all 140 commits, all 182 app-source
+    files, migrations 0008–0021, and the full test infrastructure, with every
+    piece of post-reset migration work verified surviving and the migration
+    journal reconciled against the live database (0 pending). See the CF-R1
+    ledger entry. **The original finding:**
+
+    **PA-1 (2026-08-05): main was reset to the June-22 tree on 2026-07-27;
     140 commits of July work (2026-07-03 → 2026-07-27, ~60,133 lines, 1,344
     paths) are absent from HEAD and from production.** The reset commit is
     `cd89a49` ("latest") = June-22 publish tree `e9ed33c` + 4 lines. The July
@@ -419,6 +455,20 @@
     resolves open item 5's mystery: the 14 applied-but-fileless migrations
     are July's `lib/db/drizzle/0008–0021`, present at `96f8f34`. Full
     evidence and the restoration prescription: PA-1 ledger entry, 2026-08-05.
+
+15. **The db test suite runs the migrator against the live database.**
+    (Found by CF-R1 during Phase E.) July's `lib/db/src/test/globalSetup.ts`
+    (audit finding DB1 on that lineage) calls drizzle's `migrate()` against
+    `DATABASE_URL` before every `pnpm --filter @workspace/db test` run, by
+    design ("self-healing" suite). With CF-R1's reconciled journal it
+    provably applies nothing (0 pending). But the moment anyone adds a
+    migration file + journal entry, *running the tests* applies it to
+    whatever database `DATABASE_URL` names — in this workspace, the live one.
+    That collapses the distinction between "run the suite" and "run a
+    migration", which several orders' hard rules rely on. Left untouched
+    (July's deliberate design, and defanging it would change the restored
+    suite's behavior); wants an explicit decision — e.g. gate it on an env
+    var, or point tests at a scratch database.
 
 ## External registrations discovered
 
@@ -474,7 +524,7 @@ own URL.
 
 ## Ledger
 
-### 2026-08-05 — CF-R1: restore the July lineage (IN PROGRESS)
+### 2026-08-05 — CF-R1: restore the July lineage (CLOSED, ritual clean)
 
 Branch: `cf-r1-restore-july`. Scope: restore the 140-commit July lineage lost
 by the 2026-07-27 reset (`cd89a49`), by merge, while preserving every piece of
@@ -568,6 +618,171 @@ on origin (`origin/audit/godlike-fixes` = `96f8f34`, tag
 
   (The other 21 of the 32 are merges, ledger-only commits, publishes carrying
   no unique surviving content, and the reset commit `cd89a49` itself.)
+
+**PHASE B — THE MERGE.** `git merge --no-ff audit/godlike-fixes` on branch
+`cf-r1-restore-july` (cut from `main` = `e3f7480`; the PA-1 record was
+committed first as `1a1cf45`). No rebase, no squash. **Nine conflicts, every
+one resolved by synthesis** — the decision table, per the order's rule
+(migration work wins on routing/base-path/redirect/health; July wins on
+application behavior):
+
+| file | main wanted | July wanted | kept |
+|---|---|---|---|
+| `app.ts` | `Request`/`Response` imports; appConfig + mountSpa imports | `ErrorRequestHandler` import; cap/phone/db-error imports | **Union.** Body had auto-merged: all of main's mounts (Bundle 1 centralized paths, Apollo legacy mount, platform health, 307 redirect, mountSpa) AND July's terminal error handler survive. July's only losses: four hardcoded `"/api"` mount strings, replaced by their centralized equivalents (identical at the default base) |
+| `followupOpen.ts` | imports for its own smaller body; `dashboardFallback()` = `absoluteAppUrl("/followup/whatsapp")` | imports for the July body (kill switch, LinkedIn, confirm endpoint); fallback = `appPublicUrl()+"/contacts"` | July's body and **July's destination** (`/contacts`), built with **main's construction** (`absoluteAppUrl` — prefix-aware, non-throwing); LinkedIn fallback link via `absoluteApiUrl` |
+| `followupDigest.ts` | `renderEmail` with `requirePublicUrl()` throw + `absoluteApiUrl` | exported `renderDigestEmail` with two-link rows + `isDigestHourNow` + 4 lib imports | July's function shape, name and exports; **main's throw and prefix-safe URL building** for both links |
+| `campaigns.ts` (dashboard) | `apiPath()` construction | new response envelopes (`{campaigns}`/`{campaign}` + unwrap) | **July's envelopes + main's `apiPath()`** on all 6 sites |
+| `followups.ts` (dashboard) | `apiPath` import | `PrepareProgress` type import | Union |
+| `prospect-detail.tsx` | `appPath` import (raw-anchor fix) | `ProspectTimeline` imports | Union |
+| `vite.config.ts` (dashboard) | CP1: BASE_PATH optional + `normalizeBasePath` validation, static config | function form with serve-gated PORT **and** serve-time BASE_PATH throw | July's function form and serve-gated PORT (also finishes open item 4); **CP1's validation replaces July's raw pass-through; July's serve-time BASE_PATH requirement dropped** (CP1 made it optional by design after removing the artifact.toml pin) |
+| `.gitignore` | `db-backup-*` ignore | secrets/`.bak`/zip/Playwright ignores | Union |
+| `drizzle meta/_journal.json` | entries 0000–0007 + `0008_additive` | entries 0000–0021 | **Phase C below** — July's 22 entries + M1's appended as idx 22 |
+
+**Nothing silently dropped, proven:** all **182** PA-1 app-source files
+present (`git ls-tree` cross-check, 0 missing); `git diff --name-status
+audit/godlike-fixes HEAD` shows **zero D entries** — the branch holds every
+path the July tip holds; the 45-file delta vs July is exactly the
+migration-work surface (15 A = config modules, spa.ts, tests, M1 SQL,
+governance docs; 30 M = the Bundle/C1/CP1/L1a/L1b-touched files). July-side
+deletions carried by the merge (recorded, deliberate on the July lineage):
+Teams/Slack channel stubs, `magic_link_tokens` schema, the `.bak.*` copies
+(open item 3 thereby resolved), the cf-* zips and their extracted dirs.
+
+**Post-merge fixups on the branch (each its own commit):**
+- 23 hardcoded `"/api/..."` literals in 7 dashboard api libs (July code
+  predating Bundle 1) wrapped in `apiPath()`; 2 raw `<a href>` anchors
+  (`seeder.tsx` `/contacts`, `UserPreferencesPanel.tsx` `/reminders`) built
+  with `appPath()`. `navigate()`/`<Link>` sites untouched — wouter applies the
+  Router base itself.
+- 5 api-server files (`pushoverNudges`, `pushoverDigest`, `followupFallback`,
+  `notificationSettings`, `userExtras`) moved off July's `appPublicUrl()`
+  (origin-only, prefix-unaware) onto `requirePublicUrl()` +
+  `absoluteApiUrl`/`absoluteAppUrl` — same throw-when-unconfigured semantics,
+  same destinations, prefix-aware links. `lib/appPublicUrl.ts` stays for
+  July's standalone scripts.
+- Both test infrastructures kept as gates: dashboard `test` script chains
+  `vitest run` (July's 51 jsdom tests) and `node --test` (Bundle 2's 18
+  basePath assertions); vitest excludes `basePath.test.ts` (node:test-based,
+  byte-identical with the api-server copy — not rewritten).
+
+**PHASE C — THE MIGRATION JOURNAL.** Read-only against the live
+`drizzle.__drizzle_migrations` (23 rows) before touching anything:
+rows 1–8 = `0000`–`0007` exactly (by `created_at` ↔ `when`); rows 9–22 =
+July's `0008_pushover_user_key` … `0021_fluffy_spirit` exactly; row 23 =
+M1's `0008_additive_schema_reconciliation`, `when` **1785447358140** — applied
+*last*, after July's 0021. The two sides' journals disagreed only at idx 8+:
+main's journal ended `…0007, 0008_additive`; July's ended `…0021`. Both were
+describing the same database, each missing the other's tail.
+
+Reconciled journal: July's 22 entries in order + M1's entry appended as
+**idx 22** with its true applied `when`. The file keeps M1's name — the DB
+stores only hash + created_at (no tag), so nothing is renumbered and no
+history is lost; the `0008_` prefix collision is cosmetic and recorded here.
+**Proof, before any suite ran:** 23 journal entries ↔ 23 live rows one-to-one
+on `when`/`created_at`; `when`s strictly ascending; **pending on a future
+migrate run = 0** by the migrator's own skip rule (folderMillis > last
+created_at). File-hash sweep vs recorded hashes: 21/23 match. The two
+mismatches: `0001_living_mantis` (pre-fork, known — open item 5a) and
+**`0020_worthless_daimon_hellstrom` (NEW: July's file was edited after it
+ran** — file `8b49bbe3…` vs recorded `f532feb2…`; same class as 0001/0007;
+left untouched, the original content is unrecoverable). Note the restore
+**healed** the 0007 mismatch M1 recorded: July's 0007 file hashes exactly
+what the DB recorded (`6bddb1c5…`) — M1 had been comparing June's stale copy.
+
+**Discovered hazard, recorded:** July's restored
+`lib/db/src/test/globalSetup.ts` calls drizzle's `migrate()` against
+`DATABASE_URL` before every db suite run. On this order it applied nothing —
+the journal was reconciled and dry-verified to 0 pending *before* the suite
+first ran — but it means `pnpm --filter @workspace/db test` **will write to
+the live database** any time the journal lists an unapplied entry. New open
+item 15.
+
+**PHASE D — MIGRATION WORK VERIFIED ON THE BRANCH.** All 9 migration-work
+files byte-identical to main (`appConfig.ts`, both `basePath.ts` + both test
+copies, `config.ts`, `spa.ts`, `app.test.ts`, `custom-fetch.test.ts`); the
+two `basePath.ts` copies and the two test copies still byte-identical to
+each other; C1's `paths = ["/api", "/chat"]` intact; platform health mount,
+Apollo legacy mount, 307 redirect and `mountSpa` all present in `app.ts`;
+`main.tsx` boots `outOfBaseRedirectTarget` + `setBaseUrl(ROUTER_BASE)`;
+cookie surface fully centralized through `session.ts` (`COOKIE_PATH`,
+`IS_PREFIXED` clear-list). Auto-merges spot-verified semantically:
+`google-auth.ts` = main's centralized redirects + July's DB2 nonce hashing;
+`auth.ts` = main's paths + July's `followupsPaused` surfacing; `index.ts` =
+main's boot + July's digest scheduler start; `routes/index.ts` mounts all
+July routers; `App.tsx` adds July's four pages inside `<Router
+base={ROUTER_BASE}>`.
+
+**GATES — all pass.**
+- **Typecheck:** clean across libs + all four projects.
+- **Tests: 129/129.** api-server 22/22 (18 basePath + 4 L1b HTTP);
+  dashboard 51/51 vitest + 18/18 node:test + **8/8 Playwright e2e in real
+  Chromium** (July's restored infra, self-contained, API stubbed);
+  api-client-react 7/7; db 3/3. No failures to triage — nothing regressed,
+  nothing pre-existing-red, nothing that never passed.
+- **L1b still bites on this tree:** mutating `app.ts` 307→308 fails 3 tests;
+  restored byte-identical (sha `e5d365de…`, git diff empty), 22/22 again.
+- **Build:** clean — and **bare `pnpm run build` now works** (July's
+  serve-gated PORT; open item 4 fully resolved). `dist` carries exactly one
+  `redirect(307`, zero 308; dashboard build dark (zero `/chat`).
+
+**GODLIKE AUDIT — 5 rounds, closed on a clean round.** Round 1 (technical,
+the July↔migration seam): found the 5 `appPublicUrl()` server files and the
+25 dashboard literals — fixed above, suites re-run green. Round 2 (security):
+admin routes behind `requireAdmin` + `ADMIN_EMAILS`; `followupFallback` HTML
+fully escaped; `apolloWebhook.ts` byte-identical to main; DB2 nonce hashing
+sound; all redirect targets appConfig-built or external-constant; vite `base`
+validated (CP1). Round 3 (end-user): the two real flows proven in the lit
+smoke below. Round 4 (sweep): working tree clean; mockup-sandbox untouched;
+ROADMAP rule-3 scan — no credentials, no dumps (the tracked July `.sql`
+files are guarded DDL scripts, already on origin); no `.env` tracked.
+Round 5 (final re-read of every hand-written change): clean, no findings.
+
+**SMOKE — both modes, separate ports, workflow never touched.**
+- **DARK (`:8127`, BASE_PATH/PUBLIC_URL unset), diffed against the running
+  `:8080` workflow (old main's live dark baseline): 18 of 19 probes
+  byte-identical** — status, content-type, `Location`, `Set-Cookie`,
+  `Cache-Control` and body. The single diff, stated plainly: the follow-up
+  fallback 302 destination moved from `/followup/whatsapp` to `/contacts` —
+  July's deliberate destination change (the Contacts page it built), carried
+  per the conflict rule; construction mechanics identical. No 301/307/308
+  anywhere dark; SPA inert (no "Serving dashboard under base path" in the
+  boot log); `/chat*` all 404.
+- **LIT (`:8128`, `BASE_PATH=/chat/`, `PUBLIC_URL=https://tools.mobupps.net/chat`,
+  prefixed dashboard build via `DASHBOARD_DIST_DIR` from a scratch dir — the
+  repo's dist stayed dark):** every property holds. `/api/healthz` +
+  `/api/health` 200 **direct**; legacy POST → **307**, `Location`
+  `/chat/api/campaigns`, no `Cache-Control`; query strings byte-intact
+  (`t=abc123`, `code=X&state=Y`); **access log shows `POST /api/campaigns` →
+  `POST /chat/api/campaigns`** — the method arrives as POST, read from the
+  server's own log; Apollo webhook first-class 401 `invalid_signature` at
+  both addresses; `/chat` → 302 `/chat/`; `/chat/`, `/chat/login`, deep link
+  `/chat/contacts` all 200 app-shell; assets 200; `/chat/api/<unknown>` is
+  the API's own 404, never index.html; `/API/campaigns` redirects
+  (case-insensitive), `/apiary` does not (segment-bounded); hostile spellings
+  (`/api//evil.example`, `?next=//evil.example`) always produce a `Location`
+  beginning `/chat/api` — never protocol-relative. End-to-end: the emailed
+  link hops 307 → prefixed handler → 302
+  `https://tools.mobupps.net/chat/contacts` (prefix not doubled); the OAuth
+  callback reaches its handler query-intact → 302
+  `/chat/login?error=oauth_state_invalid`. Both children killed by their own
+  PIDs; `:8080` verified 200 after.
+
+**WHAT THIS ORDER DID NOT DO:** no publish, no deploy, no restart of the
+workflow, no write to the live database (verified: the only DB statements
+issued were SELECTs on `drizzle.__drizzle_migrations` plus the test suite's
+usual reads, and the globalSetup migrate() that provably applied nothing),
+no secret written, no `artifact.toml` change (C1's line re-checked intact).
+
+**OUT-OF-SCOPE FINDINGS:** (a) new open item 15 (globalSetup migrate-on-test
+hazard); (b) `0020`'s edited-after-apply hash mismatch, folded into open
+item 5's residue; (c) the drizzle meta snapshot gap — snapshots 0008–0014
+never existed on any ref and `0008_additive` has none, so `drizzle-kit
+generate` still diffs against `0021_snapshot.json` and would re-propose M1's
+five additive items; open item 5's "generate/push cannot be trusted" stands
+until snapshots are regenerated in a dedicated maintenance order;
+(d) `.env.example`'s alias comment ("PUBLIC_BASE_URL … read as aliases") is
+now stale — only July's standalone scripts still read it. Minor, recorded,
+untouched.
 
 ### 2026-08-05 — Provenance audit PA-1 (CLOSED, read-only): content HAS been lost
 
