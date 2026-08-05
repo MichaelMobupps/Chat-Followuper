@@ -237,7 +237,7 @@ export interface ProspectTimelineResponse {
 export function getProspectTimeline(
   id: string,
 ): Promise<ProspectTimelineResponse> {
-  return apiFetch<ProspectTimelineResponse>(`/api/prospects/${id}/timeline`);
+  return apiFetch<ProspectTimelineResponse>(apiPath(`/prospects/${id}/timeline`));
 }
 
 export function listProspects(

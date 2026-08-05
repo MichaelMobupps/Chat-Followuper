@@ -5,6 +5,7 @@
  * elsewhere in the dashboard (notification-settings, sequence-config, etc.).
  */
 import { apiFetch } from "@/lib/api";
+import { apiPath } from "@/lib/config";
 
 // ─────────────────────────────────────────────────────────────────
 // User preferences
@@ -26,13 +27,13 @@ export interface UserPreferences {
 export type UserPreferencesPatch = Partial<UserPreferences>;
 
 export function getUserPreferences(): Promise<UserPreferences> {
-  return apiFetch<UserPreferences>("/api/users/me/preferences");
+  return apiFetch<UserPreferences>(apiPath("/users/me/preferences"));
 }
 
 export function patchUserPreferences(
   input: UserPreferencesPatch,
 ): Promise<UserPreferences> {
-  return apiFetch<UserPreferences>("/api/users/me/preferences", {
+  return apiFetch<UserPreferences>(apiPath("/users/me/preferences"), {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -51,7 +52,7 @@ export function postTestDigest(): Promise<TestDigestResponse> {
   // Path must match the BE route (routes/userExtras.ts) — it is
   // "/users/me/test-digest-email", not "/test-digest". The mismatch was the
   // HTTP 404 on the accounts-page "Send test digest email" button.
-  return apiFetch<TestDigestResponse>("/api/users/me/test-digest-email", {
+  return apiFetch<TestDigestResponse>(apiPath("/users/me/test-digest-email"), {
     method: "POST",
   });
 }
@@ -90,7 +91,7 @@ interface HealthCheckConfigResponse {
 
 export function getHealthCheck(): Promise<HealthCheckResponse> {
   return apiFetch<HealthCheckConfigResponse>(
-    "/api/users/me/health-check",
+    apiPath("/users/me/health-check"),
   ).then((r) => {
     const checks: HealthCheckItem[] = [
       { name: "Email (SMTP)", status: r.smtpConfigured ? "ok" : "error" },
@@ -124,7 +125,7 @@ export interface ApolloUsage {
 }
 
 export function getApolloUsage(): Promise<ApolloUsage> {
-  return apiFetch<ApolloUsage>("/api/users/me/apollo-usage");
+  return apiFetch<ApolloUsage>(apiPath("/users/me/apollo-usage"));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -208,15 +209,15 @@ export interface AdminLlmSpendResponse {
 }
 
 export function getAdminWhoami(): Promise<AdminWhoami> {
-  return apiFetch<AdminWhoami>("/api/admin/whoami");
+  return apiFetch<AdminWhoami>(apiPath("/admin/whoami"));
 }
 
 export function getAdminActivity(): Promise<AdminActivityResponse> {
-  return apiFetch<AdminActivityResponse>("/api/admin/activity");
+  return apiFetch<AdminActivityResponse>(apiPath("/admin/activity"));
 }
 
 export function getAdminLlmSpend(days = 30): Promise<AdminLlmSpendResponse> {
-  return apiFetch<AdminLlmSpendResponse>(`/api/admin/llm-spend?days=${days}`);
+  return apiFetch<AdminLlmSpendResponse>(apiPath(`/admin/llm-spend?days=${days}`));
 }
 
 /**
@@ -231,7 +232,7 @@ export function setAdminFollowupsPause(
   paused: boolean,
 ): Promise<{ id: string; followupsPaused: boolean }> {
   return apiFetch<{ id: string; followupsPaused: boolean }>(
-    `/api/admin/users/${userId}/followups-pause`,
+    apiPath(`/admin/users/${userId}/followups-pause`),
     { method: "POST", body: JSON.stringify({ paused }) },
   );
 }

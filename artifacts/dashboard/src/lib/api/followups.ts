@@ -227,7 +227,7 @@ export function patchFollowup(
 export function getFollowupProgress(
   followupId: number,
 ): Promise<FollowupProgress> {
-  return req("GET", `/api/followups/${followupId}/progress`);
+  return req("GET", apiPath(`/followups/${followupId}/progress`));
 }
 
 export type SnoozePreset = "1d" | "3d" | "next_monday";
@@ -238,7 +238,7 @@ export function snoozeFollowup(
   followupId: number,
   preset: SnoozePreset,
 ): Promise<{ followup: Followup }> {
-  return req("POST", `/api/followups/${followupId}/snooze`, { preset });
+  return req("POST", apiPath(`/followups/${followupId}/snooze`), { preset });
 }
 
 export function bulkArchiveFollowups(

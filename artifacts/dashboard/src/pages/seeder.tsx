@@ -45,6 +45,7 @@ import { usePrepareFirstMessage } from "@/hooks/use-manual-ingest";
 import { useChannelLink } from "@/hooks/use-whatsapp";
 import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import {
+import { appPath } from "@/lib/config";
   SendConfirmDialog,
   type PendingSendConfirm,
 } from "@/components/SendConfirmDialog";
@@ -434,7 +435,7 @@ export default function SeederPage() {
           Discover prospects via Apollo, run full LLM research, generate the
           first message from doctrine, then send from Contacts or All prospects.
           For people you already know, use{" "}
-          <a href="/contacts" className="text-[#4FFFE3] hover:underline">
+          <a href={appPath("/contacts")} className="text-[#4FFFE3] hover:underline">
             Contacts
           </a>{" "}
           instead.

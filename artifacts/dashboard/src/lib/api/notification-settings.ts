@@ -1,4 +1,5 @@
 import { apiFetch } from "../api";
+import { apiPath } from "@/lib/config";
 
 // F-B: the channel a reminder should default to. Mirrors the BE enum.
 export type PreferredChannel = "whatsapp" | "telegram" | "linkedin";
@@ -34,20 +35,20 @@ export interface NotificationSettingsPatch {
 }
 
 export function getNotificationSettings(): Promise<NotificationSettings> {
-  return apiFetch<NotificationSettings>("/api/users/me/notification-settings");
+  return apiFetch<NotificationSettings>(apiPath("/users/me/notification-settings"));
 }
 
 export function patchNotificationSettings(
   input: NotificationSettingsPatch,
 ): Promise<NotificationSettings> {
-  return apiFetch<NotificationSettings>("/api/users/me/notification-settings", {
+  return apiFetch<NotificationSettings>(apiPath("/users/me/notification-settings"), {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 export function postTestPushover(): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>("/api/users/me/test-pushover", {
+  return apiFetch<{ ok: boolean }>(apiPath("/users/me/test-pushover"), {
     method: "POST",
   });
 }

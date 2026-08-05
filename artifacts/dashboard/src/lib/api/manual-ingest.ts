@@ -223,7 +223,7 @@ export function postPreviewFirstMessage(
   input: PreviewFirstMessageInput,
 ): Promise<PreviewFirstMessageResult> {
   return apiFetch<PreviewFirstMessageResult>(
-    "/api/prospects/preview-first-message",
+    apiPath("/prospects/preview-first-message"),
     {
       method: "POST",
       body: JSON.stringify(input),
@@ -236,7 +236,7 @@ export function postPreviewFirstMessage(
 
 export function getPreviewProgress(draftId: string): Promise<PrepareProgress> {
   return apiFetch<PrepareProgress>(
-    `/api/prospects/preview-progress/${encodeURIComponent(draftId)}`,
+    apiPath(`/prospects/preview-progress/${encodeURIComponent(draftId)}`),
   );
 }
 
@@ -245,7 +245,7 @@ export function postPrepareFirstMessage(
   input: PrepareFirstMessageInput = {},
 ): Promise<PrepareFirstMessageResult> {
   return apiFetch<PrepareFirstMessageResult>(
-    `/api/prospects/${prospectId}/prepare-first-message`,
+    apiPath(`/prospects/${prospectId}/prepare-first-message`),
     {
       method: "POST",
       body: JSON.stringify(input),
@@ -283,7 +283,7 @@ export function getPrepareProgress(
   prospectId: string,
 ): Promise<PrepareProgress> {
   return apiFetch<PrepareProgress>(
-    `/api/prospects/${prospectId}/prepare-progress`,
+    apiPath(`/prospects/${prospectId}/prepare-progress`),
   );
 }
 
@@ -339,7 +339,7 @@ export function postClassifySeed(
   input: ClassifySeedInput,
 ): Promise<{ classified: ClassifiedSeed }> {
   return apiFetch<{ classified: ClassifiedSeed }>(
-    "/api/prospector/classify-seed",
+    apiPath("/prospector/classify-seed"),
     {
       method: "POST",
       body: JSON.stringify(input),

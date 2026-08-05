@@ -23,13 +23,13 @@ export function getWhatsappLink(prospectId: string): Promise<WhatsappLinkRespons
 
 export function getTelegramLink(prospectId: string): Promise<WhatsappLinkResponse> {
   return apiFetch<WhatsappLinkResponse>(
-    `/api/prospects/${prospectId}/telegram-link`,
+    apiPath(`/prospects/${prospectId}/telegram-link`),
   );
 }
 
 export function getLinkedinLink(prospectId: string): Promise<WhatsappLinkResponse> {
   return apiFetch<WhatsappLinkResponse>(
-    `/api/prospects/${prospectId}/linkedin-link`,
+    apiPath(`/prospects/${prospectId}/linkedin-link`),
   );
 }
 

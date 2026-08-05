@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { apiPath } from "@/lib/config";
 
 export type TestChannel = "whatsapp" | "telegram" | "linkedin";
 
@@ -18,7 +19,7 @@ export interface TestChannelLinkResponse {
 export function postTestChannelLink(
   input: TestChannelLinkInput,
 ): Promise<TestChannelLinkResponse> {
-  return apiFetch<TestChannelLinkResponse>("/api/users/me/test-channel-link", {
+  return apiFetch<TestChannelLinkResponse>(apiPath("/users/me/test-channel-link"), {
     method: "POST",
     body: JSON.stringify(input),
   });

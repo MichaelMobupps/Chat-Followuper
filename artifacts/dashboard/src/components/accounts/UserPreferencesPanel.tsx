@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import {
+import { appPath } from "@/lib/config";
   getUserPreferences,
   patchUserPreferences,
 } from "@/lib/api/user-extras";
@@ -69,7 +70,7 @@ export function UserPreferencesPanel() {
           <p className="text-xs text-muted-foreground max-w-xl">
             Optional sign-off appended to every generated message. Preferred
             channel and reminder quiet hours moved to{" "}
-            <a href="/reminders" className="underline">
+            <a href={appPath("/reminders")} className="underline">
               Reminders &amp; schedule
             </a>
             .
