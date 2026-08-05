@@ -9,7 +9,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
-import { appPublicUrl } from "../lib/appPublicUrl";
+import { absoluteApiUrl, requirePublicUrl } from "../lib/appConfig";
 import { isUserPushoverScheduleNow } from "../lib/pushoverSchedule";
 import { usageBucketDate } from "../lib/usageBucket";
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
@@ -118,7 +118,8 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
   let messagesSent = 0;
   let usersSkipped = 0;
   let usersFailed = 0;
-  const base = appPublicUrl();
+  // CF-R1: keep July's fail-on-unconfigured guard; build links prefix-aware.
+  requirePublicUrl();
 
   for (const [userId, list] of byUser) {
     try {
@@ -176,7 +177,7 @@ export async function runPushoverDigests(): Promise<PushoverDigestResult> {
       for (let i = 0; i < list.length; i++) {
         const row = list[i]!;
         const token = mintOpenToken(row.followupId, row.userId);
-        const url = `${base}/api/followups/open/${row.followupId}?t=${token}`;
+        const url = `${absoluteApiUrl(`/followups/open/${row.followupId}`)}?t=${token}`;
         try {
           await sendPushover({
             userKey: key,

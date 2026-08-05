@@ -8,7 +8,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { appPublicUrl } from "../lib/appPublicUrl";
+import { absoluteAppUrl } from "../lib/appConfig";
 import {
   isPushoverAppConfigured,
   isValidPushoverUserKey,
@@ -226,12 +226,9 @@ router.post(
       return;
     }
 
-    let contactsUrl: string;
-    try {
-      contactsUrl = `${appPublicUrl()}/contacts`;
-    } catch {
-      contactsUrl = "/contacts";
-    }
+    // CF-R1: absoluteAppUrl is prefix-aware and non-throwing — with no
+    // address configured it yields "/contacts", matching July's catch branch.
+    const contactsUrl = absoluteAppUrl("/contacts");
 
     try {
       await sendPushover({

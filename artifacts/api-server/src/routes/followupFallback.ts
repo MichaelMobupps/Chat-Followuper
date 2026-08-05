@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, followupsTable, prospectsTable, usersTable } from "@workspace/db";
 import { verifyOpenToken } from "../lib/followupLinkToken";
-import { appPublicUrl } from "../lib/appPublicUrl";
+import { absoluteApiUrl, absoluteAppUrl, requirePublicUrl } from "../lib/appConfig";
 import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
 import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
 
@@ -25,11 +25,9 @@ function senderNameFromUser(name: string | null, email: string): string {
 }
 
 function dashboardFallback(): string {
-  try {
-    return `${appPublicUrl()}/contacts`;
-  } catch {
-    return "/contacts";
-  }
+  // CF-R1: absoluteAppUrl is prefix-aware and non-throwing — with no address
+  // configured it yields the bare rooted path, matching July's catch branch.
+  return absoluteAppUrl("/contacts");
 }
 
 /**
@@ -103,9 +101,10 @@ router.get(
         messageBody = generated.message;
       }
 
-      const base = appPublicUrl();
-      const retryUrl = `${base}/api/followups/open/${followupId}?t=${encodeURIComponent(token)}`;
-      const confirmUrl = `${base}/api/followups/confirm/${followupId}?t=${encodeURIComponent(token)}`;
+      // CF-R1: July's fail-on-unconfigured guard, prefix-aware links.
+      requirePublicUrl();
+      const retryUrl = `${absoluteApiUrl(`/followups/open/${followupId}`)}?t=${encodeURIComponent(token)}`;
+      const confirmUrl = `${absoluteApiUrl(`/followups/confirm/${followupId}`)}?t=${encodeURIComponent(token)}`;
       const who = escapeHtml(row.prospectName ?? "Prospect");
       const co = row.company ? ` at ${escapeHtml(row.company)}` : "";
 

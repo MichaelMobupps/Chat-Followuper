@@ -16,7 +16,7 @@ import {
 import { getFeatureFlags } from "../lib/featureFlags";
 import { isSmtpConfigured } from "../lib/smtpConfigured";
 import { isPushoverAppConfigured } from "../services/pushover";
-import { appPublicUrl } from "../lib/appPublicUrl";
+import { requirePublicUrl } from "../lib/appConfig";
 import { sendMail } from "../services/mailer";
 import { fetchDueRows, renderDigestEmail } from "../services/followupDigest";
 
@@ -214,7 +214,7 @@ router.post(
     try {
       html = renderDigestEmail(row.name, dueRows);
     } catch {
-      // appPublicUrl() throws when PUBLIC_BASE_URL is unset — surface that
+      // requirePublicUrl() throws when no public URL is configured — surface that
       // as config error rather than a 500.
       res.status(503).json({ error: "public_base_url_not_configured" });
       return;
@@ -257,7 +257,7 @@ router.get(
     let appUrlConfigured = false;
     let appUrl: string | null = null;
     try {
-      appUrl = appPublicUrl();
+      appUrl = requirePublicUrl();
       appUrlConfigured = true;
     } catch {
       appUrlConfigured = false;

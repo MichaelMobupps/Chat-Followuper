@@ -8,7 +8,7 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
-import { appPublicUrl } from "../lib/appPublicUrl";
+import { absoluteApiUrl, absoluteAppUrl, requirePublicUrl } from "../lib/appConfig";
 import { isPushoverQuietNow } from "../lib/pushoverQuietHours";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { CHANNEL_CODES } from "../lib/channelRegister";
@@ -88,7 +88,8 @@ export async function sendOverdueEscalations(): Promise<number> {
   }
 
   const cutoff = new Date(Date.now() - TWO_DAYS_MS);
-  const base = appPublicUrl();
+  // CF-R1: keep July's fail-on-unconfigured guard; build links prefix-aware.
+  requirePublicUrl();
   let sent = 0;
 
   const rows = (await db
@@ -155,7 +156,7 @@ export async function sendOverdueEscalations(): Promise<number> {
     if (dup.length > 0) continue;
 
     const token = mintOpenToken(row.followupId, row.userId);
-    const url = `${base}/api/followups/open/${row.followupId}?t=${token}`;
+    const url = `${absoluteApiUrl(`/followups/open/${row.followupId}`)}?t=${token}`;
     const who = row.prospectName ?? "prospect";
 
     try {
@@ -196,7 +197,8 @@ export async function sendMondayQueueClearNudges(): Promise<number> {
     return 0;
   }
 
-  const base = appPublicUrl();
+  // CF-R1: same guard as above.
+  requirePublicUrl();
   let sent = 0;
 
   const users = await db
@@ -267,7 +269,7 @@ export async function sendMondayQueueClearNudges(): Promise<number> {
         userKey: key,
         title: "Monday queue",
         message: `You have ${dueCount} follow-up${dueCount === 1 ? "" : "s"} due. Start the week by clearing your queue.`,
-        url: `${base}/today`,
+        url: absoluteAppUrl("/today"),
         urlTitle: "Open Today",
         priority: 0,
       });
