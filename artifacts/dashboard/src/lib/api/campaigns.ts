@@ -3,14 +3,16 @@ import { apiPath } from "../config";
 
 /**
  * Channel enum mirrors the api-server's accepted values.
- * Slack was explicitly dropped from the master plan (decision log #5);
- * do not add it here.
+ * Teams and Slack were removed (never built past a 501 stub); do not add
+ * them here.
  */
+// E3: dropped "email" — the api-server's ALLOWED_CHANNELS is whatsapp|telegram
+// only, so selecting email always 400'd on create/update.
 export const CAMPAIGN_CHANNELS = [
   "whatsapp",
   "telegram",
-  "teams",
-  "email",
+  // F-A: LinkedIn is a supported campaign channel now.
+  "linkedin",
 ] as const;
 
 export type CampaignChannel = (typeof CAMPAIGN_CHANNELS)[number];
@@ -44,46 +46,57 @@ export interface CreateCampaignInput {
 
 export type UpdateCampaignInput = Partial<CreateCampaignInput>;
 
+// The api-server wraps every campaign response in an envelope
+// (`{ campaigns }`, `{ campaign }`), matching the house convention used by
+// prospects/followups. These helpers unwrap it so callers receive the bare
+// `Campaign` / `Campaign[]` shape their types promise. (Returning the raw
+// envelope is what made `campaigns?.map(...)` throw "n?.map is not a function"
+// and blank the whole app.)
 export function listCampaigns(
   opts: { includeArchived?: boolean } = {},
 ): Promise<Campaign[]> {
   const qs = opts.includeArchived ? "?includeArchived=true" : "";
-  return apiFetch<Campaign[]>(apiPath(`/campaigns${qs}`));
+  return apiFetch<{ campaigns: Campaign[] }>(apiPath(`/campaigns${qs}`)).then(
+    (r) => r.campaigns,
+  );
 }
 
 export function getCampaign(id: string): Promise<CampaignDetail> {
-  return apiFetch<CampaignDetail>(apiPath(`/campaigns/${id}`));
+  return apiFetch<{ campaign: Campaign; prospectCount: number }>(
+    apiPath(`/campaigns/${id}`),
+  ).then((r) => ({ ...r.campaign, prospectCount: r.prospectCount }));
 }
 
 export function createCampaign(
   input: CreateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>(apiPath("/campaigns"), {
+  return apiFetch<{ campaign: Campaign }>(apiPath("/campaigns"), {
     method: "POST",
     body: JSON.stringify(input),
-  });
+  }).then((r) => r.campaign);
 }
 
 export function updateCampaign(
   id: string,
   input: UpdateCampaignInput,
 ): Promise<Campaign> {
-  return apiFetch<Campaign>(apiPath(`/campaigns/${id}`), {
+  return apiFetch<{ campaign: Campaign }>(apiPath(`/campaigns/${id}`), {
     method: "PATCH",
     body: JSON.stringify(input),
-  });
+  }).then((r) => r.campaign);
 }
 
 export function archiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(apiPath(`/campaigns/${id}/archive`), {
+  return apiFetch<{ campaign: Campaign }>(apiPath(`/campaigns/${id}/archive`), {
     method: "POST",
-  });
+  }).then((r) => r.campaign);
 }
 
 export function unarchiveCampaign(id: string): Promise<Campaign> {
-  return apiFetch<Campaign>(apiPath(`/campaigns/${id}/unarchive`), {
-    method: "POST",
-  });
+  return apiFetch<{ campaign: Campaign }>(
+    apiPath(`/campaigns/${id}/unarchive`),
+    { method: "POST" },
+  ).then((r) => r.campaign);
 }
 
 export function deleteCampaign(id: string): Promise<void> {

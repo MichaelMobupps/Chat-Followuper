@@ -469,15 +469,27 @@ export function inferVertical(
   body: string = "",
 ): VerticalResult {
   // ── Pass 1: explicit keyword in labels or subject (existing behavior) ──
-  const labelSubject = labels.join(" ").toLowerCase() + " " + subject.toLowerCase();
-  if (labelSubject.includes("gaming")) {
+  // Match whole tokens, not substrings: a raw `.includes("cps")` false-fires on
+  // words like "cpsu"/"cpso", and short codes are the worst offenders (CH6).
+  // Tokenize on any non-alphanumeric run so label conventions like "gaming_ua"
+  // still split into ["gaming","ua"] and match "gaming".
+  const tokens = new Set(
+    (labels.join(" ") + " " + subject).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+  );
+  const hasToken = (kw: string): boolean => tokens.has(kw);
+  // "retarget" should also match "retargeting"/"retargeted", so prefix-match.
+  const hasTokenPrefix = (prefix: string): boolean => {
+    for (const t of tokens) if (t.startsWith(prefix)) return true;
+    return false;
+  };
+  if (hasToken("gaming")) {
     return { vertical: "gaming_ua", subVertical: null, reason: "Keyword 'gaming' in labels or subject" };
   }
-  if (labelSubject.includes("cps") || labelSubject.includes("fintech")) {
+  if (hasToken("cps") || hasToken("fintech")) {
     const sub = inferCpsSubVertical(subject, body);
     return { vertical: "cps", subVertical: sub.subVertical, reason: `Keyword 'cps'/'fintech' in labels or subject. ${sub.reason}` };
   }
-  if (labelSubject.includes("retarget")) {
+  if (hasTokenPrefix("retarget")) {
     return { vertical: "retargeting", subVertical: null, reason: "Keyword 'retarget' in labels or subject" };
   }
 

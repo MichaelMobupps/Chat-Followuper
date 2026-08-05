@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { useWhatsappLink } from "@/hooks/use-whatsapp";
+import { useChannelLink } from "@/hooks/use-whatsapp";
+import { type SendIntentChannel } from "@/lib/api/whatsapp";
 import type {
   ProspectListItem,
   ProspectStatus,
@@ -153,7 +154,12 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
   const [, navigate] = useLocation();
   return (
     <tr
-      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/30 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      // FE9: rows navigate on click but were keyboard-inaccessible (WCAG 2.1.1).
+      // Make the row a focusable button-like control with Enter/Space handling.
+      role="button"
+      tabIndex={0}
+      aria-label={`Open details for ${prospect.prospectName ?? "prospect"}`}
       onClick={(e) => {
         // Don't navigate when the click originated inside the action
         // button cell — that has its own handler (open WhatsApp link
@@ -162,6 +168,15 @@ function ProspectRow({ prospect }: { prospect: ProspectListItem }) {
         const cell = (e.target as HTMLElement).closest("td[data-action]");
         if (cell) return;
         navigate(`/prospects/${prospect.id}`);
+      }}
+      onKeyDown={(e) => {
+        // Only act when the row itself is focused — let controls inside action
+        // cells (buttons/links) handle their own Enter/Space.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          navigate(`/prospects/${prospect.id}`);
+        }
       }}
       data-testid={`row-${prospect.id}`}
     >
@@ -261,50 +276,81 @@ function StatusBadge({ status }: { status: ProspectStatus }) {
 
 function ActionButton({ prospect }: { prospect: ProspectListItem }) {
   const { toast } = useToast();
-  const { mutate, isPending } = useWhatsappLink();
+  const { mutate, isPending } = useChannelLink();
+
+  const CHANNEL_LABEL: Record<SendIntentChannel, string> = {
+    whatsapp: "WhatsApp",
+    telegram: "Telegram",
+    linkedin: "LinkedIn",
+  };
+  const channel: SendIntentChannel =
+    prospect.firstMessageChannel === "telegram"
+      ? "telegram"
+      : prospect.firstMessageChannel === "linkedin"
+        ? "linkedin"
+        : "whatsapp";
+  // telegram + linkedin copy the message to the clipboard (deep link can't
+  // reliably prefill / linkedin can't at all).
+  const isClipboard = channel === "telegram" || channel === "linkedin";
 
   if (
     prospect.status === "ready" &&
-    prospect.firstMessageChannel === "whatsapp"
+    (prospect.firstMessageChannel === "whatsapp" ||
+      prospect.firstMessageChannel === "telegram" ||
+      prospect.firstMessageChannel === "linkedin")
   ) {
+    const label = CHANNEL_LABEL[channel];
     return (
       <Button
         size="sm"
         disabled={isPending}
         onClick={() =>
-          mutate(prospect.id, {
-            onSuccess: (data) => {
-              const w = window.open(data.url, "_blank", "noopener,noreferrer");
-              if (!w) {
+          mutate(
+            { prospectId: prospect.id, channel },
+            {
+              onSuccess: (data) => {
+                const w = window.open(data.url, "_blank", "noopener,noreferrer");
+                if (!w) {
+                  toast({
+                    title: "Browser blocked the popup",
+                    description:
+                      "Allow popups for this site, or copy the link manually.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                // C5: t.me/<handle>?text= often doesn't prefill the composer for
+                // plain user handles, and LinkedIn can't prefill at all — copy
+                // the message so the SDR can paste it. Best-effort.
+                if (isClipboard && data.body) {
+                  void navigator.clipboard.writeText(data.body).catch(() => {});
+                  toast({
+                    title: `Opening ${label} — message copied`,
+                    description:
+                      channel === "linkedin"
+                        ? "LinkedIn can't prefill text — paste the copied message into the profile."
+                        : "Telegram may not prefill the text — paste it if the composer is empty.",
+                  });
+                }
+              },
+              onError: (err) => {
                 toast({
-                  title: "Browser blocked the popup",
-                  description:
-                    "Allow popups for this site, or copy the link manually.",
+                  title: `Could not open ${label} link`,
+                  description: err.code ?? err.message,
                   variant: "destructive",
                 });
-              }
+              },
             },
-            onError: (err) => {
-              const msg = err.code ?? err.message;
-              toast({
-                title: "Could not open WhatsApp link",
-                description: msg,
-                variant: "destructive",
-              });
-            },
-          })
+          )
         }
         data-testid={`button-action-${prospect.id}`}
       >
         <ExternalLink className="h-3.5 w-3.5 mr-1" />
-        Open
+        Open {label}
       </Button>
     );
   }
 
-  // Other channels not yet wired — Telegram/Teams adapters are stubs.
-  // Show a disabled button for non-WhatsApp ready states; for non-ready
-  // states, show a status hint.
   if (prospect.status === "ready") {
     return (
       <Button size="sm" variant="outline" disabled>

@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: auth
     description: Authentication operations
+  - name: prospects
+    description: Prospect and manual-ingest operations
 paths:
   /healthz:
     get:
@@ -54,6 +56,170 @@ paths:
       responses:
         "204":
           description: Logged out
+  /prospects/{id}/prepare-first-message:
+    post:
+      operationId: prepareFirstMessage
+      tags: [prospects]
+      summary: Research and generate first message for a manual contact
+      description: |
+        Runs prospect research (if needed), generates the stage-0 message via
+        the doctrine pipeline, and returns a send-ready deep link.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareFirstMessageRequest"
+      responses:
+        "200":
+          description: Message prepared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepareFirstMessageResponse"
+        "404":
+          description: Prospect not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Preconditions not met
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Geo blocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /prospects/{id}/telegram-link:
+    get:
+      operationId: getTelegramLink
+      tags: [prospects]
+      summary: Telegram deep link for a ready prospect
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Link ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelLinkResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Preconditions not met
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /users/me/test-channel-link:
+    post:
+      operationId: postTestChannelLink
+      tags: [prospects]
+      summary: Build a test WhatsApp or Telegram deep link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestChannelLinkRequest"
+      responses:
+        "200":
+          description: Deep link built
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestChannelLinkResponse"
+        "400":
+          description: Invalid body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /users/me/notification-settings:
+    get:
+      operationId: getNotificationSettings
+      tags: [auth]
+      summary: Read Pushover notification settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+    patch:
+      operationId: patchNotificationSettings
+      tags: [auth]
+      summary: Update Pushover user key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSettingsPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+        "400":
+          description: Invalid body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /users/me/test-pushover:
+    post:
+      operationId: postTestPushover
+      tags: [auth]
+      summary: Send a test Pushover notification
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+        "409":
+          description: User key missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Pushover not configured on server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -75,10 +241,22 @@ components:
         name:
           type: string
           nullable: true
+        followupsPaused:
+          type: boolean
+          description: >-
+            Admin kill switch (2026-07-15). True when an admin has paused this
+            user's follow-ups. Read-only here — only an admin can change it.
+            Surfaced on /auth/me because the pause is enforced server-side on
+            every send path, so without it the UI would let a rep press Send and
+            then show an unexplained 409. The rep did not do this and cannot
+            undo it, so the UI must be able to say who did.
+            Does NOT affect first messages (stage 0) or the weekly stats digest
+            — see users.followups_paused in the DB schema for the exact scope.
       required:
         - id
         - email
         - name
+        - followupsPaused
     AuthError:
       type: object
       properties:
@@ -86,3 +264,113 @@ components:
           type: string
       required:
         - error
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+      required:
+        - error
+    PrepareFirstMessageRequest:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [whatsapp, telegram, linkedin]
+        force:
+          type: boolean
+          default: false
+          description: >-
+            Regenerate. By default a prospect that already has a
+            firstMessageBody short-circuits and the stored message is returned
+            (status already_ready, no LLM spend). Set true to re-run the writer
+            and overwrite it — real spend, rate-limited to 10/min per user, and
+            rejected with 409 already_sent once the first message has gone out.
+    PrepareFirstMessageResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, research_complete, already_ready]
+        prospectId:
+          type: string
+          format: uuid
+        message:
+          type: string
+          nullable: true
+        deepLinkUrl:
+          type: string
+          nullable: true
+        researchCostUsd:
+          type: number
+        generationCostUsd:
+          type: number
+      required:
+        - status
+        - prospectId
+        - message
+        - deepLinkUrl
+    ChannelLinkResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        body:
+          type: string
+      required:
+        - url
+        - body
+    TestChannelLinkRequest:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [whatsapp, telegram, linkedin]
+        identifier:
+          type: string
+        message:
+          type: string
+      required:
+        - channel
+        - identifier
+    TestChannelLinkResponse:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [whatsapp, telegram, linkedin]
+        deepLinkUrl:
+          type: string
+        message:
+          type: string
+        target:
+          type: string
+      required:
+        - channel
+        - deepLinkUrl
+        - message
+        - target
+    NotificationSettings:
+      type: object
+      properties:
+        # API7: the raw pushoverUserKey is never returned — only the masked form.
+        # (It is still accepted in NotificationSettingsPatch to SET a new key.)
+        pushoverUserKeyMasked:
+          type: string
+          nullable: true
+        pushoverEnabled:
+          type: boolean
+        pushoverAppConfigured:
+          type: boolean
+      required:
+        - pushoverUserKeyMasked
+        - pushoverEnabled
+        - pushoverAppConfigured
+    NotificationSettingsPatch:
+      type: object
+      properties:
+        pushoverUserKey:
+          type: string
+          nullable: true

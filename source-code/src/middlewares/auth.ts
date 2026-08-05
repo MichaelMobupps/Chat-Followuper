@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
+import { isAdminEmail } from "../lib/admin";
 import {
   SESSION_COOKIE_NAME,
   verifySession,
@@ -11,7 +12,14 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      user?: { id: string; email: string; name: string | null };
+      user?: {
+        id: string;
+        email: string;
+        name: string | null;
+        // DB7: local-day bucket for daily-usage caps. Loaded here so route
+        // writers don't need a second query.
+        digestTimezone: string;
+      };
       session?: SessionPayload;
     }
   }
@@ -39,6 +47,7 @@ export async function loadUser(
         id: usersTable.id,
         email: usersTable.email,
         name: usersTable.name,
+        digestTimezone: usersTable.digestTimezone,
       })
       .from(usersTable)
       .where(eq(usersTable.id, session.userId))
@@ -66,6 +75,27 @@ export function requireAuth(
 ): void {
   if (!req.user) {
     res.status(401).json({ error: "not_authenticated" });
+    return;
+  }
+  next();
+}
+
+/**
+ * Hard admin gate. Requires requireAuth earlier in the chain. Grants access
+ * only to emails in ADMIN_EMAILS; every other authenticated user gets 403
+ * and stays isolated to their own data.
+ */
+export function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ error: "not_authenticated" });
+    return;
+  }
+  if (!isAdminEmail(req.user.email)) {
+    res.status(403).json({ error: "forbidden_not_admin" });
     return;
   }
   next();

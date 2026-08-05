@@ -1,10 +1,11 @@
 /**
  * Chat message generator — three-stage doctrine pipeline.
  *
- * Pipeline:
- *   1. DRAFT     (Opus 4.7)    — initial message from prompts + context
- *   2. CRITIC    (Opus 4.7)    — scores draft against criteria, demands rewrite if low
- *   3. REWRITE   (Sonnet 4.6)  — fixes flagged issues, loop max 3 times
+ * Pipeline (models routed per-role by lib/llm/router.ts — cost reframe 2026-07):
+ *   1. DRAFT   (writer: gemini-3.5-flash; grey verticals / Gemini 503 → sonnet-4-6)
+ *   2. CRITIC  (claude-sonnet-5) — scores draft against criteria, demands rewrite if low
+ *   3. REWRITE (lint: gemini-3.5-flash; Gemini 503 → sonnet-4-6) — fixes flagged
+ *      issues, loop max 3 times
  *
  * Two modes share this pipeline:
  *   - "prospector" — first cold message, full doctrine compressed for chat
@@ -23,8 +24,7 @@
  *     bracketed-note stripper)
  */
 
-import { anthropic } from "../lib/anthropic";
-import { withAnthropicRetry } from "./anthropicRetry";
+import { callLLMRole, GEMINI_DEFAULT_MODEL } from "../lib/llm/router";
 import {
   getProspectorSystemPrompt,
   getProspectorUserPrompt,
@@ -42,7 +42,7 @@ import {
 } from "./messagePrompts";
 import { summaryLooksMeta, resanitizeStoredSummary } from "./messageSummarizer";
 import { logger } from "../lib/logger";
-import { computeCost, sumCosts, type CostBreakdown } from "../lib/pricing";
+import { sumCosts, type CostBreakdown } from "../lib/pricing";
 import type { ChannelCode, GenerationMode } from "../lib/channelRegister";
 import { applyFirewall } from "../lib/doctrine/firewall";
 import { resolveLocale } from "../lib/localeResolver";
@@ -97,6 +97,8 @@ export interface GenerateChatMessageOptions {
   /** Earlier follow-ups in the thread (for stage rotation / no-repeat). */
   previousFollowups?: PreviousFollowup[];
   researchBrief?: ProspectBrief;
+  /** Human-readable doctrine variant instruction from sequence config. */
+  doctrineVariantInstruction?: string;
 }
 
 export interface ProspectInput {
@@ -113,10 +115,12 @@ export interface ProspectInput {
 // ─────────────────────────────────────────────────────────────────
 // Models
 // ─────────────────────────────────────────────────────────────────
-
-const DRAFT_MODEL = "claude-opus-4-7";
-const CRITIC_MODEL = "claude-opus-4-7";
-const REWRITER_MODEL = "claude-sonnet-4-6";
+//
+// Model selection moved to lib/llm/router.ts (cost reframe 2026-07):
+// writer/lint default to gemini-3.5-flash with claude-sonnet-4-6 for
+// grey-area verticals and as the 503/missing-key fallback; the critic is
+// claude-sonnet-5. The stage functions below report the ACTUAL model that
+// served each call (post-fallback) so modelMetadata reflects reality.
 
 // ─────────────────────────────────────────────────────────────────
 // Sanitizer 1: humanizer — strips AI tells from text
@@ -411,6 +415,12 @@ function detectUngroundedClaims(
     if (Array.isArray(brief.tangibleReasons)) groundParts.push(...brief.tangibleReasons);
     if (brief.marketContext) groundParts.push(brief.marketContext);
     if (brief.prospectSpecificHook) groundParts.push(brief.prospectSpecificHook);
+    // Hook doctrine: the writer is told to LEAD with the fresh dated hook, and
+    // real hooks carry numbers (funding "$150M", "hiring 200", years like 2026).
+    // Ground on them so hook-derived figures aren't self-flagged as hallucinations.
+    if (brief.freshHook) groundParts.push(brief.freshHook);
+    if (brief.hookDateOrRecency) groundParts.push(brief.hookDateOrRecency);
+    if (brief.ctvAngle) groundParts.push(brief.ctvAngle);
   }
   if (conversationText) groundParts.push(conversationText);
 
@@ -419,25 +429,56 @@ function detectUngroundedClaims(
 
   const matches: string[] = [];
 
+  // Build the set of numeric tokens that ARE grounded, and match on exact
+  // token membership — NOT substring. `groundText.includes("200")` is true
+  // when the brief merely says "2000", which lets a fabricated "200" slip
+  // through the gate (LLM6). A normalized digit-string set closes that
+  // false-negative: "200" is only grounded if "200" appears as its own token.
+  // L6: collapse in-number thousands separators (comma / space / NBSP between
+  // two digits) on BOTH sides before tokenizing. Otherwise a brief volume of
+  // "1,200" tokenizes to {1, 200} while a drafted "1200" checks "1200" →
+  // flagged as a hallucination every iteration, burning the whole heal loop
+  // (validateVolumeFormat explicitly permits comma-formatted volumes). Applied
+  // identically to grounded text and draft, so membership stays consistent.
+  // Round-3 (bench 2026-07-09): also collapse DOT-thousands ("1.081" in
+  // tr/de/pt/es locales) and apostrophe-thousands ("1'081"). The dot is
+  // ambiguous with decimals, so only a dot followed by EXACTLY 3 digits is
+  // treated as a separator ("1.200" → 1200) while "12.5" stays a decimal.
+  // Without this, a writer formatting numbers correctly for its locale got
+  // flagged as hallucinating (\`081\` extracted from "1.081"), burning the
+  // whole heal loop — the single biggest Turkish score killer in the bench.
+  const collapseThousands = (s: string): string =>
+    s
+      .replace(/(?<=\d)[,\u00A0\u202F '\u2019](?=\d)/g, "")
+      .replace(/(?<=\d)\.(?=\d{3}(?!\d))/g, "");
+  const numericTokenRe = /\d+(?:\.\d+)?/g;
+  const groundedNums = new Set<string>(
+    collapseThousands(groundText).match(numericTokenRe) ?? [],
+  );
+  const isGrounded = (n: string): boolean => groundedNums.has(n);
+  const nText = collapseThousands(text);
+
   // 1. Percentages: "12%", "12.5%", "0.7%". Most common hallucination
-  // surface ("14% first-order completion" with no 14% in brief).
+  // surface ("14% first-order completion" with no 14% in brief). Compare
+  // the numeric part against the grounded token set.
   const percentRe = /\d+(?:\.\d+)?%/g;
-  for (const m of text.match(percentRe) ?? []) {
-    if (!groundText.includes(m)) matches.push(`Percentage \`${m}\` not in brief or conversation`);
+  for (const m of nText.match(percentRe) ?? []) {
+    const bare = m.slice(0, -1); // drop the trailing "%"
+    if (!isGrounded(bare)) matches.push(`Percentage \`${m}\` not in brief or conversation`);
   }
 
   // 2. Large-number volume tokens: "400+", "5000 daily", "1200 installs".
   // We restrict to >=3 digits to avoid false positives on day numbers
   // ("Day 7"), stage numbers ("Stage 1"), and conventional figures.
   const largeNumRe = /\b\d{3,}(?:\+|k|K|M)?\b/g;
-  const seenLargeNum = new Set();
-  for (const m of text.match(largeNumRe) ?? []) {
+  const seenLargeNum = new Set<string>();
+  for (const m of nText.match(largeNumRe) ?? []) {
     if (seenLargeNum.has(m)) continue;
     seenLargeNum.add(m);
-    // Strip trailing modifiers for substring check (so "400" matches
+    // Strip trailing modifiers for the membership check (so "400+" matches a
     // brief saying "400 daily").
     const bareNum = m.replace(/[+kKM]+$/, "");
-    if (!groundText.includes(bareNum)) {
+    if (!isGrounded(bareNum)) {
       matches.push(`Large number \`${m}\` not in brief or conversation`);
     }
   }
@@ -445,11 +486,11 @@ function detectUngroundedClaims(
   // 3. Bounded claims: "above 12%", "under 200 daily", "more than 14%".
   // These are claim-shapes that imply specific numeric grounding. Even
   // if the bare number is in the brief, the BOUND ("above") may be a
-  // hallucination, but for now we just check the number matches.
+  // hallucination, but for now we just check the number matches (by token).
   const boundedRe = /(?:above|over|under|below|less than|more than|around|approximately|roughly)\s+\d+(?:\.\d+)?(?:%|\+)?/gi;
-  for (const m of text.match(boundedRe) ?? []) {
+  for (const m of nText.match(boundedRe) ?? []) {
     const numMatch = m.match(/\d+(?:\.\d+)?/);
-    if (numMatch && !groundText.includes(numMatch[0])) {
+    if (numMatch && !isGrounded(numMatch[0])) {
       matches.push(`Bounded claim \`${m}\` with number not in brief or conversation`);
     }
   }
@@ -723,17 +764,6 @@ function parseJsonResponse(text: string): { subject?: string; message?: string; 
 // Cost rollup helper — extracts usage from Anthropic response
 // ─────────────────────────────────────────────────────────────────
 
-interface AnthropicMessage {
-  content: Array<{ type: string; text?: string }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-}
-
-function costFromResponse(model: string, response: AnthropicMessage): CostBreakdown {
-  const inputTokens = response.usage?.input_tokens ?? 0;
-  const outputTokens = response.usage?.output_tokens ?? 0;
-  return computeCost(model, inputTokens, outputTokens);
-}
-
 // ─────────────────────────────────────────────────────────────────
 // Stage 1: DRAFT
 // ─────────────────────────────────────────────────────────────────
@@ -741,7 +771,7 @@ function costFromResponse(model: string, response: AnthropicMessage): CostBreakd
 async function generateDraft(
   ctx: MessageContext,
   attempt = 1,
-): Promise<{ draft: { subject: string; message: string }; cost: CostBreakdown }> {
+): Promise<{ draft: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
   const maxAttempts = 2;
   const system = ctx.mode === "prospector"
     ? getProspectorSystemPrompt(ctx)
@@ -750,35 +780,32 @@ async function generateDraft(
     ? getProspectorUserPrompt(ctx)
     : getFollowuperUserPrompt(ctx);
 
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: DRAFT_MODEL,
-      max_tokens: 2048,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    { label: "draft" },
-  );
-
-  const cost = costFromResponse(DRAFT_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in draft response");
-  }
+  // Router: gemini-3.5-flash by default; grey-area verticals and Gemini
+  // capacity failures route to claude-sonnet-4-6. Retry/backoff and prompt
+  // caching live inside the router.
+  const result = await callLLMRole("writer", {
+    system,
+    user,
+    maxTokens: 2048,
+    label: "draft",
+    vertical: ctx.vertical,
+    subVertical: ctx.sub_vertical,
+  });
+  const cost = result.cost;
 
   try {
-    const parsed = parseJsonResponse(textBlock.text);
+    const parsed = parseJsonResponse(result.text);
     if (!parsed.subject || !parsed.message) {
       throw new Error("Draft missing subject or message");
     }
     return {
       draft: { subject: String(parsed.subject), message: String(parsed.message) },
       cost,
+      model: result.model,
     };
   } catch (err) {
     logger.warn(
-      { attempt, rawPreview: textBlock.text.slice(0, 300) },
+      { attempt, model: result.model, rawPreview: result.text.slice(0, 300) },
       "Draft JSON parse failed",
     );
     if (attempt < maxAttempts) {
@@ -787,6 +814,7 @@ async function generateDraft(
       return {
         draft: retry.draft,
         cost: sumCosts([cost, retry.cost]),
+        model: retry.model,
       };
     }
     throw err;
@@ -808,25 +836,18 @@ interface CriticResult {
 async function critiqueDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
-): Promise<{ critique: CriticResult; cost: CostBreakdown }> {
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: CRITIC_MODEL,
-      max_tokens: 2048,
-      system: getCriticSystemPrompt(ctx.mode, ctx.channel),
-      messages: [{ role: "user", content: getCriticUserPrompt(ctx, draft) }],
-    }),
-    { label: "critic" },
-  );
+): Promise<{ critique: CriticResult; cost: CostBreakdown; model: string }> {
+  // Critic is an Anthropic-only role (claude-sonnet-5) — the judge stays on
+  // the stronger model while the writer/lint stages run on the cheap one.
+  const result = await callLLMRole("critic", {
+    system: getCriticSystemPrompt(ctx.mode, ctx.channel),
+    user: getCriticUserPrompt(ctx, draft),
+    maxTokens: 2048,
+    label: "critic",
+  });
+  const cost = result.cost;
 
-  const cost = costFromResponse(CRITIC_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in critic response");
-  }
-
-  const parsed = parseJsonResponse(textBlock.text) as {
+  const parsed = parseJsonResponse(result.text) as {
     scores?: Record<string, number>;
     overall?: number;
     issues?: unknown[];
@@ -842,6 +863,7 @@ async function critiqueDraft(
       needs_rewrite: parsed.needs_rewrite ?? false,
     },
     cost,
+    model: result.model,
   };
 }
 
@@ -853,52 +875,68 @@ async function rewriteDraft(
   ctx: MessageContext,
   draft: { subject: string; message: string },
   critique: CriticResult,
-): Promise<{ rewrite: { subject: string; message: string }; cost: CostBreakdown }> {
-  const response = await withAnthropicRetry(
-    () => anthropic.messages.create({
-      model: REWRITER_MODEL,
-      max_tokens: 2048,
-      system: getRewriterSystemPrompt(ctx.mode, ctx.channel),
-      messages: [{
-        role: "user",
-        content: getRewriterUserPrompt(ctx, draft, {
-          issues: critique.issues,
-          suggestions: critique.suggestions,
-        }),
-      }],
+): Promise<{ rewrite: { subject: string; message: string }; cost: CostBreakdown; model: string }> {
+  // Lint/rewrite role: gemini-3.5-flash with sonnet-4-6 fallback (503,
+  // safety block, missing key). Grey-vertical text that Gemini declines to
+  // edit falls back automatically via the safety-block path.
+  const result = await callLLMRole("lint", {
+    system: getRewriterSystemPrompt(ctx.mode, ctx.channel),
+    user: getRewriterUserPrompt(ctx, draft, {
+      issues: critique.issues,
+      suggestions: critique.suggestions,
     }),
-    { label: "rewriter" },
-  );
-
-  const cost = costFromResponse(REWRITER_MODEL, response as AnthropicMessage);
-
-  const textBlock = (response.content as Array<{ type: string; text?: string }>).find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-    throw new Error("No text block in rewriter response");
-  }
+    maxTokens: 2048,
+    label: "rewriter",
+    vertical: ctx.vertical,
+    subVertical: ctx.sub_vertical,
+  });
+  const cost = result.cost;
 
   // Detect meta-commentary BEFORE parsing JSON. If the rewriter returned
   // "this message cannot be salvaged" instead of fixed JSON, keep the prior
   // draft rather than failing.
-  if (detectMetaCommentary(textBlock.text)) {
-    logger.warn({ rawPreview: textBlock.text.slice(0, 200) }, "Rewriter returned meta-commentary; keeping prior draft");
-    return { rewrite: draft, cost };
+  if (detectMetaCommentary(result.text)) {
+    logger.warn({ rawPreview: result.text.slice(0, 200), model: result.model }, "Rewriter returned meta-commentary; keeping prior draft");
+    return { rewrite: draft, cost, model: result.model };
   }
 
-  const parsed = parseJsonResponse(textBlock.text);
-  if (!parsed.subject || !parsed.message) {
-    throw new Error("Rewrite missing subject or message");
+  const parsed = parseJsonResponse(result.text);
+  if (!parsed.message) {
+    throw new Error("Rewrite missing message");
   }
 
   return {
-    rewrite: { subject: String(parsed.subject), message: String(parsed.message) },
+    // Blast-radius hardening (round 3): the rewriter no longer SEES the old
+    // subject (it was contaminating critiques), so a small model may omit
+    // the internal tag. A missing subject must not discard a good rewrite —
+    // carry the prior draft's tag forward instead of throwing.
+    rewrite: { subject: String(parsed.subject || draft.subject), message: String(parsed.message) },
     cost,
+    model: result.model,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Final cleanup pipeline (applied to whatever we ship)
 // ─────────────────────────────────────────────────────────────────
+
+
+/**
+ * Pre-clean a draft BEFORE critique (bench 2026-07-09). finalizeMessage
+ * already strips subject leaks / bracketed notes / em dashes / spelled-out
+ * percents / markdown deterministically — but it ran only AFTER the healing
+ * loop, so the critic kept flagging (and the rewriter kept re-fixing)
+ * cosmetics that were going to be auto-fixed anyway, burning paid healing
+ * iterations. Running the same idempotent sanitizers on every draft as it
+ * enters the loop lets the critic spend its scoring budget on substance
+ * (grounding, register, language) instead.
+ */
+function preCleanDraft(d: { subject: string; message: string }): { subject: string; message: string } {
+  let message = stripSubjectFromBody(d.message);
+  message = stripBracketedNotes(message);
+  message = applyDeterministicFixes(message);
+  return { subject: d.subject, message };
+}
 
 function finalizeMessage(
   msg: { subject: string; message: string },
@@ -988,6 +1026,7 @@ export async function generateChatMessage(
     conversation: opts.conversation,
     previous_followups: opts.previousFollowups,
     research_brief: opts.researchBrief,
+    doctrine_variant: opts.doctrineVariantInstruction,
   };
 
   // ── Self-heal: sanitize stored summary if it contains meta-language ──
@@ -1020,12 +1059,26 @@ export async function generateChatMessage(
       stage: ctx.stage,
       conversationLen: ctx.conversation?.length ?? 0,
     },
-    "Stage 1: Generating initial draft (Sonnet 4.6)",
+    "Stage 1: Generating initial draft (router: writer role)",
   );
+
+  // ── Actual models used (post-fallback) — reported in modelMetadata. ──
+  // Critic/rewriter start as an explicit "(not run)" sentinel and are only
+  // assigned when the stage actually returns: initializing them to the policy
+  // defaults made no-run paths claim a model that never executed (e.g.
+  // rewriterModel:"gemini-3.5-flash" while Gemini was unreachable and the
+  // draft passed critique on iteration 1) — corrupting per-model cost
+  // attribution (audit F5). No consumer branches on these strings; they're
+  // telemetry.
+  let draftModelUsed = GEMINI_DEFAULT_MODEL; // always overwritten (draft throws otherwise)
+  let criticModelUsed = "(not run)";
+  let rewriterModelUsed = "(not run)";
 
   // ── Stage 1: Draft ──
   // If draft fails after retries, bubble up. No template fallback.
-  const { draft: initialDraft, cost: draftCost } = await generateDraft(ctx);
+  const { draft: rawInitialDraft, cost: draftCost, model: draftModel } = await generateDraft(ctx);
+  const initialDraft = preCleanDraft(rawInitialDraft);
+  draftModelUsed = draftModel;
   const allCosts: CostBreakdown[] = [draftCost];
 
   let current = initialDraft;
@@ -1058,7 +1111,7 @@ export async function generateChatMessage(
         claimFound: claimCheck.found,
         claimMatches: claimCheck.matches,
       },
-      `Iteration ${iteration}: Critiquing draft (Opus 4.7)`,
+      `Iteration ${iteration}: Critiquing draft (router: critic role)`,
     );
 
     let critique: CriticResult;
@@ -1067,6 +1120,7 @@ export async function generateChatMessage(
       const result = await critiqueDraft(ctx, current);
       critique = result.critique;
       criticCost = result.cost;
+      criticModelUsed = result.model;
       allCosts.push(criticCost);
     } catch (err) {
       logger.warn(
@@ -1078,9 +1132,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: bestOverall,
         },
@@ -1111,7 +1165,13 @@ export async function generateChatMessage(
     // into the critique. Mirrors the meta-language injection above.
     if (claimCheck.found) {
       const briefVolume = ctx.research_brief?.calibratedDailyVolume ?? "(no brief volume)";
-      const briefProofs = ctx.research_brief?.tangibleReasons?.slice(0, 2).join(" | ") ?? "(no brief proofs)";
+      // P3-14: tangibleReasons may be a non-array in a client-written brief; the
+      // optional chain guards null/undefined but not a wrong type (a string has
+      // .slice but no post-slice .join symmetry; an object has no .slice → throw).
+      const tr = ctx.research_brief?.tangibleReasons;
+      const briefProofs = Array.isArray(tr)
+        ? tr.slice(0, 2).map((x) => String(x)).join(" | ")
+        : "(no brief proofs)";
       const claimIssue: CriticIssue = {
         excerpt: claimCheck.matches.slice(0, 3).join(" | "),
         reason: `Message contains numbers or claims that do not trace to the research brief or prior conversation. Findings: ${claimCheck.matches.join(" | ")}. Replace with brief-grounded numbers (calibrated_daily_volume: ${briefVolume}) or remove the unsupported claim entirely.`,
@@ -1156,9 +1216,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: critique.overall,
         },
@@ -1166,16 +1226,29 @@ export async function generateChatMessage(
       };
     }
 
+    // L7: on the LAST iteration a rewrite is pure waste — it's never critiqued
+    // and the loop returns `best` (not `current`), so this Sonnet call's output
+    // can never be selected or improve the result. Stop here and finalize best.
+    if (iteration === maxHealingIterations) {
+      logger.info(
+        { prospect: ctx.prospect_name, iteration },
+        "Final iteration still needs rewrite — skipping the unusable (never-critiqued) rewrite; returning best draft",
+      );
+      break;
+    }
+
     logger.info(
       { prospect: ctx.prospect_name, iteration },
-      `Iteration ${iteration}: Rewriting draft (Sonnet 4.6)`,
+      `Iteration ${iteration}: Rewriting draft (router: lint role)`,
     );
 
     try {
-      const { rewrite, cost: rewriteCost } = await rewriteDraft(ctx, current, critique);
+      const { rewrite: rawRewrite, cost: rewriteCost, model: rewriteModel } = await rewriteDraft(ctx, current, critique);
+      const rewrite = preCleanDraft(rawRewrite);
       allCosts.push(rewriteCost);
+      rewriterModelUsed = rewriteModel;
       current = rewrite;
-      logger.info({ prospect: ctx.prospect_name, iteration }, "Rewrite complete");
+      logger.info({ prospect: ctx.prospect_name, iteration, model: rewriteModel }, "Rewrite complete");
     } catch (err) {
       logger.warn(
         { err: String(err), prospect: ctx.prospect_name, iteration },
@@ -1186,9 +1259,9 @@ export async function generateChatMessage(
         subject: finalized.subject,
         message: finalized.message,
         modelMetadata: {
-          draftModel: DRAFT_MODEL,
-          criticModel: CRITIC_MODEL,
-          rewriterModel: REWRITER_MODEL,
+          draftModel: draftModelUsed,
+          criticModel: criticModelUsed,
+          rewriterModel: rewriterModelUsed,
           iterations: iterationsConsumed,
           finalOverallScore: bestOverall,
         },
@@ -1207,9 +1280,9 @@ export async function generateChatMessage(
     subject: finalized.subject,
     message: finalized.message,
     modelMetadata: {
-      draftModel: DRAFT_MODEL,
-      criticModel: CRITIC_MODEL,
-      rewriterModel: REWRITER_MODEL,
+      draftModel: draftModelUsed,
+      criticModel: criticModelUsed,
+      rewriterModel: rewriterModelUsed,
       iterations: iterationsConsumed,
       finalOverallScore: bestOverall,
     },

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   db,
@@ -44,6 +44,11 @@ function loginErrorRedirect(code: string): string {
   return `${appPath("/login")}?error=${encodeURIComponent(code)}`;
 }
 
+/** DB2: one-way digest of the OAuth state, so oauth_nonces stores no raw token. */
+function hashNonce(state: string): string {
+  return createHash("sha256").update(state).digest("hex");
+}
+
 router.get("/auth/google/start", async (req, res) => {
   try {
     const clientId = getEnv("GOOGLE_OAUTH_CLIENT_ID");
@@ -55,8 +60,13 @@ router.get("/auth/google/start", async (req, res) => {
 
     const state = randomBytes(24).toString("base64url");
 
+    // DB2: store only a SHA-256 digest of the OAuth state, never the raw value.
+    // The raw `state` still travels to Google and comes back in the callback; we
+    // re-hash it there to look the row up. A DB-read attacker sees only digests
+    // and can't forge a valid callback state (no preimage). Keyless — no KMS
+    // needed for this one (unlike the token-encryption items).
     await db.insert(oauthNoncesTable).values({
-      nonce: state,
+      nonce: hashNonce(state),
       provider: PROVIDER,
       redirectUri,
       expiresAt: new Date(Date.now() + STATE_TTL_MS),
@@ -121,7 +131,8 @@ router.get("/auth/google/callback", async (req, res) => {
       .set({ consumedAt: new Date() })
       .where(
         and(
-          eq(oauthNoncesTable.nonce, state),
+          // DB2: look up by the digest of the returned state (stored hashed).
+          eq(oauthNoncesTable.nonce, hashNonce(state)),
           eq(oauthNoncesTable.provider, PROVIDER),
           isNull(oauthNoncesTable.consumedAt),
         ),

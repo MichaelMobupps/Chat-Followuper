@@ -10,8 +10,7 @@
  *    sendHourStart at the request level. The UI mirrors those rules
  *    with local validation before submit; the server is the source of
  *    truth for error reporting.
- *  - doctrineVariant per stage is selectable here but the LLM generator
- *    does not yet consume it (handoff §5.6). A small note conveys that.
+ *  - doctrineVariant per stage is passed into follow-up message generation.
  */
 import { useEffect, useState, type ChangeEvent } from "react";
 import {
@@ -79,7 +78,9 @@ function configToForm(c: SequenceConfig): FormState {
     sendDays: [...c.sendDays].sort((a, b) => a - b),
     sendHourStart: c.sendHourStart,
     sendHourEnd: c.sendHourEnd,
-    maxFollowups: c.maxFollowups,
+    // P3-11: clamp a legacy out-of-range value (rows saved under the old 0-20
+    // schema) into the BE-accepted 1-10 on load, so the first Save doesn't 400.
+    maxFollowups: Math.min(Math.max(c.maxFollowups, 1), 10),
     requireApproval: c.requireApproval,
     digestHourLocal: c.digestHourLocal,
     digestTimezone: c.digestTimezone,
@@ -149,16 +150,9 @@ function PanelBody({ onClose }: { onClose: () => void }) {
     }
   }, [query.data, form]);
 
-  if (query.isLoading || !form) {
-    return (
-      <div className="py-6 space-y-3">
-        <Skeleton className="h-6 w-40" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
-    );
-  }
-
+  // FE5: check the error branch BEFORE the loading/!form skeleton. On a failed
+  // load `form` stays null, so `!form` would otherwise render the skeleton
+  // forever and this error state was unreachable.
   if (query.isError) {
     return (
       <div className="py-6 text-sm text-destructive">
@@ -166,6 +160,16 @@ function PanelBody({ onClose }: { onClose: () => void }) {
         {query.error instanceof ApiError
           ? query.error.code ?? query.error.message
           : (query.error as Error).message}
+      </div>
+    );
+  }
+
+  if (query.isLoading || !form) {
+    return (
+      <div className="py-6 space-y-3">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       </div>
     );
   }
@@ -275,8 +279,9 @@ function PanelBody({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          doctrineVariant is stored now and consumed by the message generator
-          in a later ticket.
+          Each stage's doctrine variant steers how that follow-up is written —
+          the generator uses it as the required strategy for the message. You'll
+          see the result when the follow-up is generated at send time.
         </p>
         <div className="space-y-3">
           {form.stageTiming.map((stage, idx) => (
@@ -432,15 +437,22 @@ function PanelBody({ onClose }: { onClose: () => void }) {
           <Label className="text-xs" htmlFor="max-followups">
             Maximum follow-ups
           </Label>
+          {/* P3-11: match the BE range (1-10, the scheduler clamp). Empty/NaN
+              falls back to 1 (not 0), and out-of-range typed values are clamped
+              so a save can't 400 with invalid_body. */}
           <Input
             id="max-followups"
             type="number"
-            min={0}
-            max={20}
+            min={1}
+            max={10}
             value={form.maxFollowups}
-            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-              update("maxFollowups", Number.parseInt(e.target.value, 10) || 0)
-            }
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              const n = Number.parseInt(e.target.value, 10);
+              update(
+                "maxFollowups",
+                Number.isNaN(n) ? 1 : Math.min(Math.max(n, 1), 10),
+              );
+            }}
             data-testid="max-followups"
           />
         </div>
@@ -462,6 +474,10 @@ function PanelBody({ onClose }: { onClose: () => void }) {
       {/* Digest */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">Daily digest</h3>
+        <p className="text-xs text-muted-foreground">
+          Email digest sends at this hour. Pushover phone reminders are separate:
+          weekdays at 12:00 midday GMT+2 — configure under Accounts.
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs" htmlFor="digest-hour">

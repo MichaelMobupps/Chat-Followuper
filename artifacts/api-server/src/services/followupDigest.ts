@@ -1,4 +1,4 @@
-import { and, eq, isNull, isNotNull, lte } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   followupsTable,
@@ -9,7 +9,17 @@ import {
   ACTION_TYPES,
 } from "@workspace/db";
 import { mintOpenToken } from "../lib/followupLinkToken";
-import { absoluteApiUrl, requirePublicUrl } from "../lib/appConfig";
+// CF-R1: URL construction through the config module (Bundle 1/2) — prefix-
+// aware, and requirePublicUrl() keeps July's fail-on-unconfigured behavior.
+import {
+  absoluteApiUrl,
+  absoluteAppUrl,
+  requirePublicUrl,
+} from "../lib/appConfig";
+import { isUserDigestDayNow } from "../lib/pushoverSchedule";
+import { isSmtpConfigured } from "../lib/smtpConfigured";
+import { usageBucketDate } from "../lib/usageBucket";
+import { CHANNEL_CODES } from "../lib/channelRegister";
 import { sendMail } from "./mailer";
 
 export interface DigestResult {
@@ -18,7 +28,7 @@ export interface DigestResult {
   usersFailed: number;
 }
 
-interface DueRow {
+export interface DueRow {
   followupId: number;
   stage: number;
   channel: string;
@@ -27,6 +37,30 @@ interface DueRow {
   userName: string | null;
   prospectName: string | null;
   company: string | null;
+  digestHourLocal: number;
+  digestTimezone: string;
+  // Reminders & schedule (2026-07-09): weekdays the digest may send.
+  digestDays: number[];
+}
+
+/** True when the user's configured local digest hour has arrived. */
+function isDigestHourNow(digestHourLocal: number, digestTimezone: string): boolean {
+  if (process.env.DIGEST_SKIP_HOUR_CHECK === "true") return true;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: digestTimezone,
+      hour: "numeric",
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
+    // >= (not ===) so a drift-prone hourly scheduler that gives a clock hour
+    // zero ticks (deploy/restart/blocked loop) still sends later that day
+    // rather than silently skipping the rep entirely. At-most-once per day is
+    // guaranteed downstream by the daily_usage.digestSent marker.
+    return hour >= digestHourLocal;
+  } catch {
+    return true;
+  }
 }
 
 function escapeHtml(s: string): string {
@@ -40,24 +74,39 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => map[c]);
 }
 
-function renderEmail(name: string | null, rows: DueRow[]): string {
-  // Kept for its throw: an unconfigured deployment must still fail here, with
-  // the same message, rather than mailing links to a bare path. The URL is
-  // then built from PUBLIC_ORIGIN, which is PUBLIC_URL minus a prefix it may
-  // already carry — otherwise a PUBLIC_URL of "https://host/chat" and an
-  // apiPath() of "/chat/api/..." would compose into "/chat/chat/api/...",
-  // shipping dead links inside mail that cannot be recalled.
+/**
+ * Render the digest email body. Exported so the test-digest route can send
+ * the REAL template (previously it sent a static placeholder that never
+ * exercised the per-row buttons — a preview stub, not a dry-run).
+ *
+ * Each row carries TWO links:
+ *  - "Follow up"  → the token-gated open endpoint (generates if needed and
+ *    302s into the chat app with the message prefilled).
+ *  - "Review in dashboard" → the channel's follow-up page, where the rep can
+ *    read/EDIT the message (EditFollowupDialog) before sending — the email
+ *    previously offered no path into the dashboard at all.
+ *
+ * CF-R1: the throw is kept from Bundle 1 — an unconfigured deployment must
+ * still fail here, with the same message, rather than mailing links to a bare
+ * path. The URLs are then built from PUBLIC_ORIGIN (prefix-stripped), so a
+ * PUBLIC_URL of "https://host/chat" and an apiPath() of "/chat/api/..." do
+ * not compose into "/chat/chat/api/..." inside mail that cannot be recalled.
+ */
+export function renderDigestEmail(name: string | null, rows: DueRow[]): string {
   requirePublicUrl();
   const items = rows
     .map((r) => {
       const token = mintOpenToken(r.followupId, r.userId);
       const url = `${absoluteApiUrl(`/followups/open/${r.followupId}`)}?t=${token}`;
+      const dashUrl = absoluteAppUrl(`/followup/${encodeURIComponent(r.channel)}`);
       const who = escapeHtml(r.prospectName ?? "this prospect");
       const co = r.company ? ` at ${escapeHtml(r.company)}` : "";
       return `<tr>
-  <td style="padding:8px 0;">${who}${co} &mdash; stage ${r.stage} (${escapeHtml(r.channel)})</td>
+  <td style="padding:8px 0;">${who}${co} &mdash; stage ${r.stage} (${escapeHtml(r.channel)})<br/>
+    <a href="${dashUrl}" style="color:#6b7280;font-size:12px;text-decoration:underline;">Review in dashboard</a>
+  </td>
   <td style="padding:8px 0;text-align:right;">
-    <a href="${url}" style="background:#10b981;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;">Open chat</a>
+    <a href="${url}" style="background:#10b981;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">Follow up</a>
   </td>
 </tr>`;
     })
@@ -65,10 +114,67 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
   const n = rows.length;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;color:#111;">
   <p>Hi ${escapeHtml(name ?? "there")},</p>
-  <p>You have ${n} follow-up${n === 1 ? "" : "s"} ready to send. Each link opens the chat with the message prefilled. Review it and press send.</p>
+  <p>You have ${n} follow-up${n === 1 ? "" : "s"} due — the messages are already written. Click <strong>Follow up</strong> on each row and WhatsApp, Telegram, or LinkedIn opens with the message ready, so all you do is press send. Prefer to read or edit first? Use <em>Review in dashboard</em>.</p>
   <table style="width:100%;border-collapse:collapse;">${items}</table>
   <p style="color:#6b7280;font-size:12px;margin-top:16px;">Sent by Chat Followuper. You send each message yourself.</p>
 </div>`;
+}
+
+/**
+ * The digest's due-rows query, optionally scoped to one user. Shared by the
+ * hourly digest run and the test-digest preview so the preview can never
+ * drift from what production would actually send.
+ */
+export async function fetchDueRows(userId?: string): Promise<DueRow[]> {
+  const conditions = [
+    eq(followupsTable.status, "scheduled"),
+    // F4/D2: exclude removed-channel rows. A followup sequenced on
+    // teams/slack before those channels were deleted can never complete
+    // (generation throws invalid_channel) and is invisible in the
+    // whatsapp|telegram-only management UI, so without this guard it would
+    // be re-emailed in every digest with a dead link, forever.
+    inArray(followupsTable.channel, [...CHANNEL_CODES]),
+    isNull(followupsTable.sentAt),
+    lte(followupsTable.scheduledAt, new Date()),
+    // Speed pass (2026-07-16): notify only AFTER the message exists. The
+    // hourly scheduler runs pregenerateDueFollowupMessages before this query,
+    // so a due row normally arrives here already generated and the rep's
+    // click is an instant deep link. A row whose generation failed (daily cap,
+    // provider outage) is simply held until a later tick generates it — the
+    // overdue escalation in pushoverNudges stays UNgated as the safety net.
+    // This is also what the docstring below always claimed the query did.
+    // btrim(NULL) IS NULL → NULL/empty/whitespace bodies are all excluded.
+    sql`btrim(${followupsTable.generatedMessage}) <> ''`,
+    eq(prospectsTable.followupPaused, false),
+    // Admin kill switch (2026-07-15) — the per-USER pause, alongside the
+    // per-PROSPECT one above. usersTable is already inner-joined below, so this
+    // costs nothing extra. Gating HERE covers all three callers of fetchDueRows
+    // (the hourly scheduler, scripts/sendFollowupDigests.ts's deployed cron, and
+    // the test-digest preview in routes/userExtras.ts) — which is also why the
+    // preview can't drift from what production sends.
+    eq(usersTable.followupsPaused, false),
+    eq(prospectsTable.replied, 0),
+  ];
+  if (userId) conditions.push(eq(prospectsTable.userId, userId));
+
+  return (await db
+    .select({
+      followupId: followupsTable.id,
+      stage: followupsTable.stage,
+      channel: followupsTable.channel,
+      userId: prospectsTable.userId,
+      userEmail: usersTable.email,
+      userName: usersTable.name,
+      prospectName: prospectsTable.prospectName,
+      company: prospectsTable.company,
+      digestHourLocal: usersTable.digestHourLocal,
+      digestTimezone: usersTable.digestTimezone,
+      digestDays: usersTable.digestDays,
+    })
+    .from(followupsTable)
+    .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
+    .innerJoin(usersTable, eq(prospectsTable.userId, usersTable.id))
+    .where(and(...conditions))) as DueRow[];
 }
 
 /**
@@ -79,32 +185,14 @@ function renderEmail(name: string | null, rows: DueRow[]): string {
  * error boundary so one failed recipient does not abort the batch.
  */
 export async function runFollowupDigests(): Promise<DigestResult> {
-  const today = new Date().toISOString().slice(0, 10);
+  // Short-circuit when SMTP is unconfigured: otherwise the join query runs and
+  // sendMail throws once per user every hour, inflating usersFailed and log
+  // noise. Mirrors weeklyDigest / pushoverDigest, which guard the same way.
+  if (!isSmtpConfigured()) {
+    return { usersEmailed: 0, followupsListed: 0, usersFailed: 0 };
+  }
 
-  const rows = (await db
-    .select({
-      followupId: followupsTable.id,
-      stage: followupsTable.stage,
-      channel: followupsTable.channel,
-      userId: prospectsTable.userId,
-      userEmail: usersTable.email,
-      userName: usersTable.name,
-      prospectName: prospectsTable.prospectName,
-      company: prospectsTable.company,
-    })
-    .from(followupsTable)
-    .innerJoin(prospectsTable, eq(followupsTable.prospectId, prospectsTable.id))
-    .innerJoin(usersTable, eq(prospectsTable.userId, usersTable.id))
-    .where(
-      and(
-        eq(followupsTable.status, "scheduled"),
-        isNull(followupsTable.sentAt),
-        lte(followupsTable.scheduledAt, new Date()),
-        isNotNull(followupsTable.generatedMessage),
-        eq(prospectsTable.followupPaused, false),
-        eq(prospectsTable.replied, 0),
-      ),
-    )) as DueRow[];
+  const rows = await fetchDueRows();
 
   const byUser = new Map<string, DueRow[]>();
   for (const r of rows) {
@@ -118,45 +206,92 @@ export async function runFollowupDigests(): Promise<DigestResult> {
   let usersFailed = 0;
 
   for (const [userId, list] of byUser) {
+    let claimed = false;
+    // F2: the claim/release date MUST be the user's LOCAL calendar day, the
+    // same basis the `>=` hour-gate opens on. Keying it to UTC (as before) let
+    // the UTC date flip mid-open-window for western tz → a second claim row
+    // (userId, D+1) succeeded → a duplicate digest the same local day, and the
+    // steady state delivered at UTC-midnight-local instead of digestHourLocal.
+    let bucketDate = "";
     try {
-      const already = await db
-        .select({ digestSent: dailyUsageTable.digestSent })
-        .from(dailyUsageTable)
-        .where(
-          and(
-            eq(dailyUsageTable.userId, userId),
-            eq(dailyUsageTable.date, today),
-          ),
-        )
-        .limit(1);
-      if (already[0]?.digestSent) continue;
+      const sample = list[0]!;
+      // Reminders & schedule (2026-07-09): per-user day-of-week gate — the
+      // digest previously sent every day regardless of preference.
+      if (
+        !isUserDigestDayNow({
+          digestDays: sample.digestDays,
+          digestTimezone: sample.digestTimezone,
+        })
+      ) {
+        continue;
+      }
+      if (!isDigestHourNow(sample.digestHourLocal, sample.digestTimezone)) {
+        continue;
+      }
+      bucketDate = usageBucketDate(sample.digestTimezone);
 
-      const n = list.length;
-      await sendMail(
-        list[0].userEmail,
-        `${n} follow-up${n === 1 ? "" : "s"} ready to send`,
-        renderEmail(list[0].userName, list),
-      );
-
-      await db
+      // FUP3: atomically CLAIM today's digest slot BEFORE sending. The
+      // INSERT … ON CONFLICT DO UPDATE SET digest_sent=true WHERE
+      // digest_sent=false RETURNING lets exactly one runner win — the
+      // in-process scheduler OR the standalone cron script, even if they
+      // co-run. The loser gets an empty result and skips. This replaces the
+      // check-then-send-then-mark TOCTOU that let two processes both send.
+      const claim = await db
         .insert(dailyUsageTable)
-        .values({ userId, date: today, digestSent: true })
+        .values({ userId, date: bucketDate, digestSent: true })
         .onConflictDoUpdate({
           target: [dailyUsageTable.userId, dailyUsageTable.date],
           set: { digestSent: true },
-        });
+          setWhere: sql`${dailyUsageTable.digestSent} = false`,
+        })
+        .returning({ userId: dailyUsageTable.userId });
+      if (claim.length === 0) continue; // already claimed/sent today
+      claimed = true;
 
-      await db.insert(actionLogsTable).values({
-        userId,
-        actionType: ACTION_TYPES.digestSent,
-        actionStatus: "success" as const,
-        metadata: { followupCount: n },
-      });
+      const n = list.length;
+
+      await sendMail(
+        list[0].userEmail,
+        `${n} follow-up${n === 1 ? "" : "s"} ready to send`,
+        renderDigestEmail(list[0].userName, list),
+      );
 
       usersEmailed += 1;
       followupsListed += n;
+
+      // F6: the email is already sent — the audit-log insert must be
+      // best-effort. If it threw into the outer catch it would RELEASE the
+      // claim and a later tick would re-send the same digest (duplicate).
+      await db
+        .insert(actionLogsTable)
+        .values({
+          userId,
+          actionType: ACTION_TYPES.digestSent,
+          actionStatus: "success" as const,
+          metadata: { followupCount: n },
+        })
+        .catch((e) =>
+          console.error(`[followup-digest] audit-log failed ${userId}`, e),
+        );
     } catch (err) {
       usersFailed += 1;
+      // FUP3: if we claimed the slot but the SEND failed, RELEASE it so a later
+      // tick can retry (the hour-gate is `>=`, so a missed send re-fires the
+      // same day). Best-effort — a lost release just means one missed digest,
+      // never a duplicate. Post-send bookkeeping is now outside this boundary
+      // (F6), so only a genuine send failure reaches here.
+      if (claimed && bucketDate) {
+        await db
+          .update(dailyUsageTable)
+          .set({ digestSent: false })
+          .where(
+            and(
+              eq(dailyUsageTable.userId, userId),
+              eq(dailyUsageTable.date, bucketDate),
+            ),
+          )
+          .catch(() => {});
+      }
       console.error(`[followup-digest] failed for user ${userId}`, err);
     }
   }

@@ -17,10 +17,13 @@ import {
   archiveProspect,
   bulkArchiveFollowups,
   bulkPauseProspects,
+  getFollowupProgress,
   listFollowups,
   markProspectReplied,
   patchFollowup,
+  snoozeFollowup,
   sendNextFollowup,
+  type SnoozePreset,
   type ArchiveProspectResponse,
   type BulkArchiveInput,
   type BulkArchiveResponse,
@@ -28,6 +31,7 @@ import {
   type BulkPauseResponse,
   type Followup,
   type FollowupListResponse,
+  type FollowupProgress,
   type ListFollowupsArgs,
   type ListStatus,
   type MarkRepliedResponse,
@@ -58,7 +62,7 @@ export function useListFollowups(
   });
 }
 
-function useInvalidateFollowups() {
+export function useInvalidateFollowups() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["followups"] });
 }
@@ -76,6 +80,65 @@ export function useSendNextFollowup(): UseMutationResult<
   >({
     mutationFn: ({ prospectId, channel }) =>
       sendNextFollowup(prospectId, channel),
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase I — followup generation progress polling.
+//
+// Mirrors usePrepareProgress (use-manual-ingest.ts), including its audit
+// hardening: polling stops on terminal stages, after repeated fetch errors,
+// and after a bounded run of "idle" reads (a failed POST, a mid-run server
+// restart, or a TTL-expired entry must not poll forever).
+// ─────────────────────────────────────────────────────────────────
+
+export function useFollowupProgress(
+  followupId: number | null,
+  opts?: { running?: boolean },
+): UseQueryResult<FollowupProgress, ApiError> {
+  const running = opts?.running ?? false;
+  return useQuery<FollowupProgress, ApiError>({
+    queryKey: ["followup-progress", followupId],
+    queryFn: () => getFollowupProgress(followupId!),
+    enabled: followupId !== null,
+    refetchInterval: (query) => {
+      const stage = query.state.data?.stage;
+      if (query.state.errorUpdateCount >= 3) return false;
+      // Same fix as usePrepareProgress — this hook had the identical bug. The
+      // server parks ready/error for a 15-min TTL and our GET beats the POST,
+      // so believing a terminal stage froze the bar for the whole retry (the
+      // caller's resetQueries only clears the CLIENT cache; the next GET re-reads
+      // the same stale server entry and re-freezes the interval). While a run is
+      // live, keep polling: the route stamps "queued" first thing, so the bar
+      // self-corrects within one interval.
+      if (running) return 1200;
+      if (stage === "ready" || stage === "error") return false;
+      // Grace window for the POST→"queued" race, then stop on persistent idle.
+      if (stage === "idle" && query.state.dataUpdateCount >= 10) return false;
+      return 1200;
+    },
+    // Progress is instantaneous state — never serve a stale cache entry
+    // from a previous run of the same followup.
+    gcTime: 0,
+    staleTime: 0,
+  });
+}
+
+export function useSnoozeFollowup(): UseMutationResult<
+  { followup: Followup },
+  ApiError,
+  { followupId: number; preset: SnoozePreset }
+> {
+  const invalidate = useInvalidateFollowups();
+  return useMutation<
+    { followup: Followup },
+    ApiError,
+    { followupId: number; preset: SnoozePreset }
+  >({
+    mutationFn: ({ followupId, preset }) => snoozeFollowup(followupId, preset),
     onSuccess: () => {
       void invalidate();
     },

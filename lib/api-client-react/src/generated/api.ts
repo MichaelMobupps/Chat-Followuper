@@ -16,10 +16,23 @@ import type {
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { AuthError, AuthUser, HealthStatus } from "./api.schemas";
+import type {
+  ApiError,
+  AuthError,
+  AuthUser,
+  ChannelLinkResponse,
+  HealthStatus,
+  NotificationSettings,
+  NotificationSettingsPatch,
+  PostTestPushover200,
+  PrepareFirstMessageRequest,
+  PrepareFirstMessageResponse,
+  TestChannelLinkRequest,
+  TestChannelLinkResponse,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -257,4 +270,515 @@ export const useLogout = <
   TContext
 > => {
   return useMutation(getLogoutMutationOptions(options));
+};
+
+/**
+ * Runs prospect research (if needed), generates the stage-0 message via
+the doctrine pipeline, and returns a send-ready deep link.
+
+ * @summary Research and generate first message for a manual contact
+ */
+export const getPrepareFirstMessageUrl = (id: string) => {
+  return `/api/prospects/${id}/prepare-first-message`;
+};
+
+export const prepareFirstMessage = async (
+  id: string,
+  prepareFirstMessageRequest?: PrepareFirstMessageRequest,
+  options?: RequestInit,
+): Promise<PrepareFirstMessageResponse> => {
+  return customFetch<PrepareFirstMessageResponse>(
+    getPrepareFirstMessageUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(prepareFirstMessageRequest),
+    },
+  );
+};
+
+export const getPrepareFirstMessageMutationOptions = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareFirstMessage>>,
+    TError,
+    { id: string; data: BodyType<PrepareFirstMessageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof prepareFirstMessage>>,
+  TError,
+  { id: string; data: BodyType<PrepareFirstMessageRequest> },
+  TContext
+> => {
+  const mutationKey = ["prepareFirstMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof prepareFirstMessage>>,
+    { id: string; data: BodyType<PrepareFirstMessageRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return prepareFirstMessage(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PrepareFirstMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof prepareFirstMessage>>
+>;
+export type PrepareFirstMessageMutationBody =
+  BodyType<PrepareFirstMessageRequest>;
+export type PrepareFirstMessageMutationError = ErrorType<ApiError>;
+
+/**
+ * @summary Research and generate first message for a manual contact
+ */
+export const usePrepareFirstMessage = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof prepareFirstMessage>>,
+    TError,
+    { id: string; data: BodyType<PrepareFirstMessageRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof prepareFirstMessage>>,
+  TError,
+  { id: string; data: BodyType<PrepareFirstMessageRequest> },
+  TContext
+> => {
+  return useMutation(getPrepareFirstMessageMutationOptions(options));
+};
+
+/**
+ * @summary Telegram deep link for a ready prospect
+ */
+export const getGetTelegramLinkUrl = (id: string) => {
+  return `/api/prospects/${id}/telegram-link`;
+};
+
+export const getTelegramLink = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ChannelLinkResponse> => {
+  return customFetch<ChannelLinkResponse>(getGetTelegramLinkUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTelegramLinkQueryKey = (id: string) => {
+  return [`/api/prospects/${id}/telegram-link`] as const;
+};
+
+export const getGetTelegramLinkQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTelegramLink>>,
+  TError = ErrorType<ApiError>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTelegramLink>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTelegramLinkQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTelegramLink>>> = ({
+    signal,
+  }) => getTelegramLink(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTelegramLink>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTelegramLinkQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTelegramLink>>
+>;
+export type GetTelegramLinkQueryError = ErrorType<ApiError>;
+
+/**
+ * @summary Telegram deep link for a ready prospect
+ */
+
+export function useGetTelegramLink<
+  TData = Awaited<ReturnType<typeof getTelegramLink>>,
+  TError = ErrorType<ApiError>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTelegramLink>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTelegramLinkQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Build a test WhatsApp or Telegram deep link
+ */
+export const getPostTestChannelLinkUrl = () => {
+  return `/api/users/me/test-channel-link`;
+};
+
+export const postTestChannelLink = async (
+  testChannelLinkRequest: TestChannelLinkRequest,
+  options?: RequestInit,
+): Promise<TestChannelLinkResponse> => {
+  return customFetch<TestChannelLinkResponse>(getPostTestChannelLinkUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(testChannelLinkRequest),
+  });
+};
+
+export const getPostTestChannelLinkMutationOptions = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postTestChannelLink>>,
+    TError,
+    { data: BodyType<TestChannelLinkRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postTestChannelLink>>,
+  TError,
+  { data: BodyType<TestChannelLinkRequest> },
+  TContext
+> => {
+  const mutationKey = ["postTestChannelLink"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postTestChannelLink>>,
+    { data: BodyType<TestChannelLinkRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postTestChannelLink(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostTestChannelLinkMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postTestChannelLink>>
+>;
+export type PostTestChannelLinkMutationBody = BodyType<TestChannelLinkRequest>;
+export type PostTestChannelLinkMutationError = ErrorType<ApiError>;
+
+/**
+ * @summary Build a test WhatsApp or Telegram deep link
+ */
+export const usePostTestChannelLink = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postTestChannelLink>>,
+    TError,
+    { data: BodyType<TestChannelLinkRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postTestChannelLink>>,
+  TError,
+  { data: BodyType<TestChannelLinkRequest> },
+  TContext
+> => {
+  return useMutation(getPostTestChannelLinkMutationOptions(options));
+};
+
+/**
+ * @summary Read Pushover notification settings
+ */
+export const getGetNotificationSettingsUrl = () => {
+  return `/api/users/me/notification-settings`;
+};
+
+export const getNotificationSettings = async (
+  options?: RequestInit,
+): Promise<NotificationSettings> => {
+  return customFetch<NotificationSettings>(getGetNotificationSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNotificationSettingsQueryKey = () => {
+  return [`/api/users/me/notification-settings`] as const;
+};
+
+export const getGetNotificationSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNotificationSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNotificationSettingsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNotificationSettings>>
+  > = ({ signal }) => getNotificationSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNotificationSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNotificationSettings>>
+>;
+export type GetNotificationSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Read Pushover notification settings
+ */
+
+export function useGetNotificationSettings<
+  TData = Awaited<ReturnType<typeof getNotificationSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNotificationSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNotificationSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update Pushover user key
+ */
+export const getPatchNotificationSettingsUrl = () => {
+  return `/api/users/me/notification-settings`;
+};
+
+export const patchNotificationSettings = async (
+  notificationSettingsPatch: NotificationSettingsPatch,
+  options?: RequestInit,
+): Promise<NotificationSettings> => {
+  return customFetch<NotificationSettings>(getPatchNotificationSettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(notificationSettingsPatch),
+  });
+};
+
+export const getPatchNotificationSettingsMutationOptions = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchNotificationSettings>>,
+    TError,
+    { data: BodyType<NotificationSettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof patchNotificationSettings>>,
+  TError,
+  { data: BodyType<NotificationSettingsPatch> },
+  TContext
+> => {
+  const mutationKey = ["patchNotificationSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof patchNotificationSettings>>,
+    { data: BodyType<NotificationSettingsPatch> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return patchNotificationSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PatchNotificationSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof patchNotificationSettings>>
+>;
+export type PatchNotificationSettingsMutationBody =
+  BodyType<NotificationSettingsPatch>;
+export type PatchNotificationSettingsMutationError = ErrorType<ApiError>;
+
+/**
+ * @summary Update Pushover user key
+ */
+export const usePatchNotificationSettings = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchNotificationSettings>>,
+    TError,
+    { data: BodyType<NotificationSettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof patchNotificationSettings>>,
+  TError,
+  { data: BodyType<NotificationSettingsPatch> },
+  TContext
+> => {
+  return useMutation(getPatchNotificationSettingsMutationOptions(options));
+};
+
+/**
+ * @summary Send a test Pushover notification
+ */
+export const getPostTestPushoverUrl = () => {
+  return `/api/users/me/test-pushover`;
+};
+
+export const postTestPushover = async (
+  options?: RequestInit,
+): Promise<PostTestPushover200> => {
+  return customFetch<PostTestPushover200>(getPostTestPushoverUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getPostTestPushoverMutationOptions = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postTestPushover>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postTestPushover>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["postTestPushover"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postTestPushover>>,
+    void
+  > = () => {
+    return postTestPushover(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostTestPushoverMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postTestPushover>>
+>;
+
+export type PostTestPushoverMutationError = ErrorType<ApiError>;
+
+/**
+ * @summary Send a test Pushover notification
+ */
+export const usePostTestPushover = <
+  TError = ErrorType<ApiError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postTestPushover>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postTestPushover>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getPostTestPushoverMutationOptions(options));
 };

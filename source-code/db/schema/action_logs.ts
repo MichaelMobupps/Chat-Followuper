@@ -7,7 +7,9 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -39,6 +41,21 @@ export const actionLogsTable = pgTable(
   (table) => [
     index("action_logs_user_executed_idx").on(table.userId, table.executedAt),
     index("action_logs_type_idx").on(table.actionType),
+    // DB4: covering indexes for the prospect_id / followup_id FKs. action_logs
+    // is append-only and unbounded, so an unindexed FK makes every parent
+    // delete seq-scan + lock this table.
+    index("action_logs_prospect_id_idx").on(table.prospectId),
+    index("action_logs_followup_id_idx").on(table.followupId),
+    // FUP-weekly: partial unique index that makes the weekly digest send an
+    // atomic cross-process claim. One (user, weekKey) marker can exist, so two
+    // concurrent runners (in-process scheduler + standalone cron) can't both
+    // send — the loser's insert conflicts and is skipped. Scoped to the
+    // weekly-digest action type + non-null weekKey so it never touches other logs.
+    uniqueIndex("action_logs_weekly_digest_week_uq")
+      .on(table.userId, sql`(${table.metadata} ->> 'weekKey')`)
+      .where(
+        sql`${table.actionType} = 'digest.weekly_sent' AND (${table.metadata} ->> 'weekKey') IS NOT NULL`,
+      ),
   ],
 );
 
@@ -85,13 +102,21 @@ export const ACTION_TYPES = {
   // Ticket 2.5-BE — followup management
   followupEdited: "followup.edited",
   sequenceConfigUpdated: "sequence_config.updated",
+  notificationSettingsUpdated: "notification_settings.updated",
   digestSent: "digest.sent",
+  pushoverDigestSent: "pushover.digest_sent",
+  pushoverDueSent: "pushover.due_sent",
+  pushoverTestSent: "pushover.test_sent",
+  pushoverEscalationSent: "pushover.escalation_sent",
+  pushoverMondayNudgeSent: "pushover.monday_nudge_sent",
+  weeklyDigestSent: "digest.weekly_sent",
   digestReplyHandled: "digest.reply_handled",
   capExceededSpend: "cap.exceeded.spend",
   capExceededReveals: "cap.exceeded.reveals",
   whatsappSendIntent: "whatsapp.send_intent",
   whatsappLinkGenerated: "whatsapp.link_generated",
   telegramSendIntent: "telegram.send_intent",
+  linkedinSendIntent: "linkedin.send_intent",
   telegramLinkGenerated: "telegram.link_generated",
   // Ticket 1.5b — async Apollo phone reveal flow. Three terminal states
   // for the audit trail: requested (outbound POST sent), arrived (webhook
@@ -102,6 +127,7 @@ export const ACTION_TYPES = {
   apolloPhoneRevealRequested: "apollo.phone_reveal_requested",
   apolloPhoneRevealArrived: "apollo.phone_reveal_arrived",
   apolloPhoneRevealBlocked: "apollo.phone_reveal_blocked",
+  apolloPhoneRevealExpired: "apollo.phone_reveal_expired",
   prospectorUrlsResolved: "prospector.urls_resolved",
   prospectorCompanyResolved: "prospector.company_resolved",
   prospectorOrgFound: "prospector.org_found",

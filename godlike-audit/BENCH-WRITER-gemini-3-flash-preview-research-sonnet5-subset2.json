@@ -1,0 +1,23 @@
+[
+  {
+    "id": "en-US-research",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 2,
+    "score": 5,
+    "usd": 0.029605399999999997,
+    "researchUsd": 0.032198000000000004,
+    "ms": 183306,
+    "flags": [],
+    "message": "Hi Dana, Instacart has a clear opportunity to capture more incremental grocery orders as DoorDash, Shipt, and Walmart+ continue to scale their affiliate and publisher partnerships. Concentrating spend on confirmed purchases that survive the cancellation window keeps performance budget focused on orders that actually stick. About 1,800 confirmed purchases can be delivered daily through a curated network of grocery-specific coupon and comparison publishers. Fraud filtering on the confirmed-sale event chain prevents cookie-stuffing, and incrementality testing keeps the focus on net-new revenue. Would you be open to a brief chat about your current publisher mix?"
+  },
+  {
+    "id": "tr-TR-research",
+    "ok": false,
+    "flags": [
+      "THREW"
+    ],
+    "error": "ResearchFailedError: Failed to parse research JSON: Unterminated string in JSON at position 3761 (line 29 column 103). Raw: {\n  \"determined_country\": \"Turkey\",\n  \"determined_scale_tier\": \"mega\",\n  \"scale_rationale\": \"Trendyol is Turkey's largest e-commerce marketplace with tens of millions of monthly visits, tier-1 web property status, and a mature affiliate program spanning coupon, cashback, and comparison publishers.\",...",
+    "ms": 147145
+  }
+]

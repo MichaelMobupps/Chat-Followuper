@@ -7,8 +7,7 @@ import {
   actionLogsTable,
   ACTION_TYPES,
 } from "@workspace/db";
-import { isAllowedPhone, detectCountry } from "../lib/geoGate";
-import { GeoGateBlockedError } from "./channels/whatsapp";
+import { detectCountry, isAllowedCountry, normalizeToE164 } from "../lib/geoGate";
 
 /**
  * Apollo API client. Operations the seeder UI needs:
@@ -264,9 +263,11 @@ async function apolloFetch<T>(
 ): Promise<T> {
   const apiKey = getApiKey();
   const url = new URL(`${APOLLO_BASE_URL}${path}`);
-  url.searchParams.set("api_key", apiKey);
 
   const headers: Record<string, string> = {
+    // P3a: key is sent header-only. It used to also go in the query string,
+    // which contradicts the sibling prospector client's log-hygiene rationale
+    // (URLs leak into logs/metrics/error reports far more readily than headers).
     "X-Api-Key": apiKey,
     Accept: "application/json",
     "Cache-Control": "no-cache",
@@ -275,18 +276,37 @@ async function apolloFetch<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const init: RequestInit = {
+  // P3a: harden the transport the way the prospector client already is.
+  // redirect:"error" — undici forwards a custom X-Api-Key across a 3xx to a
+  // different origin (it only strips authorization/cookie/host), so a stray
+  // Apollo redirect could exfiltrate the key; refuse redirects instead.
+  // P3-4: each attempt gets a FRESH 30s timeout signal. A single
+  // AbortSignal.timeout shared across the attempts fires ~30s after creation,
+  // but the 429 retry runs after a 60s sleep — so a reused signal is already
+  // aborted and the retry would fail instantly with a TimeoutError instead of
+  // actually retrying (defeating the whole 429 recovery). redirect:"error" —
+  // undici forwards a custom X-Api-Key across a 3xx to a different origin, so
+  // refuse redirects. timeout — a stalled Apollo response otherwise hangs the
+  // handler indefinitely.
+  const baseInit: RequestInit = {
     method: opts.method,
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    redirect: "error",
   };
 
-  let response = await fetch(url, init);
+  let response = await fetch(url, {
+    ...baseInit,
+    signal: AbortSignal.timeout(30_000),
+  });
 
   if (response.status === 429) {
-    // Wait the documented full window then retry exactly once.
+    // Wait the documented full window then retry exactly once (fresh signal).
     await sleep(60_000);
-    response = await fetch(url, init);
+    response = await fetch(url, {
+      ...baseInit,
+      signal: AbortSignal.timeout(30_000),
+    });
     if (response.status === 429) {
       throw new ApolloRateLimitError();
     }
@@ -702,11 +722,11 @@ export async function revealContact(
     country: person.country ?? null,
   };
 
-  if (phone && !isAllowedPhone(phone)) {
-    throw new GeoGateBlockedError(detectCountry(phone));
-  }
-
-  return revealed;
+  // APO3: the geo gate is disabled, so a non-E.164 phone from Apollo is a
+  // formatting artifact — normalize and keep it rather than throwing a
+  // misleading geo_blocked and discarding a reveal the SDR already paid for.
+  // A genuinely unparseable value becomes null (treated as "no phone").
+  return { ...revealed, phone: phone ? normalizeToE164(phone) : null };
 }
 
 /**
@@ -771,6 +791,9 @@ export async function requestPhoneReveal(
   const correlationId = generateCorrelationId();
   const today = new Date().toISOString().slice(0, 10);
   const start = Date.now();
+  // APO7: remember the pre-request status so a compensating rollback can
+  // restore it if Apollo rejects the request outright (see below).
+  let priorStatus = "idle";
 
   // Persist correlation + status BEFORE the Apollo call. If the Apollo
   // call later fails, the prospect's status stays 'pending' and the
@@ -809,6 +832,7 @@ export async function requestPhoneReveal(
         `Phone reveal already in state '${prospect.phoneRevealStatus}' for prospect ${prospectId}`,
       );
     }
+    priorStatus = prospect.phoneRevealStatus;
 
     await tx
       .update(prospectsTable)
@@ -872,11 +896,58 @@ export async function requestPhoneReveal(
 
   // Apollo's documented status for accepted-async is not consistent —
   // we accept 200, 202, and 204. Anything else is mapped to ApolloApiError.
-  await apolloFetch<unknown>(
-    "/people/match",
-    { method: "POST", body },
-    [200, 202, 204],
-  );
+  try {
+    await apolloFetch<unknown>(
+      "/people/match",
+      { method: "POST", body },
+      [200, 202, 204],
+    );
+  } catch (err) {
+    // APO7: the pending row + counter increment were committed BEFORE this call
+    // (so a matching webhook always finds a correlationId). If Apollo rejects
+    // the request with a definitive client error, no reveal happened and no
+    // credit was spent — so compensate: undo the increment and restore the
+    // prior status, letting the SDR retry and keeping the monthly cap honest.
+    // A 5xx / network / rate-limit error is left as-is (uncertain acceptance);
+    // the 72h reveal sweep reconciles a genuinely stuck pending.
+    const definitiveClientError =
+      (err instanceof ApolloApiError && err.status >= 400 && err.status < 500) ||
+      err instanceof ApolloAuthError;
+    if (definitiveClientError) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(prospectsTable)
+            .set({
+              phoneRevealStatus: priorStatus,
+              phoneRevealRequestedAt: null,
+              phoneRevealCorrelationId: null,
+            })
+            .where(
+              and(
+                eq(prospectsTable.id, prospectId),
+                eq(prospectsTable.phoneRevealStatus, "pending"),
+              ),
+            );
+          await tx
+            .update(dailyUsageTable)
+            .set({
+              apolloRevealsUsed: sql`GREATEST(${dailyUsageTable.apolloRevealsUsed} - 1, 0)`,
+            })
+            .where(
+              and(
+                eq(dailyUsageTable.userId, userId),
+                eq(dailyUsageTable.date, today),
+              ),
+            );
+        });
+      } catch {
+        // Rollback is best-effort; the 72h sweep still reconciles a stuck
+        // pending, and over-counting the cap by one is a safe bias.
+      }
+    }
+    throw err;
+  }
 
   return { status: "pending", correlationId };
 }
@@ -1038,7 +1109,11 @@ export async function processPhoneRevealCallback(
     // No-match / not-found terminal: Apollo couldn't supply a phone for
     // this person. Mark terminal so the SDR doesn't keep waiting.
     const status = extractStatus(payload);
-    const phone = extractPhone(payload);
+    const rawPhone = extractPhone(payload);
+    // APO3: normalize up front. An unparseable value (rawPhone present but
+    // normalizeToE164 → null) is NOT a geo block — it folds into no_match below
+    // via `!phone`, instead of being dropped under a misleading 'blocked'.
+    const phone = rawPhone ? normalizeToE164(rawPhone) : null;
 
     if (
       !phone ||
@@ -1051,6 +1126,11 @@ export async function processPhoneRevealCallback(
         .set({
           phoneRevealStatus: "no_match",
           phoneRevealCompletedAt: new Date(),
+          // APO4 anti-replay: burn the correlation token on any HARD terminal so
+          // a replayed webhook delivery (HMAC or bearer) finds no match and
+          // no-ops. Safe because the token is read ONLY by this matcher, and the
+          // sweep leaves it intact on the SOFT 'expired' state for late arrivals.
+          phoneRevealCorrelationId: null,
         })
         .where(eq(prospectsTable.id, prospect.id));
 
@@ -1065,7 +1145,9 @@ export async function processPhoneRevealCallback(
         actionType: ACTION_TYPES.apolloPhoneRevealBlocked,
         actionStatus: "skipped",
         metadata: {
-          reason: "no_match",
+          // Distinguish "Apollo had no number" from "Apollo returned an
+          // unusable/garbled number" (APO3) — neither is a geo block.
+          reason: rawPhone && !phone ? "unparseable_phone" : "no_match",
           apolloStatus: status ?? null,
         },
       });
@@ -1077,14 +1159,22 @@ export async function processPhoneRevealCallback(
     // than a request-time check is that we don't have the phone until
     // Apollo delivers it. On block, the phone is dropped on the floor
     // — never persisted, not even briefly.
+    //
+    // APO3: this now gates on GEOGRAPHY (isAllowedCountry), NOT phone format.
+    // `phone` is already normalized E.164 by this point; the previous
+    // `!isAllowedPhone(phone)` check blocked legitimately-revealed numbers whose
+    // only sin was formatting, discarding a paid reveal under a 'blocked' status.
+    // isAllowedCountry currently always returns true (gate disabled) — this
+    // branch is the hook for real geography-based blocking if it's ever enabled.
     const country = detectCountry(phone);
-    if (!isAllowedPhone(phone)) {
+    if (country && !isAllowedCountry(country)) {
       await tx
         .update(prospectsTable)
         .set({
           phoneRevealStatus: "blocked",
           phoneRevealCompletedAt: new Date(),
           phoneNumber: null,
+          phoneRevealCorrelationId: null, // APO4 anti-replay (see no_match above)
         })
         .where(eq(prospectsTable.id, prospect.id));
 
@@ -1117,7 +1207,39 @@ export async function processPhoneRevealCallback(
     // what makes them contactable via wa.me. phoneNumber is the audit/
     // diagnostic field (always set to the raw webhook value); phone is
     // the contactable field that generateLink + whatsappLink read from.
-    const promotedPhone = prospect.phone ?? phone;
+    // P1: promoting the revealed number into prospects.phone can collide with
+    // the (user_id, phone) unique index. Apollo's pickPhone frequently falls
+    // back to a shared company/HQ number, so bulk-revealing several people at
+    // one org hands prospects 2..N the same number. A bare promote then throws
+    // 23505, rolls back the WHOLE tx (losing the arrived transition AND the
+    // correlationId burn), 500s the webhook, and Apollo retries into the same
+    // wall until the 72h sweep — 8 paid credits lost per occurrence. Guard:
+    // only promote into the contactable `phone` column when this prospect has
+    // none yet AND no other prospect of the same user already holds that
+    // number; otherwise still record arrived + phoneNumber (audit) and burn the
+    // token, but leave `phone` null (the person is reachable via the sibling
+    // prospect that owns the number). (Residual: a same-instant race between two
+    // webhooks for the same number still 23505s one, which self-heals on the
+    // Apollo retry now that this guard sees the committed sibling.)
+    let promotedPhone = prospect.phone;
+    let phonePromoteSkipped = false;
+    if (prospect.phone === null) {
+      const clash = await tx
+        .select({ id: prospectsTable.id })
+        .from(prospectsTable)
+        .where(
+          and(
+            eq(prospectsTable.userId, prospect.userId),
+            eq(prospectsTable.phone, phone),
+          ),
+        )
+        .limit(1);
+      if (clash.length === 0) {
+        promotedPhone = phone;
+      } else {
+        phonePromoteSkipped = true;
+      }
+    }
     await tx
       .update(prospectsTable)
       .set({
@@ -1125,6 +1247,10 @@ export async function processPhoneRevealCallback(
         phoneRevealCompletedAt: new Date(),
         phoneNumber: phone,
         phone: promotedPhone,
+        // APO4 anti-replay: burn the correlation token now that we've reached a
+        // hard terminal — including the legit expired→arrived late promotion, so
+        // that delivery can't be replayed to re-promote.
+        phoneRevealCorrelationId: null,
       })
       .where(eq(prospectsTable.id, prospect.id));
 
@@ -1135,6 +1261,10 @@ export async function processPhoneRevealCallback(
       actionStatus: "success",
       metadata: {
         country,
+        // P1: surface when the reveal succeeded but the contactable-phone
+        // promote was skipped because the number is already on another of the
+        // user's prospects (duplicate), so `phone` stays null despite arrived.
+        ...(phonePromoteSkipped ? { phonePromoteSkipped: true } : {}),
         // Again: no phone in metadata. The phone is in prospects.phone_number;
         // logging it here would create a second copy in a less-privileged
         // table.

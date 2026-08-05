@@ -2,14 +2,13 @@
  * /api/followups routes — Ticket 2.5-BE.
  *
  * Follow-up management for the per-channel follow-up pages
- * (/followup/whatsapp, /followup/telegram, /followup/teams,
- * /followup/slack). Channel-parameterized so a single router serves
- * all chat-tool follow-up flows; only WhatsApp's send mechanism is
- * implemented today (it uses the existing routes/whatsappLink.ts
- * generateLink + recordSendIntent service). Telegram/Teams/Slack
- * tickets will plug into the same routes by adding their per-channel
- * sender implementation; the list/edit/bulk-archive endpoints are
- * already channel-agnostic.
+ * (/followup/whatsapp, /followup/telegram, /followup/linkedin).
+ * Channel-parameterized so a single router serves all three chat-tool
+ * follow-up flows; WhatsApp, Telegram and LinkedIn send mechanisms are all
+ * implemented (WhatsApp/Telegram use deep-link generateLink; LinkedIn is
+ * clipboard-only — the profile URL opens and the FE copies the message). The
+ * list/edit/bulk-archive endpoints are channel-agnostic. (Teams/Slack were
+ * removed — never built past a 501 stub.)
  *
  * Routes:
  *   GET    /api/followups                    — list with filters (channel-parameterized)
@@ -50,8 +49,16 @@ import { requireAuth } from "../middlewares/auth";
 import {
   generateLink,
   GeoGateBlockedError,
+  InvalidPhoneError,
 } from "../services/channels/whatsapp";
 import { generateLink as generateTelegramLink } from "../services/channels/telegram";
+import { generateLink as generateLinkedinLink } from "../services/channels/linkedin";
+import { generateAndPersistFollowupMessage } from "../services/followupMessageService";
+import {
+  getFollowupProgress,
+  setFollowupProgress,
+} from "../services/prepareProgress";
+import { DailyLlmCapExceededError } from "../lib/llmSpendCap";
 
 const router: IRouter = Router();
 
@@ -59,12 +66,23 @@ const router: IRouter = Router();
 // Constants
 // ─────────────────────────────────────────────────────────────────
 
-const SUPPORTED_CHANNELS = ["whatsapp", "telegram", "teams", "slack"] as const;
+// A1: the only generation errors safe to echo to the client as a 409. Anything
+// generateAndPersistFollowupMessage throws outside this set is an internal
+// fault → 500 (never echo a raw exception message as an error code).
+const CURATED_GENERATION_CODES: ReadonlySet<string> = new Set([
+  "followup_not_found",
+  "invalid_channel",
+  "research_not_complete",
+  "missing_conversation_context",
+]);
+
+const SUPPORTED_CHANNELS = ["whatsapp", "telegram", "linkedin"] as const;
 type SupportedChannel = (typeof SUPPORTED_CHANNELS)[number];
 
 const SEND_IMPLEMENTED_CHANNELS: ReadonlySet<SupportedChannel> = new Set([
   "whatsapp",
   "telegram",
+  "linkedin",
 ]);
 
 const LIST_STATUSES = [
@@ -77,11 +95,16 @@ const LIST_STATUSES = [
 ] as const;
 type ListStatus = (typeof LIST_STATUSES)[number];
 
+// P3-3 (A7): "sent" removed. F1 made 'sent' a live terminal state stamped by
+// recordSendIntent alongside sentAt. A PATCH to status:"sent" would set
+// status='sent' with sentAt still NULL — a dark row that no due query serves
+// (they require status='scheduled'), yet the list shows it not_yet_sent
+// (keyed on sentAt) and send-next 409s. The transition to sent belongs to
+// recordSendIntent only; clients may edit scheduled/queued/cancelled.
 const FOLLOWUP_EDITABLE_STATUSES = [
   "scheduled",
   "queued",
   "cancelled",
-  "sent",
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────
@@ -294,8 +317,7 @@ router.get(
           language: prospectsTable.language,
           phone: prospectsTable.phone,
           telegramHandle: prospectsTable.telegramHandle,
-          teamsEmail: prospectsTable.teamsEmail,
-          slackUserId: prospectsTable.slackUserId,
+          linkedinUrl: prospectsTable.linkedinUrl,
           firstMessageBody: prospectsTable.firstMessageBody,
           firstMessageChannel: prospectsTable.firstMessageChannel,
           firstMessageSentAt: prospectsTable.firstMessageSentAt,
@@ -429,7 +451,7 @@ router.post(
       res.status(501).json({
         error: "channel_send_not_implemented",
         channel: body.channel,
-        note: `Send is currently only implemented for: ${[...SEND_IMPLEMENTED_CHANNELS].join(", ")}. Telegram/Teams/Slack send mechanics ship with their respective channel tickets.`,
+        note: `Send is currently only implemented for: ${[...SEND_IMPLEMENTED_CHANNELS].join(", ")}.`,
       });
       return;
     }
@@ -451,6 +473,14 @@ router.post(
       return;
     }
 
+    // Admin kill switch (2026-07-15). Distinct code from prospect_paused: the
+    // rep did not do this and cannot undo it, so the UI must be able to say
+    // "an admin paused your account", not "this prospect is paused". Read from
+    // req.user (loadUser selects it) — no extra query.
+    if (user.followupsPaused) {
+      res.status(409).json({ error: "followups_paused" });
+      return;
+    }
     if (prospect.followupPaused) {
       res.status(409).json({ error: "prospect_paused" });
       return;
@@ -471,6 +501,13 @@ router.post(
       } else {
         res.status(409).json({ error: "no_phone" });
       }
+      return;
+    }
+    if (body.channel === "linkedin" && !prospect.linkedinUrl) {
+      // F-A: LinkedIn needs a stored profile URL — nothing to open otherwise.
+      // Pre-checked here so we don't spend an LLM call generating a message for
+      // a prospect that can't be reached.
+      res.status(409).json({ error: "no_linkedin_identifier" });
       return;
     }
     if (body.channel === "telegram" && !prospect.telegramHandle && !prospect.phone) {
@@ -501,24 +538,71 @@ router.post(
       return;
     }
 
-    if (!next.generatedMessage || next.generatedMessage.trim().length === 0) {
-      // Auto-generation of the followup message body is part of a
-      // separate worker pipeline (followupGenerator) outside this
-      // ticket's scope. If the message hasn't been generated yet, the
-      // SDR can edit it inline or wait for the worker. Return a clear
-      // error so the FE can surface "message not ready" rather than
-      // attempt to open WhatsApp with an empty body.
-      res.status(409).json({
-        error: "message_not_generated",
-        followupId: next.id,
-        stage: next.stage,
-      });
-      return;
+    let messageBody = next.generatedMessage?.trim() ?? "";
+    if (!messageBody) {
+      const senderName =
+        user.name?.trim()?.split(/\s+/)[0] ??
+        user.email.split("@")[0] ??
+        "there";
+      try {
+        // Progress (Phase I): mark queued as soon as the target row is known;
+        // the service reports writing → finalizing → ready. The FE polls
+        // GET /api/followups/:id/progress while this request is in flight.
+        setFollowupProgress(user.id, next.id, "queued");
+        const generated = await generateAndPersistFollowupMessage({
+          followupId: next.id,
+          userId: user.id,
+          senderName,
+        });
+        messageBody = generated.message;
+      } catch (genErr) {
+        // A1: the cap error must reach the terminal handler as 429 (with
+        // spentUsd/capUsd), NOT be flattened into a 409 here. Only the curated
+        // codes generateAndPersistFollowupMessage throws are safe to echo as a
+        // 409; any other error is an internal fault → 500 with a generic code
+        // (never echo a raw exception message as if it were an error code).
+        // Progress (Phase I): terminal error state so the FE bar stops with a
+        // reason instead of polling a run that will never finish.
+        const msg = genErr instanceof Error ? genErr.message : "";
+        setFollowupProgress(
+          user.id,
+          next.id,
+          "error",
+          (genErr instanceof DailyLlmCapExceededError
+            ? "llm_daily_cap_exceeded"
+            : CURATED_GENERATION_CODES.has(msg)
+              ? msg
+              : "generation_failed"
+          ).slice(0, 120),
+        );
+        if (genErr instanceof DailyLlmCapExceededError) throw genErr;
+        if (CURATED_GENERATION_CODES.has(msg)) {
+          res.status(409).json({
+            error: msg,
+            followupId: next.id,
+            stage: next.stage,
+          });
+          return;
+        }
+        console.error(
+          `[followups] followup ${next.id} generation failed`,
+          genErr,
+        );
+        res.status(500).json({ error: "generation_failed" });
+        return;
+      }
     }
 
     if (body.channel === "whatsapp") {
+      // phone is nullable (pending Apollo reveal). Guard before generateLink,
+      // which would otherwise throw a TypeError on a null phone instead of a
+      // clean 409 (mirrors routes/whatsappLink.ts).
+      if (!prospect.phone) {
+        res.status(409).json({ error: "phone_reveal_pending" });
+        return;
+      }
       try {
-        const url = generateLink(prospect.phone!, next.generatedMessage);
+        const url = generateLink(prospect.phone, messageBody);
         // We do NOT mark sentAt here. The actual send completes when the
         // user clicks the link and either /prospects/:id/send-intent is
         // called or a future worker observes the clickedAt write. This
@@ -528,9 +612,13 @@ router.post(
           followupId: next.id,
           stage: next.stage,
           deepLinkUrl: url,
-          generatedMessage: next.generatedMessage,
+          generatedMessage: messageBody,
         });
       } catch (err) {
+        if (err instanceof InvalidPhoneError) {
+          res.status(422).json({ error: "invalid_phone" });
+          return;
+        }
         if (err instanceof GeoGateBlockedError) {
           res.status(422).json({ error: "geo_blocked", country: err.country });
           return;
@@ -548,20 +636,66 @@ router.post(
         res.status(409).json({ error: "no_telegram_identifier" });
         return;
       }
-      const url = generateTelegramLink(
-        telegramIdentifier,
-        next.generatedMessage,
-      );
+      const url = generateTelegramLink(telegramIdentifier, messageBody);
       res.status(200).json({
         followupId: next.id,
         stage: next.stage,
         deepLinkUrl: url,
-        generatedMessage: next.generatedMessage,
+        generatedMessage: messageBody,
+      });
+    } else if (body.channel === "linkedin") {
+      // F-A: LinkedIn is clipboard-only — the deepLinkUrl opens the profile
+      // (no message prefill possible), and the FE copies generatedMessage to
+      // the clipboard for the SDR to paste.
+      if (!prospect.linkedinUrl) {
+        res.status(409).json({ error: "no_linkedin_identifier" });
+        return;
+      }
+      const url = generateLinkedinLink(prospect.linkedinUrl, messageBody);
+      res.status(200).json({
+        followupId: next.id,
+        stage: next.stage,
+        deepLinkUrl: url,
+        generatedMessage: messageBody,
       });
     } else {
       // Defensive — should be impossible given the SEND_IMPLEMENTED guard above.
       res.status(501).json({ error: "channel_send_not_implemented" });
     }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/followups/:id/progress — Phase I staged progress polling
+// ─────────────────────────────────────────────────────────────────
+//
+// Mirrors GET /api/prospects/:id/prepare-progress: the store key embeds the
+// authenticated userId, so a foreign or unknown followup id computes a key
+// that cannot exist for this tenant → {stage:"idle"} at 200. No DB read, no
+// existence oracle, no cross-tenant leak.
+
+router.get(
+  "/followups/:id/progress",
+  requireAuth,
+  (req: Request, res: Response): void => {
+    const user = req.user!;
+    const followupId = Number(req.params.id);
+    if (!Number.isInteger(followupId) || followupId <= 0) {
+      res.status(200).json({ stage: "idle", pct: 0 });
+      return;
+    }
+    const entry = getFollowupProgress(user.id, followupId);
+    if (!entry) {
+      res.status(200).json({ stage: "idle", pct: 0 });
+      return;
+    }
+    res.status(200).json({
+      stage: entry.stage,
+      pct: entry.pct,
+      startedAt: entry.startedAt,
+      updatedAt: entry.updatedAt,
+      ...(entry.error ? { error: entry.error } : {}),
+    });
   },
 );
 
@@ -746,6 +880,117 @@ router.post(
     }
 
     res.status(200).json({ archived: targetIds.length, ids: targetIds });
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/followups/:id/snooze
+// ─────────────────────────────────────────────────────────────────
+
+const SNOOZE_PRESETS = ["1d", "3d", "next_monday"] as const;
+type SnoozePreset = (typeof SNOOZE_PRESETS)[number];
+
+const snoozeBodySchema = z.object({
+  preset: z.enum(SNOOZE_PRESETS),
+});
+
+function computeSnoozedAt(preset: SnoozePreset, from: Date): Date {
+  const d = new Date(from);
+  if (preset === "1d") {
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+  if (preset === "3d") {
+    d.setDate(d.getDate() + 3);
+    return d;
+  }
+  // next_monday — upcoming Monday (if today is Monday, next week)
+  const day = d.getDay();
+  let daysUntil = (8 - day) % 7;
+  if (daysUntil === 0) daysUntil = 7;
+  d.setDate(d.getDate() + daysUntil);
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
+router.post(
+  "/followups/:id/snooze",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const followupIdRaw = String(req.params.id);
+    const followupId = Number.parseInt(followupIdRaw, 10);
+    if (!Number.isFinite(followupId) || followupId <= 0) {
+      res.status(400).json({ error: "invalid_followup_id" });
+      return;
+    }
+
+    let body: z.infer<typeof snoozeBodySchema>;
+    try {
+      body = snoozeBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        res.status(400).json({ error: "invalid_body", issues: err.issues });
+        return;
+      }
+      throw err;
+    }
+
+    const found = await db
+      .select({
+        followup: followupsTable,
+        prospectUserId: prospectsTable.userId,
+      })
+      .from(followupsTable)
+      .innerJoin(
+        prospectsTable,
+        eq(followupsTable.prospectId, prospectsTable.id),
+      )
+      .where(eq(followupsTable.id, followupId))
+      .limit(1);
+
+    const row = found[0];
+    if (!row || row.prospectUserId !== user.id) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (row.followup.sentAt) {
+      res.status(409).json({ error: "already_sent" });
+      return;
+    }
+
+    // F5: snooze forward from now (or the future scheduled time, whichever is
+    // later) — never from a stale past scheduledAt. Snoozing an overdue
+    // followup by "1d" off its 5-day-old scheduledAt lands 4 days in the past,
+    // so it stays due in the very next digest tick and keeps triggering the
+    // daily priority-1 escalation — i.e. snooze appears broken.
+    const previousAt = row.followup.scheduledAt;
+    const snoozeFrom =
+      previousAt.getTime() > Date.now() ? previousAt : new Date();
+    const newScheduledAt = computeSnoozedAt(body.preset, snoozeFrom);
+
+    const updated = await db
+      .update(followupsTable)
+      .set({ scheduledAt: newScheduledAt })
+      .where(eq(followupsTable.id, followupId))
+      .returning();
+
+    await db.insert(actionLogsTable).values({
+      userId: user.id,
+      prospectId: row.followup.prospectId,
+      followupId,
+      actionType: ACTION_TYPES.followupSnoozed,
+      actionStatus: "success",
+      metadata: {
+        preset: body.preset,
+        previousScheduledAt: previousAt.toISOString(),
+        newScheduledAt: newScheduledAt.toISOString(),
+        stage: row.followup.stage,
+      },
+    });
+
+    res.status(200).json({ followup: updated[0] });
   },
 );
 

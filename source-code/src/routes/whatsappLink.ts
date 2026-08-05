@@ -4,9 +4,19 @@ import { db, prospectsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import {
   generateLink,
-  recordSendIntent,
+  recordSendIntent as recordWhatsappSendIntent,
   GeoGateBlockedError,
+  InvalidPhoneError,
 } from "../services/channels/whatsapp";
+import {
+  generateLink as generateTelegramLink,
+  recordSendIntent as recordTelegramSendIntent,
+} from "../services/channels/telegram";
+import {
+  generateLink as generateLinkedinLink,
+  recordSendIntent as recordLinkedinSendIntent,
+} from "../services/channels/linkedin";
+import { isChannelCode, type ChannelCode } from "../lib/channelRegister";
 
 const router: IRouter = Router();
 
@@ -43,11 +53,6 @@ router.get(
     }
 
     if (!prospect.phone) {
-      // Ticket 2.3-BE-B: pending-reveal prospects (bulk WhatsApp flow)
-      // have no phone until Apollo's webhook lands and promotes
-      // phoneNumber → phone via the correlationId lookup. Surface a
-      // distinct error code so the FE can render "still waiting on
-      // Apollo" rather than the generic no_message_generated path.
       res.status(409).json({ error: "phone_reveal_pending" });
       return;
     }
@@ -56,6 +61,10 @@ router.get(
       const url = generateLink(prospect.phone, prospect.firstMessageBody);
       res.status(200).json({ url, body: prospect.firstMessageBody });
     } catch (err) {
+      if (err instanceof InvalidPhoneError) {
+        res.status(422).json({ error: "invalid_phone" });
+        return;
+      }
       if (err instanceof GeoGateBlockedError) {
         res.status(422).json({ error: "geo_blocked", country: err.country });
         return;
@@ -67,16 +76,138 @@ router.get(
 
 interface SendIntentBody {
   followupId: number | null;
+  channel?: string;
 }
 
 function isSendIntentBody(value: unknown): value is SendIntentBody {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    "followupId" in v &&
-    (v.followupId === null || typeof v.followupId === "number")
-  );
+  if (!("followupId" in v)) return false;
+  if (v.followupId !== null && typeof v.followupId !== "number") return false;
+  if (
+    "channel" in v &&
+    v.channel !== undefined &&
+    typeof v.channel !== "string"
+  ) {
+    return false;
+  }
+  return true;
 }
+
+async function resolveSendChannel(
+  prospectId: string,
+  userId: string,
+  requested?: string,
+): Promise<ChannelCode> {
+  if (requested && isChannelCode(requested)) return requested;
+  const rows = await db
+    .select({ firstMessageChannel: prospectsTable.firstMessageChannel })
+    .from(prospectsTable)
+    .where(
+      and(
+        eq(prospectsTable.id, prospectId),
+        eq(prospectsTable.userId, userId),
+      ),
+    )
+    .limit(1);
+  const stored = rows[0]?.firstMessageChannel;
+  if (stored && isChannelCode(stored)) return stored;
+  return "whatsapp";
+}
+
+router.get(
+  "/prospects/:id/telegram-link",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+
+    const rows = await db
+      .select({
+        phone: prospectsTable.phone,
+        telegramHandle: prospectsTable.telegramHandle,
+        firstMessageBody: prospectsTable.firstMessageBody,
+      })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, user.id),
+        ),
+      )
+      .limit(1);
+
+    const prospect = rows[0];
+    if (!prospect) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (!prospect.firstMessageBody || prospect.firstMessageBody.length === 0) {
+      res.status(409).json({ error: "no_message_generated" });
+      return;
+    }
+
+    const identifier = prospect.telegramHandle ?? prospect.phone;
+    if (!identifier) {
+      res.status(409).json({ error: "no_telegram_identifier" });
+      return;
+    }
+
+    const url = generateTelegramLink(identifier, prospect.firstMessageBody);
+    res.status(200).json({ url, body: prospect.firstMessageBody });
+  },
+);
+
+router.get(
+  "/prospects/:id/linkedin-link",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.user!;
+    const prospectId = String(req.params.id);
+
+    const rows = await db
+      .select({
+        linkedinUrl: prospectsTable.linkedinUrl,
+        firstMessageBody: prospectsTable.firstMessageBody,
+      })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, user.id),
+        ),
+      )
+      .limit(1);
+
+    const prospect = rows[0];
+    if (!prospect) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (!prospect.firstMessageBody || prospect.firstMessageBody.length === 0) {
+      res.status(409).json({ error: "no_message_generated" });
+      return;
+    }
+
+    // Mirrors telegram-link's no-identifier guard. LinkedIn is clipboard-only:
+    // the "url" is the profile URL (no message prefill) and the FE copies the
+    // body to the clipboard, same as the telegram fallback + the Contacts page.
+    if (!prospect.linkedinUrl) {
+      res.status(409).json({ error: "no_linkedin_identifier" });
+      return;
+    }
+
+    // generateLinkedinLink canonicalizes + enforces the linkedin.com host, so
+    // a poisoned linkedin_url can't become an off-site link here.
+    const url = generateLinkedinLink(
+      prospect.linkedinUrl,
+      prospect.firstMessageBody,
+    );
+    res.status(200).json({ url, body: prospect.firstMessageBody });
+  },
+);
 
 router.post(
   "/prospects/:id/send-intent",
@@ -90,13 +221,51 @@ router.post(
       return;
     }
 
+    // A2: verify the prospect exists AND belongs to the caller BEFORE recording
+    // anything. The followupId branch is owner-scoped (API1), but the
+    // subsequent action_logs insert uses this URL prospectId — without this
+    // guard a caller could stamp an audit row referencing another tenant's
+    // prospect (cross-tenant timeline pollution), and a nonexistent UUID hits
+    // the action_logs FK and 500s the whole transaction instead of a clean 404.
+    const ownRows = await db
+      .select({ id: prospectsTable.id })
+      .from(prospectsTable)
+      .where(
+        and(
+          eq(prospectsTable.id, prospectId),
+          eq(prospectsTable.userId, user.id),
+        ),
+      )
+      .limit(1);
+    if (ownRows.length === 0) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    const channel = await resolveSendChannel(
+      prospectId,
+      user.id,
+      req.body.channel,
+    );
+
     try {
-      await recordSendIntent({
+      const input = {
         prospectId,
         userId: user.id,
         followupId: req.body.followupId,
-      });
-      res.status(200).json({ ok: true });
+      };
+      if (channel === "telegram") {
+        await recordTelegramSendIntent(input);
+      } else if (channel === "whatsapp") {
+        await recordWhatsappSendIntent(input);
+      } else if (channel === "linkedin") {
+        await recordLinkedinSendIntent(input);
+      } else {
+        // Defensive: ChannelCode is exhaustively handled above.
+        res.status(501).json({ error: "channel_not_implemented", channel });
+        return;
+      }
+      res.status(200).json({ ok: true, channel });
     } catch (err) {
       if (err instanceof GeoGateBlockedError) {
         res.status(422).json({ error: "geo_blocked", country: err.country });

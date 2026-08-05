@@ -1,0 +1,17 @@
+{
+  "name": "Chat Followuper",
+  "short_name": "Followuper",
+  "description": "Sales follow-up queue for WhatsApp and Telegram",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#00F5D4",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

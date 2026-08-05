@@ -35,8 +35,13 @@ export const followupsTable = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("followups_prospect_stage_unique").on(
+    // FUP5: unique per (prospect, channel, stage) — NOT (prospect, stage). The
+    // scheduler keys its existence check on (prospect, channel), so a
+    // (prospect, stage)-only unique index silently blocked a second channel's
+    // sequence via onConflictDoNothing while the count still incremented.
+    uniqueIndex("followups_prospect_channel_stage_unique").on(
       table.prospectId,
+      table.channel,
       table.stage,
     ),
   ],

@@ -10,6 +10,13 @@ import campaignsRouter from "./campaigns";
 import generateMessageRouter from "./generateMessage";
 import followupsRouter from "./followups";
 import sequenceConfigRouter from "./sequenceConfig";
+import adminRouter from "./admin";
+import followupOpenRouter from "./followupOpen";
+import prepareFirstMessageRouter from "./prepareFirstMessage";
+import testChannelLinkRouter from "./testChannelLink";
+import notificationSettingsRouter from "./notificationSettings";
+import userExtrasRouter from "./userExtras";
+import followupFallbackRouter from "./followupFallback";
 
 const router: IRouter = Router();
 
@@ -24,6 +31,13 @@ router.use(campaignsRouter);
 router.use(generateMessageRouter);
 router.use(followupsRouter);
 router.use(sequenceConfigRouter);
+router.use(adminRouter);
+router.use(followupOpenRouter);
+router.use(prepareFirstMessageRouter);
+router.use(testChannelLinkRouter);
+router.use(notificationSettingsRouter);
+router.use(userExtrasRouter);
+router.use(followupFallbackRouter);
 
 // NOTE: the apollo webhook router is NOT mounted here. It is mounted
 // directly in app.ts BEFORE express.json() so that express.raw can

@@ -333,7 +333,11 @@ export default function ProspectWhatsAppPage() {
           : c.person.firstName ?? c.person.name ?? null;
 
       const created = await createProspect({
-        ...(isYes && phoneFromReveal ? { phone: phoneFromReveal } : {}),
+        // E2: seed phone whenever we have one (fresh reveal OR existingPhone),
+        // independent of isYes. A maybe-tagged candidate with existingPhone was
+        // dropping its phone (created with phone:null, reveal skipped) yet showed
+        // "Ready" → "Open WhatsApp" then 409'd phone_reveal_pending.
+        ...(phoneFromReveal ? { phone: phoneFromReveal } : {}),
         sourceMode: "apollo",
         prospectName: prospectName || undefined,
         company: c.org.name ?? c.person.organizationName ?? undefined,

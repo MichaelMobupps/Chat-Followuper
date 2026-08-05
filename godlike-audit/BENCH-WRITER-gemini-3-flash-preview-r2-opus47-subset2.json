@@ -1,0 +1,28 @@
+[
+  {
+    "id": "en-US-research",
+    "ok": false,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 3,
+    "usd": 0.0174712,
+    "researchUsd": 0.310155,
+    "ms": 137496,
+    "flags": [
+      "LOW SCORE 3"
+    ],
+    "message": "Hi Dana,\n\nInstacart's move into enterprise AI and the appointment of Chris Rogers as CEO signal a massive expansion in your ads and commerce footprint. US marketplace peers like Amazon Fresh and Walmart Grocery are scaling web CPS by focusing on verified purchase events to outpace the competition. Category-curated publisher pools can realistically drive about 2,000 incremental confirmed purchases per day on instacart.com within 90 days. This volume is sourced strictly through a US allowlist of content and cashback partners with a 30-day cancellation window to ensure grocery baskets aren't refunded. Our model suppresses coupon publishers that show high last-click attribution but zero incremental lift on holdout cohorts. Would you be open to a quick chat about how this confirmed-sale layer fits your 2025 growth story?"
+  },
+  {
+    "id": "tr-TR-research",
+    "ok": true,
+    "draftModel": "gemini-3-flash-preview",
+    "iterations": 1,
+    "score": 5,
+    "usd": 0.016769700000000002,
+    "researchUsd": 0.069785,
+    "ms": 159419,
+    "flags": [],
+    "message": "Merhaba Emre Bey,\n\nTürkiye e-ticaret pazarında Hepsiburada, Amazon.com.tr ve N11 gibi oyuncuların affiliate kanallarını seçilmiş yayıncı ağlarıyla ölçeklendirmesi, özellikle moda kategorisindeki iade maliyetlerini yönetmeyi kritik hale getirdi. Trendyol için kategori bazlı seçilmiş kupon ve içerik yayıncıları üzerinden günde yaklaşık 2.500 onaylı satış hacmi sağlanabilir. Bu modelde faturalandırma yalnızca 30 günlük iade penceresini başarıyla geçen ve kesinleşen siparişler üzerinden yapılır. Brüt dönüşümler yerine doğrudan net marjı koruyan ve iptal oranına göre optimize edilen bir yayıncı skorlaması uygulanıyor. Bu yaklaşım, son tık kredisini alan ancak gerçek büyüme sağlamayan kanalların elenmesine de olanak tanıyor. Mevcut performans kanallarınıza bu tür bir iade korumalı katman eklemek ilginizi çeker mi?"
+  }
+]

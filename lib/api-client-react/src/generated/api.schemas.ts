@@ -13,8 +13,98 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
+  /** Admin kill switch (2026-07-15). True when an admin has paused this user's follow-ups. Read-only here — only an admin can change it. Surfaced on /auth/me because the pause is enforced server-side on every send path, so without it the UI would let a rep press Send and then show an unexplained 409. The rep did not do this and cannot undo it, so the UI must be able to say who did. Does NOT affect first messages (stage 0) or the weekly stats digest — see users.followups_paused in the DB schema for the exact scope. */
+  followupsPaused: boolean;
 }
 
 export interface AuthError {
   error: string;
 }
+
+export interface ApiError {
+  error: string;
+  detail?: string;
+}
+
+export type PrepareFirstMessageRequestChannel =
+  (typeof PrepareFirstMessageRequestChannel)[keyof typeof PrepareFirstMessageRequestChannel];
+
+export const PrepareFirstMessageRequestChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  linkedin: "linkedin",
+} as const;
+
+export interface PrepareFirstMessageRequest {
+  channel?: PrepareFirstMessageRequestChannel;
+  /** Regenerate. By default a prospect that already has a firstMessageBody short-circuits and the stored message is returned (status already_ready, no LLM spend). Set true to re-run the writer and overwrite it — real spend, rate-limited to 10/min per user, and rejected with 409 already_sent once the first message has gone out. */
+  force?: boolean;
+}
+
+export type PrepareFirstMessageResponseStatus =
+  (typeof PrepareFirstMessageResponseStatus)[keyof typeof PrepareFirstMessageResponseStatus];
+
+export const PrepareFirstMessageResponseStatus = {
+  ready: "ready",
+  research_complete: "research_complete",
+  already_ready: "already_ready",
+} as const;
+
+export interface PrepareFirstMessageResponse {
+  status: PrepareFirstMessageResponseStatus;
+  prospectId: string;
+  message: string | null;
+  deepLinkUrl: string | null;
+  researchCostUsd?: number;
+  generationCostUsd?: number;
+}
+
+export interface ChannelLinkResponse {
+  url: string;
+  body: string;
+}
+
+export type TestChannelLinkRequestChannel =
+  (typeof TestChannelLinkRequestChannel)[keyof typeof TestChannelLinkRequestChannel];
+
+export const TestChannelLinkRequestChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  linkedin: "linkedin",
+} as const;
+
+export interface TestChannelLinkRequest {
+  channel: TestChannelLinkRequestChannel;
+  identifier: string;
+  message?: string;
+}
+
+export type TestChannelLinkResponseChannel =
+  (typeof TestChannelLinkResponseChannel)[keyof typeof TestChannelLinkResponseChannel];
+
+export const TestChannelLinkResponseChannel = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  linkedin: "linkedin",
+} as const;
+
+export interface TestChannelLinkResponse {
+  channel: TestChannelLinkResponseChannel;
+  deepLinkUrl: string;
+  message: string;
+  target: string;
+}
+
+export interface NotificationSettings {
+  pushoverUserKeyMasked: string | null;
+  pushoverEnabled: boolean;
+  pushoverAppConfigured: boolean;
+}
+
+export interface NotificationSettingsPatch {
+  pushoverUserKey?: string | null;
+}
+
+export type PostTestPushover200 = {
+  ok: boolean;
+};
